@@ -5,6 +5,17 @@
 Agent coding di terminal. Bawaannya berjalan sepenuhnya lokal di atas [Ollama](https://ollama.com);
 lewat `/model` bisa juga memakai server lokal lain atau model cloud. Node murni, tanpa build step.
 
+![Satu sesi: permintaan, tiap langkah tool beserta persetujuannya, dan jawabannya](docs/tui-session.png)
+
+<details>
+<summary>Pemilih <code>/model</code></summary>
+
+![Pemilih `/model`](docs/tui-model.png)
+
+</details>
+
+<sub>Diambil dari antarmuka aslinya di proyek contoh; jawaban model pada tangkapan ini memakai naskah.</sub>
+
 ```
 seeker                       # sesi interaktif di folder ini
 seeker "perbaiki bug login"  # langsung dengan pesan pertama

@@ -6,6 +6,17 @@ A coding agent for the terminal. Out of the box it runs entirely on your machine
 [Ollama](https://ollama.com); `/model` switches it to another local server or to a cloud model.
 Plain Node, no build step.
 
+![A session: the request, each tool step with its approval, and the answer](docs/tui-session.png)
+
+<details>
+<summary>The <code>/model</code> picker</summary>
+
+![The `/model` picker](docs/tui-model.png)
+
+</details>
+
+<sub>Captured from the real interface in a demo project; the model replies in these captures are scripted.</sub>
+
 ```
 seeker                       # interactive session in this folder
 seeker "fix the login bug"   # start with a first message
