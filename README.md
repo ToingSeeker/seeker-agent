@@ -78,11 +78,96 @@ conversation reaches 80% of the window it is summarised, keeping the most recent
 dependency-free Node server you deploy yourself, for example on Railway). The phone opens the web app
 served by that relay.
 
+Every user runs their own relay. A relay knows one access token and serves one computer; there is no
+shared or public relay, and no account to sign up for. It is a single Node file with no dependencies and
+no database, so the smallest plan of any host is enough.
+
+### Set it up
+
+**1. Create your secret.** On the computer where SEEKER is installed:
+
 ```
-seeker remote --setup        # prints the variable for the relay and the pairing link for the phone
+seeker remote --setup
+```
+
+It prints one line to copy:
+
+```
+SEEKER_REMOTE_AUTH=<64 hex characters>
+```
+
+This is a hash of your access token. It lets the relay recognise your devices and is safe to hand to a
+host; it cannot be used to read or send anything. The secret itself stays in `~/.seeker/config.json`.
+
+**2. Deploy the relay.** Deploy the folder `remote-server/` (not the whole repository) with that variable set.
+
+On [Railway](https://railway.com), with its CLI installed and `railway login` done:
+
+```
+cd remote-server
+railway init                                   # create a new project
+railway up                                     # first deploy; creates the service
+railway variable set "SEEKER_REMOTE_AUTH=<the value from step 1>"  # redeploys with it
+railway domain                                 # gives the service a public https address
+```
+
+On any other host (Render, Fly.io, a VPS, …) the relay needs:
+
+| | |
+| --- | --- |
+| Start command | `node server.mjs`, in `remote-server/` |
+| Node | 20 or newer |
+| `SEEKER_REMOTE_AUTH` | the value from step 1 |
+| `PORT` | the port to listen on; most hosts set it for you (default 8787) |
+| Address | public and **https** — the phone app and its notifications do not work over plain http |
+| Health check | `GET /healthz` answers `{"ok":true}` |
+| Proxy | must not buffer responses (the relay streams events) or cut idle connections short |
+| `SEEKER_TRUST_PROXY=1` | only behind a proxy that sets `x-forwarded-for` itself; Railway is detected automatically |
+
+Check it: `https://<your-relay>/healthz` shows `{"ok":true}`, and `https://<your-relay>/` shows the SEEKER sign-in page.
+
+**3. Tell SEEKER where the relay is.**
+
+```
 seeker remote --url https://<your-relay>
-seeker remote ~/project-a ~/project-b   # start; with no arguments, the current folder
 ```
+
+**4. Pair your phone.**
+
+```
+seeker remote --setup
+```
+
+This time it prints a link that ends in `#k=…`. Open it on your phone (on macOS it is also copied to the
+clipboard). The link holds your secret: anyone who has it can see your sessions and approve commands on
+your computer, so do not post it, screenshot it, or send it over a channel you do not trust.
+
+On iPhone, use Share → **Add to Home Screen** and open SEEKER from there; on Android, the browser menu →
+**Install app** (or Add to Home screen).
+Then turn on notifications in the app's Settings tab.
+
+**5. Start it.**
+
+```
+seeker remote                          # the current folder
+seeker remote ~/project-a ~/project-b  # several projects, one workspace each
+```
+
+Leave it running; the phone shows the computer as online. The computer has to stay on, and on macOS it is
+kept awake while `seeker remote` runs. Stop it with Ctrl+C.
+
+### Later
+
+- **New phone:** run `seeker remote --setup` again and open the link on it.
+- **Lost phone, or the link leaked:** delete `"secret"` under `"remote"` in `~/.seeker/config.json`, run
+  `seeker remote --setup`, put the new `SEEKER_REMOTE_AUTH` on the relay, and pair your phones again. The old
+  link stops working as soon as the relay has the new value.
+- **Updating the relay:** pull the repository and deploy `remote-server/` again (`railway up`). Nothing is
+  stored on it, so nothing is lost.
+- **Trying it locally first:** `SEEKER_REMOTE_AUTH=<value> node remote-server/server.mjs`, then
+  `seeker remote --url http://localhost:8787`. Plain http is accepted for `localhost` only.
+
+### How it is protected
 
 - The computer only makes outbound connections; no port is opened.
 - Conversation and commands are encrypted between phone and computer (AES-256-GCM). The relay holds only

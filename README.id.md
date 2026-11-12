@@ -48,11 +48,97 @@ dengan konteks kecil), SEEKER diberi tahu letak file indeksnya dan mencarinya de
 `seeker remote` menjalankan agent di Mac dan menghubungkannya ke relay (`remote-server/`, di-deploy ke Railway).
 HP membuka aplikasi web di alamat relay itu.
 
+Setiap pengguna menjalankan relay-nya sendiri. Satu relay mengenal satu token akses dan melayani satu
+komputer; tidak ada relay bersama atau relay publik, dan tidak ada akun yang perlu didaftarkan. Relay hanya
+satu file Node tanpa dependensi dan tanpa database, jadi paket terkecil di hosting mana pun sudah cukup.
+
+### Cara memasang
+
+**1. Buat rahasiamu.** Di komputer tempat SEEKER terpasang:
+
 ```
-seeker remote --setup        # menampilkan variabel untuk relay dan link pairing untuk HP
-seeker remote --url https://<alamat-relay>
-seeker remote ~/proyek-a ~/proyek-b   # mulai; tanpa argumen memakai folder saat ini
+seeker remote --setup
 ```
+
+Perintah ini menampilkan satu baris untuk disalin:
+
+```
+SEEKER_REMOTE_AUTH=<64 karakter hex>
+```
+
+Ini adalah hash dari token aksesmu. Relay memakainya untuk mengenali perangkatmu, dan aman diberikan ke
+hosting; nilainya tidak bisa dipakai untuk membaca atau mengirim apa pun. Rahasianya sendiri tetap di
+`~/.seeker/config.json`.
+
+**2. Deploy relay.** Deploy folder `remote-server/` (bukan seluruh repo) dengan variabel tadi.
+
+Di [Railway](https://railway.com), dengan CLI-nya terpasang dan sudah `railway login`:
+
+```
+cd remote-server
+railway init                                   # membuat proyek baru
+railway up                                     # deploy pertama; membuat service
+railway variable set "SEEKER_REMOTE_AUTH=<nilai dari langkah 1>"  # deploy ulang dengan nilainya
+railway domain                                 # memberi service alamat https publik
+```
+
+Di hosting lain (Render, Fly.io, VPS, …) relay membutuhkan:
+
+| | |
+| --- | --- |
+| Perintah start | `node server.mjs`, di dalam `remote-server/` |
+| Node | 20 atau lebih baru |
+| `SEEKER_REMOTE_AUTH` | nilai dari langkah 1 |
+| `PORT` | port yang didengarkan; kebanyakan hosting mengisinya sendiri (bawaan 8787) |
+| Alamat | publik dan **https** — aplikasi HP dan notifikasinya tidak jalan lewat http biasa |
+| Health check | `GET /healthz` menjawab `{"ok":true}` |
+| Proxy | tidak boleh menahan (buffer) respons, karena relay mengirim event secara streaming, dan tidak boleh memutus koneksi yang sedang diam |
+| `SEEKER_TRUST_PROXY=1` | hanya di belakang proxy yang mengisi `x-forwarded-for` sendiri; Railway dikenali otomatis |
+
+Periksa: `https://<relay-mu>/healthz` menampilkan `{"ok":true}`, dan `https://<relay-mu>/` menampilkan halaman masuk SEEKER.
+
+**3. Beri tahu SEEKER alamat relay-nya.**
+
+```
+seeker remote --url https://<relay-mu>
+```
+
+**4. Pasangkan HP.**
+
+```
+seeker remote --setup
+```
+
+Kali ini muncul link yang berakhiran `#k=…`. Buka di HP (di macOS link itu juga disalin ke clipboard).
+Link ini berisi rahasiamu: siapa pun yang memegangnya bisa melihat sesimu dan menyetujui perintah di
+komputermu. Jangan diunggah, di-screenshot, atau dikirim lewat saluran yang tidak kamu percaya.
+
+Di iPhone, pakai Share → **Add to Home Screen** lalu buka SEEKER dari sana; di Android, menu browser →
+**Install app** (atau Add to Home screen).
+Setelah itu nyalakan notifikasi di tab Settings aplikasinya.
+
+**5. Jalankan.**
+
+```
+seeker remote                          # folder saat ini
+seeker remote ~/proyek-a ~/proyek-b    # beberapa proyek, masing-masing satu workspace
+```
+
+Biarkan berjalan; di HP komputermu akan tampil online. Komputernya harus tetap menyala, dan di macOS ia
+dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
+
+### Setelah terpasang
+
+- **HP baru:** jalankan `seeker remote --setup` lagi dan buka link-nya di HP itu.
+- **HP hilang, atau link bocor:** hapus `"secret"` di bawah `"remote"` pada `~/.seeker/config.json`, jalankan
+  `seeker remote --setup`, pasang `SEEKER_REMOTE_AUTH` yang baru di relay, lalu pasangkan ulang HP-mu. Link lama
+  berhenti berfungsi begitu relay memakai nilai baru.
+- **Memperbarui relay:** tarik repo terbaru dan deploy `remote-server/` lagi (`railway up`). Relay tidak
+  menyimpan apa pun, jadi tidak ada yang hilang.
+- **Mencoba secara lokal dulu:** `SEEKER_REMOTE_AUTH=<nilai> node remote-server/server.mjs`, lalu
+  `seeker remote --url http://localhost:8787`. Http biasa hanya diterima untuk `localhost`.
+
+### Cara pengamanannya
 
 - Mac hanya membuat koneksi keluar; tidak ada port yang dibuka.
 - Isi percakapan dan perintah dienkripsi antara HP dan Mac (AES-256-GCM). Relay hanya menyimpan hash token akses
