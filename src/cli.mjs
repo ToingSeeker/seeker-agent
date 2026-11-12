@@ -300,6 +300,7 @@ export async function main(argv) {
     for (const s of hub.status()) {
       if (s.status === 'ready') ui.notice(`  MCP · ${s.name} ready (${s.tools} tools)`);
       else if (s.status === 'failed') ui.warn(`  MCP · ${s.name} could not start: ${s.error}`);
+      else if (s.status === 'untrusted') ui.notice(`  MCP · ${s.name} comes from this project and was not started. Review it with /mcp.`);
     }
   };
 

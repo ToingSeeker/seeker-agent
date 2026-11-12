@@ -8,6 +8,7 @@
 //   { "command": "npx", "args": ["@playwright/mcp@latest"], "env": {…} }   a local program
 //   { "url": "https://…/mcp", "headers": { "Authorization": "Bearer …" } }  a remote server
 // `"disabled": true` keeps an entry without starting it.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { VERSION } from './config.mjs';
@@ -59,14 +60,32 @@ export function wrapTool(server, tool, call) {
   };
 }
 
-/** Server entries from the user's config and the project's file; the project wins on a clash. */
+/** Identifies one project server entry as the user saw it: any change to what it runs gives a new value. */
+export function serverFingerprint(cwd, name, entry) {
+  const { command, args, env, cwd: dir, url, headers } = entry;
+  return crypto.createHash('sha256').update(JSON.stringify([path.resolve(cwd), name, command, args, env, dir, url, headers])).digest('hex');
+}
+
+/**
+ * Server entries from the user's config and the project's file. The user's own entry wins on a clash.
+ *
+ * A project file arrives with the project — a cloned repository, a downloaded archive — so its entries
+ * are commands somebody else wrote. They are listed but marked `untrusted`, and never started, until the
+ * user has approved that exact entry in that folder (`trustedMcp` in the user's config; see /mcp).
+ */
 export function readServers(config, cwd) {
   let project = {};
   try {
     const file = JSON.parse(fs.readFileSync(path.join(cwd, '.seeker', 'mcp.json'), 'utf8'));
     project = file.mcpServers ?? file;
   } catch {}
-  return { ...(config.mcpServers ?? {}), ...project };
+  const trusted = new Set(config.trustedMcp ?? []);
+  const servers = {};
+  for (const [name, entry] of Object.entries(project ?? {})) {
+    if (!entry || typeof entry !== 'object') continue;
+    servers[name] = { ...entry, source: 'project', untrusted: !trusted.has(serverFingerprint(cwd, name, entry)) };
+  }
+  return { ...servers, ...(config.mcpServers ?? {}) };
 }
 
 export class McpHub {
@@ -81,7 +100,7 @@ export class McpHub {
     this.sdk = sdk;
     this.servers = new Map(); // name → { config, status, error, tools, client }
     for (const [name, config] of Object.entries(servers)) {
-      this.servers.set(name, { config, status: config.disabled ? 'disabled' : 'idle', error: null, tools: [], client: null });
+      this.servers.set(name, { config, status: config.untrusted ? 'untrusted' : config.disabled ? 'disabled' : 'idle', error: null, tools: [], client: null });
     }
   }
 
@@ -111,6 +130,7 @@ export class McpHub {
   async connect(name) {
     const server = this.servers.get(name);
     if (!server) throw new Error(`No MCP server named "${name}"`);
+    if (server.config.untrusted) throw new Error(`MCP server "${name}" comes from this project and has not been approved`);
     await this.disconnect(name);
     server.status = 'starting';
     server.error = null;
@@ -154,9 +174,9 @@ export class McpHub {
     this.onChange(this.tools());
   }
 
-  /** Starts every server that is not disabled, all at once. Never throws: failures are recorded per server. */
+  /** Starts every server that is switched on and trusted, all at once. Never throws: failures are recorded per server. */
   async connectAll() {
-    const names = [...this.servers.entries()].filter(([, s]) => s.status !== 'disabled').map(([name]) => name);
+    const names = [...this.servers.entries()].filter(([, s]) => s.status !== 'disabled' && s.status !== 'untrusted').map(([name]) => name);
     await Promise.all(names.map((name) => this.connect(name)));
   }
 

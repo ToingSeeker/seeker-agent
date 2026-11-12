@@ -65,7 +65,9 @@ patterns are asked about even with `--yolo`.
   `~/.seeker/memory/projects/<folder>/` holds notes for one project.
 - `~/.seeker/skills/<name>/SKILL.md` and `.seeker/skills/<name>/SKILL.md` — skills, called as `/name`.
   Plugin skills live in `~/.seeker/plugins/<plugin>/skills/…` and are called as `/plugin:name`.
-- MCP servers: `mcpServers` in the config or `.seeker/mcp.json`; manage them with `/mcp`.
+- MCP servers: `mcpServers` in the config or `.seeker/mcp.json`; manage them with `/mcp`. A server defined by a
+  project file is a command somebody else wrote: it is listed but not started until you approve it in `/mcp`,
+  and again if its entry changes.
 
 Only the memory index goes into the system prompt, capped at 20% of the context window. When the
 conversation reaches 80% of the window it is summarised, keeping the most recent part and your request word for word.
@@ -87,6 +89,8 @@ seeker remote ~/project-a ~/project-b   # start; with no arguments, the current 
   a hash of the access token (`SEEKER_REMOTE_AUTH`) and can neither read nor forge anything.
 - Edits and commands always need approval on the phone; there is no permission-free mode over remote.
 - The relay stores nothing on disk; after a restart the computer sends its state again.
+- Wrong tokens are locked out per address. On Railway the caller's address is read from `x-forwarded-for`;
+  behind another proxy that sets that header itself, set `SEEKER_TRUST_PROXY=1`. Without a proxy leave it unset.
 - Push notifications (approval needed, question from the model, task finished) go straight from the
   computer to the phone's push service with Web Push encryption (`src/webpush.mjs`); the relay is not
   involved. Turn them on in the app's Settings. On iPhone the app must first be added with

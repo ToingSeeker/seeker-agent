@@ -1,6 +1,7 @@
 // Slash commands for the interactive prompt.
 import { SETTINGS, saveConfig, saveProviderConfig } from './config.mjs';
 import { isConnectionRefused } from './http.mjs';
+import { serverFingerprint } from './mcp.mjs';
 import { configMenu, pickList } from './menu.mjs';
 import { apiKey, createProvider, needsKey, providerDefs } from './providers.mjs';
 import { renderSkill } from './skills.mjs';
@@ -262,12 +263,25 @@ export async function runCommand(input, ctx) {
         return;
       }
       if (agent.provider.ownTools) ui.notice(`  ${agent.provider.label} runs its own tools; these servers are used with the other providers.`);
-      const describe = (s) => (s.status === 'ready' ? `on · ${s.tools} tools` : s.status === 'failed' ? `failed · ${s.error}` : s.status === 'disabled' ? 'off' : s.status);
+      const describe = (s) => (s.status === 'ready' ? `on · ${s.tools} tools` : s.status === 'failed' ? `failed · ${s.error}` : s.status === 'disabled' ? 'off' : s.status === 'untrusted' ? 'from this project · not approved' : s.status);
       const at = await pickList({ term, ui, title: 'Tool servers — Enter switches one on or off', items: servers.map((s) => ({ label: s.name, hint: describe(s) })) });
       if (at === -1) return;
       const { name, status } = servers[at];
       const entry = hub.servers.get(name);
       const turnOn = status !== 'ready';
+      if (entry.config.untrusted) {
+        // Show exactly what would run before anything does.
+        const { command, args = [], env, url } = entry.config;
+        ui.line(`  ${c.dim(`${name} is defined by this project (.seeker/mcp.json), not by you. Starting it runs:`)}`);
+        ui.line(`    ${url ? url : [command, ...args].join(' ')}`);
+        if (env && Object.keys(env).length) ui.line(`    ${c.dim(`with ${Object.keys(env).join(', ')} set`)}`);
+        const choice = await pickList({ term, ui, title: `Trust ${name} in this folder?`, items: [{ label: 'No, leave it off' }, { label: 'Yes, start it now and from now on' }] });
+        if (choice !== 1) return ui.notice(`  ${name} left off.`);
+        const { untrusted, ...rest } = entry.config;
+        config.trustedMcp = [...new Set([...(config.trustedMcp ?? []), serverFingerprint(agent.cwd, name, rest)])];
+        saveConfig({ trustedMcp: config.trustedMcp });
+        entry.config = rest;
+      }
       // Remembered for next time, but only for servers that come from the user's own config.
       if (config.mcpServers?.[name]) {
         const { disabled, ...rest } = config.mcpServers[name];

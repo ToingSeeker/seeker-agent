@@ -187,6 +187,23 @@ test('remote control: a message from the phone runs the agent, an edit waits for
   ollama.close();
 });
 
+test('relay: the lockout cannot be sidestepped by sending a made-up x-forwarded-for', async (t) => {
+  const { authHash } = deriveKeys('yet-another-long-secret-for-lockout-test');
+  const relays = [createRelay({ authHash }), createRelay({ authHash, trustProxy: true })];
+  t.after(() => relays.forEach((relay) => (relay.close(), relay.closeAllConnections())));
+  const attempt = (url, i) => fetch(`${url}/api/command`, { method: 'POST', headers: { authorization: 'Bearer wrong', 'x-forwarded-for': `203.0.113.${i}` }, body: '{}' }).then((r) => r.status);
+
+  const direct = await listen(relays[0]);
+  const statuses = [];
+  for (let i = 0; i < 12; i++) statuses.push(await attempt(direct, i));
+  assert.deepEqual(statuses.slice(0, 10), Array(10).fill(401));
+  assert.deepEqual(statuses.slice(10), [429, 429], 'counted by the connection, whatever the header says');
+
+  // Behind a proxy that sets the header itself, each caller is counted separately.
+  const proxied = await listen(relays[1]);
+  for (let i = 0; i < 12; i++) assert.equal(await attempt(proxied, i), 401);
+});
+
 test('relay: wrong tokens are refused and locked out; a restarted relay is resynchronised', async (t) => {
   const { token, authHash } = deriveKeys('another-long-secret-for-the-relay-test');
   const relay = createRelay({ authHash });

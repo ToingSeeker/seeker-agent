@@ -59,6 +59,8 @@ seeker remote ~/proyek-a ~/proyek-b   # mulai; tanpa argumen memakai folder saat
   (`SEEKER_REMOTE_AUTH`) dan tidak bisa membaca atau memalsukan apa pun.
 - Edit dan perintah selalu minta persetujuan di HP; mode tanpa izin tidak tersedia lewat remote.
 - Relay tidak menyimpan apa pun ke disk; setelah restart, Mac mengirim ulang keadaannya.
+- Token yang salah dikunci per alamat. Di Railway alamat pemanggil dibaca dari `x-forwarded-for`; di belakang
+  proxy lain yang mengisi header itu sendiri, setel `SEEKER_TRUST_PROXY=1`. Tanpa proxy, biarkan kosong.
 - Notifikasi push (persetujuan, pertanyaan dari model, tugas selesai) dikirim langsung dari Mac ke layanan push HP
   dengan enkripsi Web Push (`src/webpush.mjs`); relay tidak terlibat. Nyalakan di Settings aplikasi HP.
   Di iPhone, aplikasinya harus dipasang dulu lewat Share → Add to Home Screen.
@@ -84,7 +86,7 @@ ollama pull qwen3.5:27b
 | `src/agent.mjs` | loop agent: model → tool → hasil → model, plus perangkuman konteks |
 | `src/tools.mjs` | `read_file` `write_file` `edit_file` `bash` (juga latar belakang) `process_output` `process_stop` `glob` `grep` `list_dir` `web_fetch` `web_search` `ask_user` `task` `skill` `todo_write` |
 | `src/remote.mjs`, `remote-server/` | remote control: daemon di Mac, relay + aplikasi web HP |
-| `src/mcp.mjs` | server MCP: tool tambahan (`mcp__<server>__<tool>`) dari `mcpServers` di config atau `.seeker/mcp.json`; atur lewat `/mcp` |
+| `src/mcp.mjs` | server MCP: tool tambahan (`mcp__<server>__<tool>`) dari `mcpServers` di config atau `.seeker/mcp.json`; atur lewat `/mcp`. Server yang didefinisikan file proyek tidak dijalankan sebelum kamu setujui di `/mcp` |
 | `src/permissions.mjs` | baca bebas; edit, shell, dan jaringan minta izin |
 | `src/prompt.mjs` | system prompt + instruksi proyek (`SEEKER.md`, lalu `AGENTS.md`, lalu `CLAUDE.md`) |
 | `src/providers.mjs` | daftar penyedia + adapter: Ollama, OpenAI-compatible, Anthropic (SDK) |

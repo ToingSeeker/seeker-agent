@@ -2,12 +2,40 @@
 // layer keys off: 'read' runs freely, 'write' / 'exec' / 'net' need approval.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import dns from 'node:dns/promises';
 import fsp from 'node:fs/promises';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { renderSkill } from './skills.mjs';
 
 export class ToolError extends Error {}
+
+/** True for loopback, private, link-local and other addresses that only mean something inside a network. */
+export function isInternalAddress(address) {
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+  }
+  const v6 = address.toLowerCase();
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
+  if (mapped) return isInternalAddress(mapped[1]);
+  // Unspecified, loopback, unique-local (fc00::/7), link-local (fe80::/10), and any other IPv4-mapped form.
+  return v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith('::ffff:');
+}
+
+/** Whether a host name leads somewhere internal. A name that cannot be resolved counts as internal: not followed. */
+async function isInternalHost(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, '');
+  if (net.isIP(host)) return isInternalAddress(host);
+  if (/(^|\.)localhost$|\.local$|\.internal$/i.test(host)) return true;
+  try {
+    const found = await dns.lookup(host, { all: true });
+    return !found.length || found.some((entry) => isInternalAddress(entry.address));
+  } catch {
+    return true;
+  }
+}
 
 const MAX_OUTPUT = 24_000;
 const MAX_LINE = 400;
@@ -459,12 +487,34 @@ export const TOOLS = [
       }
       if (!/^https?:$/.test(url.protocol)) throw new ToolError('Only http(s) URLs are supported');
       const timeout = AbortSignal.timeout(30_000);
-      const res = await fetch(url, {
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-        headers: { 'user-agent': 'seeker-cli', accept: 'text/html,text/plain,application/json,*/*' },
-      }).catch((e) => {
-        throw new ToolError(`Request failed: ${e.cause?.message || e.message}`);
-      });
+      const approvedHost = url.host;
+      let res;
+      // Redirects are followed by hand: the user approved one host, and a redirect must not turn
+      // that approval into a request to this machine or its network.
+      for (let hop = 0; ; hop++) {
+        res = await fetch(url, {
+          redirect: 'manual',
+          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+          headers: { 'user-agent': 'seeker-cli', accept: 'text/html,text/plain,application/json,*/*' },
+        }).catch((e) => {
+          throw new ToolError(`Request failed: ${e.cause?.message || e.message}`);
+        });
+        const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+        if (!location) break;
+        await res.body?.cancel().catch(() => {});
+        if (hop >= 5) throw new ToolError('Too many redirects');
+        let next;
+        try {
+          next = new URL(location, url);
+        } catch {
+          throw new ToolError(`The server redirected to an address that is not a URL: ${location}`);
+        }
+        if (!/^https?:$/.test(next.protocol)) throw new ToolError(`The server redirected to ${next.protocol} which is not supported`);
+        if (next.host !== approvedHost && (await isInternalHost(next.hostname))) {
+          throw new ToolError(`${approvedHost} redirected to ${next.host}, an address inside this machine or network. It was not followed; fetch that address directly if it is what you want.`);
+        }
+        url = next;
+      }
       const body = await res.text();
       const type = res.headers.get('content-type') || '';
       const text = type.includes('html') ? htmlToText(body) : body;

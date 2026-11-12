@@ -141,6 +141,65 @@ test('text-form tool calls are parsed', () => {
   assert.deepEqual(parseTextToolCalls('<tool_call>not json</tool_call>'), []);
 });
 
+test('permissions: a command that only looks read-only is asked about', async () => {
+  const asked = [];
+  const perms = new Permissions({ mode: 'ask', cwd: tmp(), ask: async (q) => (asked.push(q), 'n') });
+  const bash = TOOL_BY_NAME.get('bash');
+  const allowed = async (command) => (await perms.check(bash, { command })).ok;
+
+  for (const command of [
+    'ls & touch pwned', // a lone & starts a second command
+    'ls &',
+    'echo $HOME',
+    'cat $(which node)',
+    'echo ${IFS}x',
+    'ls; (touch x)',
+    'ls; { touch x; }',
+    'l\\s',
+    'ls\ntouch x',
+    'rg --pre ./run.sh pattern',
+    'rg --pre=./run.sh pattern',
+    'sort -o out.txt in.txt',
+    'sort -no out.txt in.txt',
+    'sort --output=out.txt in.txt',
+    'sort --compress-program=./run.sh big.txt',
+    'uniq in.txt out.txt',
+    'tree -o listing.txt',
+    'file -C -m magic',
+    'find . -fls out.txt',
+    'find . -fprintf out.txt x',
+    'find . -exec rm {} +',
+    'git diff --output=patch.txt',
+    'git log --output patch.txt',
+    'git remote add evil https://evil.example/x.git',
+    'git remote set-url origin https://evil.example/x.git',
+    'git remote remove origin',
+    'git branch new-branch',
+    'git branch -f main HEAD~3',
+    'git branch -D main',
+  ]) {
+    assert.equal(await allowed(command), false, command);
+  }
+  const count = asked.length;
+  for (const command of [
+    'git status && ls -la | head -5',
+    'git branch -a',
+    'git branch --show-current',
+    'git remote -v',
+    'git remote get-url origin',
+    'git log --oneline -5 | cat',
+    'rg -n "foo" src | sort | uniq -c | sort -rn | head',
+    'sort -n numbers.txt',
+    'uniq -c names.txt',
+    'find . -name "*.mjs" -type f',
+    'ls -la 2>/dev/null; pwd',
+    'grep -rn "a b" src 2>&1 | wc -l',
+  ]) {
+    assert.equal(await allowed(command), true, command);
+  }
+  assert.equal(asked.length, count, 'none of the read-only commands asked');
+});
+
 test('normalizeHost accepts the forms OLLAMA_HOST allows', () => {
   assert.equal(normalizeHost('0.0.0.0:11434'), 'http://127.0.0.1:11434');
   assert.equal(normalizeHost('localhost'), 'http://localhost:11434');

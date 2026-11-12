@@ -24,6 +24,7 @@ const MAX_LOG_BYTES = 12 * 1024 * 1024;
 const MAX_BODY = 4 * 1024 * 1024;
 const FAILURES_ALLOWED = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
+const MAX_TRACKED = 10_000; // addresses remembered for the lockout
 
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest();
 
@@ -31,7 +32,7 @@ const sha256 = (text) => crypto.createHash('sha256').update(text).digest();
  * @param {{ authHash: string }} opts  hex SHA-256 of the access token
  * @returns {http.Server}
  */
-export function createRelay({ authHash }) {
+export function createRelay({ authHash, trustProxy = false }) {
   if (!/^[0-9a-f]{64}$/.test(authHash ?? '')) throw new Error('SEEKER_REMOTE_AUTH must be the 64-character value printed by `seeker remote --setup`.');
   const expected = Buffer.from(authHash, 'hex');
 
@@ -42,11 +43,21 @@ export function createRelay({ authHash }) {
   const phones = new Set();
   const failures = new Map(); // ip → { count, until }
 
-  // Behind Railway the first address in x-forwarded-for is the caller; the rest are proxies.
-  const ipOf = (req) => String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket.remoteAddress || '?';
+  // x-forwarded-for is whatever the caller sent unless a proxy in front rewrites it, so it is believed
+  // only when told such a proxy exists (`trustProxy`). Railway's does: the first address is the caller.
+  const ipOf = (req) => (trustProxy && String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
 
   function authorised(req) {
     const ip = ipOf(req);
+    if (failures.size > MAX_TRACKED) {
+      const now = Date.now();
+      for (const [key, value] of failures) if (value.until <= now) failures.delete(key);
+      // Still full of live entries: forget the oldest rather than grow without bound.
+      for (const key of failures.keys()) {
+        if (failures.size <= MAX_TRACKED) break;
+        failures.delete(key);
+      }
+    }
     const record = failures.get(ip);
     if (record && record.until > Date.now() && record.count >= FAILURES_ALLOWED) return 'locked';
     const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '';
@@ -192,7 +203,7 @@ export function createRelay({ authHash }) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(process.argv[1])) {
   const port = Number(process.env.PORT) || 8787;
   try {
-    createRelay({ authHash: process.env.SEEKER_REMOTE_AUTH }).listen(port, '0.0.0.0', () => console.log(`SEEKER relay listening on ${port}`));
+    createRelay({ authHash: process.env.SEEKER_REMOTE_AUTH, trustProxy: Boolean(process.env.RAILWAY_ENVIRONMENT) || process.env.SEEKER_TRUST_PROXY === '1' }).listen(port, '0.0.0.0', () => console.log(`SEEKER relay listening on ${port}`));
   } catch (err) {
     console.error(err.message);
     process.exit(1);
