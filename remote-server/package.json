@@ -1,0 +1,14 @@
+{
+  "name": "seeker-remote-relay",
+  "version": "0.1.0",
+  "description": "Relay and phone web app for SEEKER remote control",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
