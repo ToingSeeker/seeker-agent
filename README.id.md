@@ -116,4 +116,4 @@ Lihat [CONTRIBUTING.md](CONTRIBUTING.md). Celah keamanan dilaporkan secara tertu
 
 ## Lisensi
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE)

@@ -135,4 +135,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Security problems are reported privately
 
 ## License
 
-[MIT](LICENSE)
+[Apache License 2.0](LICENSE)

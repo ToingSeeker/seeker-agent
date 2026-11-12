@@ -56,4 +56,4 @@ reported privately — see [SECURITY.md](SECURITY.md).
 
 ## License
 
-By contributing you agree that your contribution is released under the [MIT License](LICENSE).
+By contributing you agree that your contribution is released under the [Apache License 2.0](LICENSE).

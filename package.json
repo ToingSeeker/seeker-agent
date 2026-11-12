@@ -2,7 +2,7 @@
   "name": "seeker-cli",
   "version": "0.1.0",
   "description": "SEEKER — a coding agent for the terminal: local with Ollama, or with cloud models and Claude Code",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ToingSeeker/seeker-agent.git"
