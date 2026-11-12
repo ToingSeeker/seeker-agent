@@ -27,7 +27,8 @@ const SAFE_COMMANDS = new Set([
 ]);
 const SAFE_GIT = new Set(['status', 'diff', 'log', 'show', 'branch', 'remote', 'rev-parse', 'ls-files', 'blame', 'describe']);
 
-export const isDangerous = (command) => DANGEROUS.some((re) => re.test(command));
+// Also tried with quotes and escapes removed: to a shell, `git "push" --force` and `r\m -rf` are the same commands.
+export const isDangerous = (command) => [command, command.replace(/['"\\]/g, '')].some((text) => DANGEROUS.some((re) => re.test(text)));
 
 /**
  * Reads a command line the way a shell would, far enough to know what would run: a list of commands,

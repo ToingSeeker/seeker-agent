@@ -211,6 +211,10 @@ test('relay: the lockout cannot be sidestepped by sending a made-up x-forwarded-
   for (let i = 2; i <= 3; i++) assert.equal(await attempt(full, i), 401);
   for (let i = 10; i < 20; i++) assert.equal(await attempt(full, i), 401);
   assert.equal(await attempt(full, 99), 429, 'the eleventh unknown address is refused');
+  const { token } = deriveKeys('yet-another-long-secret-for-lockout-test');
+  const owner = await fetch(`${full}/api/command`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'x-forwarded-for': '203.0.113.200', 'content-type': 'application/json' }, body: '{}' });
+  assert.notEqual(owner.status, 429, 'the right token from a new address still gets in');
+  assert.notEqual(owner.status, 401);
   assert.equal(await attempt(full, 1), 401, 'the first address was not forgotten: this is its tenth failure');
   assert.equal(await attempt(full, 1), 429);
 });

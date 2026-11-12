@@ -58,9 +58,12 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
       if (failures.size >= maxTracked) ip = OVERFLOW;
     }
     const record = failures.get(ip);
-    if (record && record.until > Date.now() && record.count >= FAILURES_ALLOWED) return 'locked';
     const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? '';
     const ok = token.length > 0 && crypto.timingSafeEqual(sha256(token), expected);
+    // The shared record locks out strangers' failures only: if it also refused the right token,
+    // anyone able to fill the table could keep the owner out.
+    if (ok && ip === OVERFLOW) return 'yes';
+    if (record && record.until > Date.now() && record.count >= FAILURES_ALLOWED) return 'locked';
     if (ok) return 'yes';
     const next = record && record.until > Date.now() ? record : { count: 0, until: 0 };
     next.count += 1;

@@ -222,6 +222,28 @@ test('permissions: a command that only looks read-only is asked about', async ()
   assert.equal(asked.length, count, 'none of the read-only commands asked');
 });
 
+test('permissions: quoting does not hide a dangerous command, even under an always rule or --yolo', async () => {
+  for (const command of ['git "push" --force', "git 'push' origin --delete main", 'r"m" -rf build', 'r\\m -rf build', '"sudo" ls', 'git reset "--hard"']) {
+    assert.equal(isDangerous(command), true, command);
+  }
+  assert.equal(isDangerous('git push origin main'), false);
+  assert.equal(isDangerous('grep -rn "rm -rf" docs'), true, 'asking once too often is the safe side');
+
+  const asked = [];
+  const perms = new Permissions({ mode: 'ask', cwd: tmp(), ask: async (q) => (asked.push(q), 'a') });
+  const bash = TOOL_BY_NAME.get('bash');
+  await perms.check(bash, { command: 'git push' }); // answered "always": `git push …` is now a rule
+  assert.ok((await perms.check(bash, { command: 'git push origin main' })).ok);
+  assert.equal(asked.length, 1);
+  await perms.check(bash, { command: 'git "push" --force' });
+  assert.equal(asked.length, 2, 'the rule does not cover it');
+  assert.match(asked[1].warning, /risky/);
+
+  const yolo = new Permissions({ mode: 'auto', cwd: tmp(), ask: async (q) => (asked.push(q), 'n') });
+  assert.equal((await yolo.check(bash, { command: 'r"m" -rf build' })).ok, false);
+  assert.equal(asked.length, 3);
+});
+
 test('normalizeHost accepts the forms OLLAMA_HOST allows', () => {
   assert.equal(normalizeHost('0.0.0.0:11434'), 'http://127.0.0.1:11434');
   assert.equal(normalizeHost('localhost'), 'http://localhost:11434');
