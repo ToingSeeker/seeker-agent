@@ -202,6 +202,17 @@ test('relay: the lockout cannot be sidestepped by sending a made-up x-forwarded-
   // Behind a proxy that sets the header itself, each caller is counted separately.
   const proxied = await listen(relays[1]);
   for (let i = 0; i < 12; i++) assert.equal(await attempt(proxied, i), 401);
+
+  // A full table never drops a live record; addresses that do not fit are counted as one.
+  const small = createRelay({ authHash, trustProxy: true, maxTracked: 3 });
+  relays.push(small);
+  const full = await listen(small);
+  for (let n = 0; n < 9; n++) assert.equal(await attempt(full, 1), 401);
+  for (let i = 2; i <= 3; i++) assert.equal(await attempt(full, i), 401);
+  for (let i = 10; i < 20; i++) assert.equal(await attempt(full, i), 401);
+  assert.equal(await attempt(full, 99), 429, 'the eleventh unknown address is refused');
+  assert.equal(await attempt(full, 1), 401, 'the first address was not forgotten: this is its tenth failure');
+  assert.equal(await attempt(full, 1), 429);
 });
 
 test('relay: wrong tokens are refused and locked out; a restarted relay is resynchronised', async (t) => {

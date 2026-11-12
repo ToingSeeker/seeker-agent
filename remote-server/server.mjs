@@ -25,6 +25,7 @@ const MAX_BODY = 4 * 1024 * 1024;
 const FAILURES_ALLOWED = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const MAX_TRACKED = 10_000; // addresses remembered for the lockout
+const OVERFLOW = '(everyone else)';
 
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest();
 
@@ -32,7 +33,7 @@ const sha256 = (text) => crypto.createHash('sha256').update(text).digest();
  * @param {{ authHash: string }} opts  hex SHA-256 of the access token
  * @returns {http.Server}
  */
-export function createRelay({ authHash, trustProxy = false }) {
+export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRACKED }) {
   if (!/^[0-9a-f]{64}$/.test(authHash ?? '')) throw new Error('SEEKER_REMOTE_AUTH must be the 64-character value printed by `seeker remote --setup`.');
   const expected = Buffer.from(authHash, 'hex');
 
@@ -48,15 +49,13 @@ export function createRelay({ authHash, trustProxy = false }) {
   const ipOf = (req) => (trustProxy && String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim()) || req.socket.remoteAddress || '?';
 
   function authorised(req) {
-    const ip = ipOf(req);
-    if (failures.size > MAX_TRACKED) {
+    let ip = ipOf(req);
+    if (failures.size >= maxTracked && !failures.has(ip)) {
       const now = Date.now();
       for (const [key, value] of failures) if (value.until <= now) failures.delete(key);
-      // Still full of live entries: forget the oldest rather than grow without bound.
-      for (const key of failures.keys()) {
-        if (failures.size <= MAX_TRACKED) break;
-        failures.delete(key);
-      }
+      // Still full: a live record is never dropped to make room, or a flood of addresses could
+      // erase a lockout. Addresses that do not fit are counted together instead.
+      if (failures.size >= maxTracked) ip = OVERFLOW;
     }
     const record = failures.get(ip);
     if (record && record.until > Date.now() && record.count >= FAILURES_ALLOWED) return 'locked';

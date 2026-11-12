@@ -30,46 +30,80 @@ const SAFE_GIT = new Set(['status', 'diff', 'log', 'show', 'branch', 'remote', '
 export const isDangerous = (command) => DANGEROUS.some((re) => re.test(command));
 
 /**
- * Splits a command line into its pipeline / chain segments, or null if it does something we can't reason about.
- * The split is deliberately cruder than a shell's: it may cut inside quotes, which only produces extra
- * segments that must each pass. Anything that could start a command this split would not see — a lone `&`,
- * substitution, expansion, grouping, escapes, redirection — makes the whole line unknown.
+ * Reads a command line the way a shell would, far enough to know what would run: a list of commands,
+ * each a list of words with the quotes removed. Returns null for anything it cannot be sure about —
+ * substitution, expansion, escapes, redirection, grouping, a lone `&` — so the line is asked about.
  */
-function segments(command) {
-  const stripped = command.replace(/\s2>&1/g, ' ').replace(/\s2>\s*\/dev\/null/g, ' ');
-  if (/[`<>$(){}\\\n\r]/.test(stripped)) return null;
-  if (stripped.replace(/&&/g, ' ').includes('&')) return null;
-  return stripped.split(/&&|\|\||;|\|/).map((s) => s.trim()).filter(Boolean);
+function parse(command) {
+  const text = command.replace(/\s2>&1/g, ' ').replace(/\s2>\s*\/dev\/null/g, ' ');
+  // Refused even inside quotes: `$` and backticks still expand between double quotes.
+  if (/[`$\\\n\r]/.test(text)) return null;
+  const commands = [];
+  let words = [];
+  let word = null;
+  let quote = null;
+  const endWord = () => {
+    if (word !== null) words.push(word);
+    word = null;
+  };
+  const endCommand = () => {
+    endWord();
+    if (words.length) commands.push(words);
+    words = [];
+  };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      else word += ch;
+    } else if (ch === '"' || ch === "'") {
+      quote = ch;
+      word ??= '';
+    } else if (/\s/.test(ch)) endWord();
+    else if (ch === ';') endCommand();
+    else if (ch === '|') {
+      if (text[i + 1] === '|') i++;
+      endCommand();
+    } else if (ch === '&') {
+      if (text[i + 1] !== '&') return null;
+      i++;
+      endCommand();
+    } else if ('<>(){}'.includes(ch)) return null;
+    else word = (word ?? '') + ch;
+  }
+  if (quote) return null;
+  endCommand();
+  return commands;
 }
 
-// Options that make an otherwise read-only command write a file or start a program.
-// Short options are matched inside clusters too (`sort -no out`).
-const short = (letters) => new RegExp(`(^|\\s)-[A-Za-z0-9]*[${letters}]`);
+// Options that make an otherwise read-only command write a file or start a program. Each pattern is
+// tried against one word. Short options are found inside clusters too (`sort -no out`), and long ones
+// by the shortest spelling the program accepts (`sort --co…` is --compress-program).
+const cluster = (letter) => new RegExp(`^-(?!-)[A-Za-z0-9]*${letter}`);
 const UNSAFE_OPTIONS = {
-  rg: /(^|\s)--(pre|hostname-bin)/,
-  sort: new RegExp(`${short('o').source}|(^|\\s)--(o|comp)`),
-  tree: new RegExp(`${short('o').source}|(^|\\s)--output`),
-  file: new RegExp(`${short('C').source}|(^|\\s)--comp`),
-  date: new RegExp(`${short('s').source}|(^|\\s)--set`),
+  rg: [/^--pre($|=|-)/, /^--hostname-bin/],
+  sort: [cluster('o'), /^--(o|co)/],
+  tree: [cluster('o'), /^--output/],
+  file: [cluster('C'), /^--co/],
+  date: [cluster('s'), /^--s/],
+  find: [/^-(delete|exec|ok|fprint|fls)/],
 };
 
-function isSafeGit(words, segment) {
-  if (!SAFE_GIT.has(words[1]) || /(^|\s)--output/.test(segment)) return false;
-  const rest = words.slice(2);
+function isSafeGit(args) {
+  const [sub, ...rest] = args;
+  if (!SAFE_GIT.has(sub) || rest.some((w) => /^--out/.test(w))) return false;
   // Listing only: any name after `branch` would create or change one.
-  if (words[1] === 'branch') return rest.every((w) => /^(-a|-r|-v|-vv|-l|--all|--remotes|--list|--verbose|--show-current)$/.test(w));
-  if (words[1] === 'remote') return rest.length === 0 || rest.every((w) => /^(-v|--verbose)$/.test(w)) || rest[0] === 'get-url';
+  if (sub === 'branch') return rest.every((w) => /^(-a|-r|-v|-vv|-l|--all|--remotes|--list|--verbose|--show-current)$/.test(w));
+  if (sub === 'remote') return rest.length === 0 || rest.every((w) => /^(-v|--verbose)$/.test(w)) || rest[0] === 'get-url';
   return true;
 }
 
-function isSafeSegment(segment) {
-  const words = segment.split(/\s+/);
-  if (words[0] === 'git') return isSafeGit(words, segment);
-  if (words[0] === 'find') return !/-(delete|exec|execdir|ok|fprint|fls)/.test(segment);
+function isSafeCommand([name, ...args]) {
+  if (name === 'git') return isSafeGit(args);
+  if (UNSAFE_OPTIONS[name]?.some((pattern) => args.some((arg) => pattern.test(arg)))) return false;
   // `uniq in out` writes its second file.
-  if (words[0] === 'uniq') return words.slice(1).filter((w) => !w.startsWith('-')).length <= 1;
-  if (UNSAFE_OPTIONS[words[0]]?.test(words.slice(1).join(' '))) return false;
-  return SAFE_COMMANDS.has(words[0]);
+  if (name === 'uniq') return args.filter((arg) => !arg.startsWith('-')).length <= 1;
+  return name === 'find' || SAFE_COMMANDS.has(name);
 }
 
 /** The rule offered by "always allow": `npm test`, `git commit`, or just `make`. */
@@ -94,9 +128,11 @@ export class Permissions {
   }
 
   #bashAllowed(command) {
-    const parts = segments(command);
-    if (!parts?.length) return false;
-    return parts.every((s) => isSafeSegment(s) || [...this.bashPrefixes].some((p) => s === p || s.startsWith(`${p} `)));
+    const commands = parse(command);
+    if (!commands?.length) return false;
+    // An "always" rule is one or two words; it covers a command that starts with exactly those words.
+    const covered = (words) => [...this.bashPrefixes].some((prefix) => prefix.split(' ').every((part, i) => words[i] === part));
+    return commands.every((words) => isSafeCommand(words) || covered(words));
   }
 
   #insideCwd(file) {
@@ -115,7 +151,7 @@ export class Permissions {
       const command = String(args.command ?? '');
       if (isDangerous(command)) warning = 'This command is risky or hard to undo.';
       else if (this.mode === 'auto' || this.#bashAllowed(command)) return { ok: true };
-      else if (segments(command)?.length === 1) {
+      else if (parse(command)?.length === 1) {
         const prefix = bashPrefix(command);
         always = { label: `always allow \`${prefix} …\``, apply: () => this.bashPrefixes.add(prefix) };
       }

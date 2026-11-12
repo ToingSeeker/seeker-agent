@@ -2,14 +2,31 @@
 // layer keys off: 'read' runs freely, 'write' / 'exec' / 'net' need approval.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import dns from 'node:dns/promises';
+import dns from 'node:dns';
 import fsp from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
+import zlib from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import { renderSkill } from './skills.mjs';
 
 export class ToolError extends Error {}
+
+/** The address as 16 bytes, or null if it is not an IPv6 address. */
+function ipv6Bytes(address) {
+  let text = address.split('%')[0];
+  const dotted = /^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
+  if (dotted) text = `${dotted[1]}${((+dotted[2] << 8) | +dotted[3]).toString(16)}:${((+dotted[4] << 8) | +dotted[5]).toString(16)}`;
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves[1] ? halves[1].split(':') : [];
+  const groups = halves.length === 2 ? [...head, ...Array(Math.max(0, 8 - head.length - tail.length)).fill('0'), ...tail] : head;
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/i.test(g))) return null;
+  return groups.flatMap((g) => [parseInt(g, 16) >> 8, parseInt(g, 16) & 255]);
+}
 
 /** True for loopback, private, link-local and other addresses that only mean something inside a network. */
 export function isInternalAddress(address) {
@@ -17,24 +34,70 @@ export function isInternalAddress(address) {
     const [a, b] = address.split('.').map(Number);
     return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
   }
-  const v6 = address.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
-  if (mapped) return isInternalAddress(mapped[1]);
-  // Unspecified, loopback, unique-local (fc00::/7), link-local (fe80::/10), and any other IPv4-mapped form.
-  return v6 === '::' || v6 === '::1' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6) || v6.startsWith('::ffff:');
+  const bytes = ipv6Bytes(address);
+  if (!bytes) return true; // not an address we can read: treated as internal
+  const starts = (...prefix) => prefix.every((byte, i) => bytes[i] === byte);
+  const v4 = (at) => isInternalAddress(bytes.slice(at, at + 4).join('.'));
+  // Forms that carry an IPv4 address are judged by it: ::a.b.c.d (which covers :: and ::1),
+  // ::ffff:a.b.c.d, 64:ff9b::a.b.c.d (NAT64) and 2002:AABB:CCDD:: (6to4).
+  if (bytes.slice(0, 12).every((byte) => byte === 0)) return true;
+  if (bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 255 && bytes[11] === 255) return v4(12);
+  if (starts(0, 0x64, 0xff, 0x9b)) return v4(12);
+  if (starts(0x20, 0x02)) return v4(2);
+  // Unique-local fc00::/7, link-local fe80::/10 and site-local fec0::/10, multicast ff00::/8.
+  return (bytes[0] & 0xfe) === 0xfc || (bytes[0] === 0xfe && bytes[1] >= 0x80) || bytes[0] === 0xff;
 }
 
-/** Whether a host name leads somewhere internal. A name that cannot be resolved counts as internal: not followed. */
-async function isInternalHost(hostname) {
-  const host = hostname.replace(/^\[|\]$/g, '');
-  if (net.isIP(host)) return isInternalAddress(host);
-  if (/(^|\.)localhost$|\.local$|\.internal$/i.test(host)) return true;
-  try {
-    const found = await dns.lookup(host, { all: true });
-    return !found.length || found.some((entry) => isInternalAddress(entry.address));
-  } catch {
-    return true;
-  }
+/**
+ * A DNS lookup for http(s).request that refuses internal addresses. Used as the request's own
+ * lookup, so the address that is checked is the address that is connected to: a name cannot
+ * answer "public" when asked and "127.0.0.1" a moment later.
+ */
+export function publicLookup(hostname, options, callback) {
+  dns.lookup(hostname, options, (err, address, family) => {
+    if (err) return callback(err);
+    const found = Array.isArray(address) ? address : [{ address, family }];
+    if (!found.length || found.some((entry) => isInternalAddress(entry.address))) {
+      return callback(new Error(`${hostname} is an address inside this machine or network`));
+    }
+    callback(null, address, family);
+  });
+}
+
+const MAX_FETCH_BYTES = 5_000_000;
+
+/** One GET, redirects not followed. `publicOnly` refuses a host that is, or resolves to, an internal address. */
+function httpGet(url, { signal, headers, publicOnly }) {
+  return new Promise((resolve, reject) => {
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (publicOnly && (net.isIP(host) ? isInternalAddress(host) : /(^|\.)localhost$/i.test(host))) {
+      return reject(new Error(`${url.host} is an address inside this machine or network`));
+    }
+    const request = (url.protocol === 'https:' ? https : http).request(
+      url,
+      { headers: { ...headers, 'accept-encoding': 'gzip, deflate, br' }, signal, lookup: publicOnly ? publicLookup : undefined },
+      (res) => {
+        const encoding = res.headers['content-encoding'];
+        const body = encoding === 'gzip' ? res.pipe(zlib.createGunzip()) : encoding === 'deflate' ? res.pipe(zlib.createInflate()) : encoding === 'br' ? res.pipe(zlib.createBrotliDecompress()) : res;
+        const chunks = [];
+        let size = 0;
+        const finish = () => resolve({ status: res.statusCode, location: res.headers.location ?? null, type: res.headers['content-type'] || '', text: Buffer.concat(chunks).toString('utf8') });
+        body.on('data', (chunk) => {
+          chunks.push(chunk);
+          size += chunk.length;
+          // Enough for any page worth reading; the rest is dropped rather than held in memory.
+          if (size > MAX_FETCH_BYTES) {
+            request.destroy();
+            finish();
+          }
+        });
+        body.on('end', finish);
+        body.on('error', reject);
+      },
+    );
+    request.on('error', reject);
+    request.end();
+  });
 }
 
 const MAX_OUTPUT = 24_000;
@@ -492,32 +555,29 @@ export const TOOLS = [
       // Redirects are followed by hand: the user approved one host, and a redirect must not turn
       // that approval into a request to this machine or its network.
       for (let hop = 0; ; hop++) {
-        res = await fetch(url, {
-          redirect: 'manual',
+        const elsewhere = url.host !== approvedHost;
+        res = await httpGet(url, {
           signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
           headers: { 'user-agent': 'seeker-cli', accept: 'text/html,text/plain,application/json,*/*' },
+          publicOnly: elsewhere,
         }).catch((e) => {
+          if (elsewhere && /inside this machine or network/.test(e.message)) {
+            throw new ToolError(`${approvedHost} redirected to ${url.host}, an address inside this machine or network. It was not followed; fetch that address directly if it is what you want.`);
+          }
           throw new ToolError(`Request failed: ${e.cause?.message || e.message}`);
         });
-        const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
-        if (!location) break;
-        await res.body?.cancel().catch(() => {});
+        if (!(res.status >= 300 && res.status < 400 && res.location)) break;
         if (hop >= 5) throw new ToolError('Too many redirects');
         let next;
         try {
-          next = new URL(location, url);
+          next = new URL(res.location, url);
         } catch {
-          throw new ToolError(`The server redirected to an address that is not a URL: ${location}`);
+          throw new ToolError(`The server redirected to an address that is not a URL: ${res.location}`);
         }
         if (!/^https?:$/.test(next.protocol)) throw new ToolError(`The server redirected to ${next.protocol} which is not supported`);
-        if (next.host !== approvedHost && (await isInternalHost(next.hostname))) {
-          throw new ToolError(`${approvedHost} redirected to ${next.host}, an address inside this machine or network. It was not followed; fetch that address directly if it is what you want.`);
-        }
         url = next;
       }
-      const body = await res.text();
-      const type = res.headers.get('content-type') || '';
-      const text = type.includes('html') ? htmlToText(body) : body;
+      const text = res.type.includes('html') ? htmlToText(res.text) : res.text;
       return { output: `HTTP ${res.status} ${url.href}\n\n${text}`, note: `HTTP ${res.status} · ${text.length} characters` };
     },
   },

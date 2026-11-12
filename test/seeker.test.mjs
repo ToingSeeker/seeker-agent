@@ -177,6 +177,24 @@ test('permissions: a command that only looks read-only is asked about', async ()
     'git branch new-branch',
     'git branch -f main HEAD~3',
     'git branch -D main',
+    // quoting must not hide an option from the check
+    'sort "-o" out.txt in.txt',
+    "sort '-o' out.txt in.txt",
+    'sort -""o out.txt in.txt',
+    'sort -n"o" out.txt in.txt',
+    'sort --co=./run.sh big.txt',
+    'sort "--output=out.txt" in.txt',
+    "rg '--pre' ./run.sh pattern",
+    'rg --p"re"=./run.sh pattern',
+    'git diff "--output=patch.txt"',
+    'git diff --outp=patch.txt',
+    'git "remote" add evil https://evil.example/x.git',
+    'tree "-o" listing.txt',
+    'find . "-exec" rm x +',
+    'find . -okdir rm x +',
+    'date --s=tomorrow',
+    'grep "unterminated src',
+    '"ls" "&" touch x & touch y',
   ]) {
     assert.equal(await allowed(command), false, command);
   }
@@ -194,6 +212,10 @@ test('permissions: a command that only looks read-only is asked about', async ()
     'find . -name "*.mjs" -type f',
     'ls -la 2>/dev/null; pwd',
     'grep -rn "a b" src 2>&1 | wc -l',
+    'grep -n "a|b; (c) & {d} <e>" src',
+    "rg 'foo && bar' src | sort",
+    'rg --pretty -n pattern src',
+    'git log --oneline --format="%h %s" -3',
   ]) {
     assert.equal(await allowed(command), true, command);
   }

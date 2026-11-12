@@ -11,7 +11,8 @@ import { DEFAULTS } from '../src/config.mjs';
 import { McpHub, readServers, resultText, serverFingerprint, wrapTool } from '../src/mcp.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
-import { TOOL_BY_NAME, isInternalAddress, parseSearchResults, stopAllProcesses } from '../src/tools.mjs';
+import zlib from 'node:zlib';
+import { TOOL_BY_NAME, isInternalAddress, parseSearchResults, publicLookup, stopAllProcesses } from '../src/tools.mjs';
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-t2-'));
 const run = (name, args, ctx = {}) => TOOL_BY_NAME.get(name).run(args, { cwd: os.tmpdir(), state: {}, ...ctx });
@@ -219,6 +220,8 @@ test('web_fetch follows redirects, but not from an approved host into this machi
   const outer = http.createServer((req, res) => {
     if (req.url === '/same') return res.writeHead(302, { location: '/landed' }).end();
     if (req.url === '/landed') return res.end('arrived');
+    if (req.url === '/zipped') return res.writeHead(200, { 'content-encoding': 'gzip', 'content-type': 'text/html' }).end(zlib.gzipSync('<p>packed</p>'));
+    if (req.url === '/name') return res.writeHead(302, { location: `http://localhost:${inner.address().port}/admin` }).end();
     if (req.url === '/loop') return res.writeHead(302, { location: '/loop' }).end();
     if (req.url === '/file') return res.writeHead(302, { location: 'file:///etc/passwd' }).end();
     res.writeHead(302, { location: `http://127.0.0.1:${inner.address().port}/admin` }).end();
@@ -229,13 +232,21 @@ test('web_fetch follows redirects, but not from an approved host into this machi
 
   assert.match((await run('web_fetch', { url: `${base}/same` })).output, /^HTTP 200 .*\/landed\n\narrived$/);
   await assert.rejects(run('web_fetch', { url: `${base}/elsewhere` }), /redirected to 127\.0\.0\.1:\d+, an address inside this machine or network/);
+  await assert.rejects(run('web_fetch', { url: `${base}/name` }), /redirected to localhost:\d+, an address inside this machine or network/);
+  assert.match((await run('web_fetch', { url: `${base}/zipped` })).output, /packed/);
   await assert.rejects(run('web_fetch', { url: `${base}/loop` }), /Too many redirects/);
   await assert.rejects(run('web_fetch', { url: `${base}/file` }), /file: which is not supported/);
 
-  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', '::', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1', '::ffff:7f00:1']) {
+  for (const address of ['127.0.0.1', '10.1.2.3', '172.16.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '::1', '::', 'fe80::1', 'fd00::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::127.0.0.1', '64:ff9b::7f00:1', '64:ff9b::10.0.0.1', '2002:7f00:1::1', '2002:c0a8:101::', 'fec0::1', 'ff02::1', 'fe80::1%en0', 'not-an-address']) {
     assert.equal(isInternalAddress(address), true, address);
   }
-  for (const address of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111']) assert.equal(isInternalAddress(address), false, address);
+  for (const address of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111', '64:ff9b::808:808', '2002:808:808::1', '::ffff:8.8.8.8']) assert.equal(isInternalAddress(address), false, address);
+
+  // The check sits inside the lookup the connection itself uses, so a name is judged by the address actually dialled.
+  for (const options of [{ all: true }, {}]) {
+    const error = await new Promise((resolve) => publicLookup('localhost', options, (err) => resolve(err)));
+    assert.match(error.message, /inside this machine or network/);
+  }
 });
 
 test('MCP tools reach the model and run through the agent loop with approval by name', async () => {
