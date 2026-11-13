@@ -142,8 +142,7 @@ export class UI {
     let tick = 0;
     this.mascotTimer = setInterval(() => {
       const next = pose(++tick, Boolean(this.timer));
-      const prev = this.mascot;
-      if (next.eyes === prev.eyes && next.look === prev.look && next.antenna === prev.antenna) return;
+      if (JSON.stringify(next) === JSON.stringify(this.mascot)) return;
       this.mascot = next;
       this.screen.render();
     }, MASCOT_TICK);
