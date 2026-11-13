@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { HOME_DIR, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { receivedImages } from './images.mjs';
-import { LINK_FILE, listenLink, readLines, writeLine } from './link.mjs';
+import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
@@ -825,6 +825,7 @@ export class RemoteDaemon {
     readLines(socket, (message) => {
       if (message.t === 'hello') {
         const ws = message.ws;
+        if (!sameKey(message.key, this.linkServer?.key)) return socket.destroy();
         if (workspace || typeof ws?.id !== 'string' || !/^[a-f0-9]{10}$/.test(ws.id) || this.workspaces.has(ws.id) || typeof ws.status !== 'string') return socket.destroy();
         workspace = new LinkedWorkspace(socket, ws);
         this.workspaces.set(workspace.id, workspace);
@@ -912,7 +913,7 @@ export class RemoteDaemon {
       workspace.session.save(workspace.agent.messages, workspace.agent.model);
     }
     this.linkServer?.close();
-    if (this.linkServer && this.linkFile) fs.rmSync(this.linkFile, { force: true });
+    if (this.linkServer && this.linkFile) for (const file of [this.linkFile, `${this.linkFile}.key`]) fs.rmSync(file, { force: true });
     for (const id of [...this.approvals.keys()]) this.#settle(id, null);
     this.running = false;
     this.stream?.abort();

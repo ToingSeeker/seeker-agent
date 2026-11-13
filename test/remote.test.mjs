@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -734,6 +735,15 @@ test('remote: a session running in a terminal joins the daemon, shows on the pho
 
   await until(() => me.state.workspaces.has(mirror.id));
   assert.equal(me.state.workspaces.get(mirror.id).terminal, true);
+
+  // The socket and its key are closed to other users, and a caller without the key is turned away.
+  assert.equal(fs.statSync(link).mode & 0o077, 0);
+  assert.equal(fs.statSync(`${link}.key`).mode & 0o077, 0);
+  const stranger = net.connect(link);
+  await new Promise((resolve) => stranger.once('connect', resolve));
+  stranger.write(`${JSON.stringify({ t: 'hello', key: 'x'.repeat(48), ws: { id: 'abcdef0123', status: 'idle', name: 'evil' } })}\n`);
+  await new Promise((resolve) => stranger.once('close', resolve));
+  assert.equal(me.state.workspaces.has('abcdef0123'), false);
 
   // A turn typed in the terminal: the phone follows it and may answer its approval.
   const turn = mirror.run('write a');

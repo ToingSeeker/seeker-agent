@@ -65,15 +65,46 @@ export async function listenLink(file, onConnection) {
   });
   if (taken) return null;
   fs.rmSync(file, { force: true });
-  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const server = net.createServer(onConnection);
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(file, resolve);
-  });
+  // The socket is made closed to everyone else from the first moment, not closed afterwards.
+  const umask = process.umask(0o077);
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(file, resolve);
+    });
+  } finally {
+    process.umask(umask);
+  }
   fs.chmodSync(file, 0o600);
+  // What a terminal has to show before it is believed: only this user can read it.
+  server.key = crypto.randomBytes(24).toString('hex');
+  fs.rmSync(keyFile(file), { force: true });
+  fs.writeFileSync(keyFile(file), server.key, { flag: 'wx', mode: 0o600 });
   return server;
 }
+
+const keyFile = (file) => `${file}.key`;
+
+/** The daemon's key for the socket at `file`, or null unless both are this user's own and closed to others. */
+export function linkKey(file) {
+  try {
+    const me = process.getuid?.();
+    for (const f of [file, keyFile(file)]) {
+      const stat = fs.lstatSync(f);
+      if (me !== undefined && stat.uid !== me) return null;
+      if (stat.mode & 0o077) return null;
+    }
+    if (!fs.lstatSync(file).isSocket() || !fs.lstatSync(keyFile(file)).isFile()) return null;
+    return fs.readFileSync(keyFile(file), 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Compares two keys without telling how much of a wrong one was right. */
+export const sameKey = (a, b) => typeof a === 'string' && typeof b === 'string' && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /**
  * The terminal's end. To a Workspace it stands where the daemon would: it takes the
@@ -111,11 +142,18 @@ export class TerminalLink {
 
   #connect() {
     if (this.closed) return;
+    const again = () => {
+      const timer = setTimeout(() => this.#connect(), this.retry);
+      timer.unref();
+    };
+    // Nothing is sent to a socket that is not this user's own daemon.
+    const key = linkKey(this.file);
+    if (!key) return again();
     const socket = net.connect(this.file);
     socket.once('connect', () => {
       this.socket = socket;
       this.linked = true;
-      writeLine(socket, { t: 'hello', ws: this.hello() });
+      writeLine(socket, { t: 'hello', key, ws: this.hello() });
       // What was waiting for an answer when the daemon came back is asked again.
       for (const { approval } of this.pending.values()) writeLine(socket, { t: 'ask', approval });
     });
@@ -128,9 +166,7 @@ export class TerminalLink {
     socket.once('close', () => {
       if (this.socket === socket) this.socket = null;
       this.linked = this.socket !== null;
-      if (this.closed) return;
-      const timer = setTimeout(() => this.#connect(), this.retry);
-      timer.unref();
+      if (!this.closed) again();
     });
   }
 
