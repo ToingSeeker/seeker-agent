@@ -131,8 +131,10 @@ export function runAcp({ config, info = null, input, output, log = () => {} }) {
     const sessionId = crypto.randomUUID();
     const { ui, state } = editorUi(sessionId);
     // The editor shows the question; its answer is one of the options offered here.
-    const ask = async ({ warning, always }) => {
-      const toolCall = { toolCallId: state.call ?? `call-${crypto.randomBytes(6).toString('hex')}`, title: warning ? `${state.title} — ⚠ ${warning}` : state.title };
+    const ask = async ({ tool, args, warning, always }) => {
+      // The title is a one-line label; the whole of what would run goes along uncut, as text and as the raw input.
+      const full = tool?.summary ? `${tool.verbs?.[0] ?? tool.name} ${tool.summary(args ?? {})}`.trim() : state.title;
+      const toolCall = { toolCallId: state.call ?? `call-${crypto.randomBytes(6).toString('hex')}`, title: warning ? `${state.title} — ⚠ ${warning}` : state.title, content: asContent(warning ? `${full}\n\n⚠ ${warning}` : full), rawInput: args ?? {} };
       const options = [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, ...(always ? [{ optionId: 'always', name: always[0].toUpperCase() + always.slice(1), kind: 'allow_always' }] : []), { optionId: 'reject', name: 'Reject', kind: 'reject_once' }];
       const reply = await request('session/request_permission', { sessionId, toolCall, options });
       const outcome = reply?.result?.outcome;
