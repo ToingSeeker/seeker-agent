@@ -56,14 +56,14 @@ export function truncateContext(text, name, file, cap) {
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
     else if (!fenced && /^#{1,6}\s+\S/.test(line)) headings.push(line.replace(/^#+\s+/, '').trim());
   }
-  const omitted = headings.length ? ` Omitted sections: ${headings.slice(0, 15).join('; ')}${headings.length > 15 ? '; ...' : ''}.` : '';
-  return `${text.slice(0, head)}\n\n[...truncated ${name}: kept ${head}+${tail} of ${text.length} chars. The middle is omitted.${omitted} If you need the full instructions, read the complete file with the read_file tool: ${file}]\n\n${text.slice(-tail)}`;
+  const omitted = headings.length ? ` Sections left out: ${headings.slice(0, 15).join('; ')}${headings.length > 15 ? '; ...' : ''}.` : '';
+  return `${text.slice(0, head)}\n\n[${name} is too long to show whole: its first ${head} and last ${tail} of ${text.length} characters are here, the middle is left out.${omitted} The whole file can be read with read_file: ${file}]\n\n${text.slice(-tail)}`;
 }
 
 /** A project file's text as it may be loaded: blocked if it reads like an injection, otherwise cut to size. */
 function vetted(text, label, file, cap) {
   const threat = scanThreats(text, 'context');
-  if (threat) return `[BLOCKED: ${label} contained potential prompt injection (${threat}). Content not loaded.]`;
+  if (threat) return `[Not loaded: ${label} reads like an attempt to slip instructions to the agent (${threat}).]`;
   return truncateContext(text, label, file, cap);
 }
 
@@ -200,7 +200,7 @@ export class SubdirectoryHints {
           if (!loaded.real.startsWith(fs.realpathSync(this.cwd) + path.sep) || this.seenFiles.has(loaded.real)) break;
           this.seenFiles.add(loaded.real);
           const rel = path.relative(this.cwd, file);
-          found.push(`[Subdirectory context discovered: ${rel}]\n${vetted(loaded.text, rel, file, HINT_CAP)}`);
+          found.push(`[Instructions kept in this folder: ${rel}]\n${vetted(loaded.text, rel, file, HINT_CAP)}`);
           break;
         }
       }

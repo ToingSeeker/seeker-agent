@@ -108,8 +108,8 @@ test('[SILENT] suppresses delivery only as the whole reply or its first or last 
   for (const loud of ['The build failed.', 'I would say [SILENT] but the deploy broke.']) assert.equal(isSilent(loud), false, loud);
   assert.equal(delivered({ name: 'PR digest' }, ' 3 open. '), 'Cronjob Response: PR digest\n-------------\n\n3 open.');
   const prompt = jobPrompt({ prompt: 'Check the queue.', skills: ['queues', 'gone'] }, now, (name) => (name === 'queues' ? 'Use the admin API.' : null));
-  assert.match(prompt, /^\[IMPORTANT: The user has attached the "queues" skill[^\n]*\n\nUse the admin API\.\n\n\[IMPORTANT: You are running as a scheduled cron job\./);
-  assert.match(prompt, /\[CURRENT RUN TIME: Friday, 13\/11\/2026[^\]]*\]\n\nCheck the queue\.$/);
+  assert.match(prompt, /^\[The "queues" skill belongs to this job[^\n]*\n\nUse the admin API\.\n\n\[This run was started by the schedule, not by a person\./);
+  assert.match(prompt, /\[This run started: Friday, 13\/11\/2026[^\]]*\]\n\nCheck the queue\.$/);
 });
 
 test('a due job runs in a fresh session that cannot ask, schedule or change files, and its reply is kept', async () => {
@@ -147,7 +147,7 @@ test('a due job runs in a fresh session that cannot ask, schedule or change file
   assert.match(requests[1].messages.at(-1).content, /Permission denied/);
   const tools = requests[0].tools.map((t) => t.function.name);
   for (const withheld of ['cronjob_manage', 'ask_user', 'memory', 'skill_manage']) assert.ok(!tools.includes(withheld), withheld);
-  assert.match(requests[0].messages[1].content, /^\[IMPORTANT: You are running as a scheduled cron job\.[\s\S]*Check the queue\.$/);
+  assert.match(requests[0].messages[1].content, /^\[This run was started by the schedule, not by a person\.[\s\S]*Check the queue\.$/);
   assert.equal(readJobs()[0].last_status, 'ok');
 
   const again = await tick({ config, info, now: new Date(later.getTime() + 3_700_000), deliver: () => {} });

@@ -232,7 +232,7 @@ export async function expandReferences(text, opts) {
   if (tokens > soft) warnings.push(`@ context injection warning: ${n(tokens)} tokens exceeds the 25% soft limit (${n(soft)}).`);
 
   const parts = [text];
-  if (warnings.length) parts.push(`--- Context Warnings ---\n${warnings.map((w) => `- ${w}`).join('\n')}`);
-  if (blocks.length) parts.push(`--- Attached Context ---\n\n${blocks.map((b) => b.text).join('\n\n')}`);
+  if (warnings.length) parts.push(`--- Notes on the attachments ---\n${warnings.map((w) => `- ${w}`).join('\n')}`);
+  if (blocks.length) parts.push(`--- Attached ---\n\n${blocks.map((b) => b.text).join('\n\n')}`);
   return { text: parts.join('\n\n').trim(), attached, warnings };
 }

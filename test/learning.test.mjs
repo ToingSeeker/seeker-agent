@@ -89,10 +89,10 @@ test('@ references are attached to the message, and folder instructions to the f
   await agent.runTurn('ringkas @file:notes.txt:2 dan @file:missing.txt', { references: true });
   ollama.close();
   const sent = ollama.requests[0].messages[1].content;
-  assert.match(sent, /^ringkas @file:notes\.txt:2 dan @file:missing\.txt\n\n--- Context Warnings ---\n- @file:missing\.txt: file not found\n\n--- Attached Context ---\n\n📄 @file:notes\.txt:2 [^\n]*\n```txt\nline two\n```$/);
+  assert.match(sent, /^ringkas @file:notes\.txt:2 dan @file:missing\.txt\n\n--- Notes on the attachments ---\n- @file:missing\.txt: file not found\n\n--- Attached ---\n\n📄 @file:notes\.txt:2 [^\n]*\n```txt\nline two\n```$/);
   assert.ok(said.some((line) => /attached @file:notes\.txt:2/.test(line)));
   const result = agent.messages.find((m) => m.role === 'tool').content;
-  assert.match(result, /listen\(\)\n\n\[Subdirectory context discovered: api\/AGENTS\.md\]\napi: migrations replay on deploy$/);
+  assert.match(result, /listen\(\)\n\n\[Instructions kept in this folder: api\/AGENTS\.md\]\napi: migrations replay on deploy$/);
 });
 
 test('a skill written mid-session can be loaded at once and is announced with the next message', async () => {
@@ -138,7 +138,7 @@ test('after a reply an unattended review saves what is worth keeping, with only 
   assert.ok(said.some((line) => /learned from this conversation — remembered a fact \(user\)/.test(line)));
   const review = ollama.requests[1];
   assert.deepEqual(review.tools.map((t) => t.function.name).sort(), ['glob', 'grep', 'memory', 'read_file', 'skill', 'skill_manage']);
-  assert.match(review.messages.at(-1).content, /^Review the conversation above and consider saving to memory/);
+  assert.match(review.messages.at(-1).content, /^Look back over the conversation above and decide whether anything in it should be remembered/);
   assert.equal(review.messages[0].content, ollama.requests[0].messages[0].content, 'the review reuses the same system prompt');
   assert.equal(agent.turnsSinceMemory, 0);
 

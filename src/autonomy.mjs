@@ -16,36 +16,29 @@ const SELF_PACED_FLOOR_S = 60;
 const SELF_PACED_CEILING_S = 900;
 const HEARTBEAT_MIN_INTERVAL_S = 60;
 
-const JUDGE_SYSTEM = `You are a strict judge evaluating whether an autonomous agent has achieved a user's stated goal. You receive the goal text and the agent's most recent response. Decide one of four verdicts.
+const JUDGE_SYSTEM = `You decide whether an agent that works by itself has reached the goal its user set. You are given the goal and the agent's latest reply. Be strict, and answer with one of four verdicts.
 
-DONE — the goal is fully satisfied:
-- The response explicitly confirms the goal was completed, OR
-- The response clearly shows the final deliverable was produced.
-DONE requires the deliverable to actually exist. If the response only explains why the goal cannot be reached, the verdict is BLOCKED, not DONE.
+done — the goal has been reached. The reply either says plainly that the work is finished or shows the finished result. The result has to exist: a reply that only explains why the goal is out of reach is "blocked".
 
-BLOCKED — the goal cannot be satisfied as stated:
-- The response explains the goal is genuinely unachievable (impossible, out of scope, no valid path to the deliverable), or refuses to fabricate a deliverable that cannot exist, OR
-- The response explains progress is blocked and the next step needs user input to proceed.
-Return BLOCKED with the reason describing what is blocking. BLOCKED is a refusal, not a completion — never return BLOCKED for a goal that was achieved.
-When the block is an error the agent hit (an HTTP status, an API, sign-in or token failure), quote the error text verbatim in the reason.
+blocked — the goal cannot be reached as it is written, or the agent cannot go on without the user. This covers a goal that is impossible or outside what the agent can do, an agent that declines to invent a result that cannot be real, and a next step that needs the user's input. Say in the reason what is in the way. If it is an error the agent ran into (an HTTP status, a failed API call, sign-in or token), copy the error text into the reason word for word. A goal that was reached is never "blocked".
 
-WAIT — the goal is NOT done, but the next step is to wait for async work to finish rather than act again. Choose this ONLY when the agent says it is rate-limited, backing off, or waiting a fixed period for a build, deploy or background process — return the seconds in "wait_for_seconds". Do NOT pick WAIT just because work remains.
+wait — the goal has not been reached and the right next move is to let time pass: the agent reports a rate limit, a back-off, or that it is waiting a set time for a build, a deploy or a background process. Give the number of seconds in "wait_for_seconds". Work being left over is not a reason to wait.
 
-CONTINUE — not done, and there is a concrete next step the agent can take right now. This is the default when in doubt.
+continue — the goal has not been reached and the agent can take a definite next step now. Choose this when you are unsure.
 
-Reply ONLY with a single JSON object on one line. Shapes:
+Answer with one JSON object on a single line and nothing else, in one of these forms:
 {"verdict": "done", "reason": "<one sentence>"}
 {"verdict": "blocked", "reason": "<one sentence>"}
 {"verdict": "continue", "reason": "<one sentence>"}
 {"verdict": "wait", "wait_for_seconds": <int>, "reason": "<one sentence>"}`;
 
 const judgeUser = (goal, response, now) =>
-  `Goal:\n${goal.slice(0, JUDGE_GOAL_CHARS)}\n\nAgent's most recent response:\n${response.slice(-JUDGE_RESPONSE_CHARS)}\n\nCurrent time: ${now.toISOString()}\n\nIs the goal satisfied — done, blocked, continue, or wait?`;
+  `Goal:\n${goal.slice(0, JUDGE_GOAL_CHARS)}\n\nThe agent's latest reply:\n${response.slice(-JUDGE_RESPONSE_CHARS)}\n\nTime now: ${now.toISOString()}\n\nWhich verdict: done, blocked, continue or wait?`;
 
-const continuation = (goal) => `[Continuing toward your standing goal]
+const continuation = (goal) => `[Carrying on with the goal you were given]
 Goal: ${goal}
 
-Continue working toward this goal. Take the next concrete step. If you believe the goal is complete, state so explicitly and stop. If you are blocked and need input from the user, say so clearly and stop.`;
+Take the next definite step towards it. When the goal is reached, say so plainly and stop. When you cannot go on without the user, say what you need and stop.`;
 
 const loopWakeup = ({ tick, cadence, prompt, until }) =>
   until
@@ -53,18 +46,18 @@ const loopWakeup = ({ tick, cadence, prompt, until }) =>
 Recurring task: ${prompt}
 Stop condition: ${until}
 
-This is an automatic wakeup from the /loop the user set. Perform the task now against the CURRENT state (re-check files, processes, or services fresh — do not assume anything from earlier iterations still holds). Report concisely what you found or did this iteration, and show concrete evidence of the stop condition's status.
-If the stop condition is met, or the task is no longer applicable, say so and end your reply with LOOP_COMPLETE on its own line — that stops the loop.`
+The user's /loop started this turn automatically. Do the task now and look at things as they are at this moment: read files, processes and services again instead of relying on what an earlier round found. Keep the report short: what you found or did this round, with evidence of where the stop condition stands.
+Once the stop condition holds, or the task no longer makes sense, say so and put LOOP_COMPLETE alone on the last line of your reply. That ends the loop.`
     : `[/loop wakeup #${tick}${cadence}]
 Recurring task: ${prompt}
 
-This is an automatic wakeup from the /loop the user set. Perform the task now against the CURRENT state (re-check files, processes, or services fresh — do not assume anything from earlier iterations still holds). Report concisely what you found or did this iteration.
-If the task is now complete, no longer applicable, or the thing you were watching has finished, say so and end your reply with LOOP_COMPLETE on its own line — that stops the loop.`;
+The user's /loop started this turn automatically. Do the task now and look at things as they are at this moment: read files, processes and services again instead of relying on what an earlier round found. Keep the report short: what you found or did this round.
+Once the task is finished, no longer makes sense, or what you were watching has ended, say so and put LOOP_COMPLETE alone on the last line of your reply. That ends the loop.`;
 
-const heartbeatPrompt = (interval, prompt) => `[Heartbeat — recurring instruction, fires every ${interval}]
+const heartbeatPrompt = (interval, prompt) => `[Heartbeat: a standing instruction that comes back every ${interval}]
 ${prompt}
 
-If there is nothing meaningful to do or report for this instruction right now, reply briefly that nothing has changed and stop — do not invent work.`;
+If this instruction gives you nothing real to do or report at the moment, say in a line that nothing changed and stop. Do not make up work.`;
 
 /** Reads the judge's reply: the first JSON object in it. Anything unreadable is null. */
 export function parseVerdict(text) {
@@ -222,7 +215,7 @@ export class Autonomy {
       Object.assign(g, { status: 'paused', pausedReason: 'turn budget used' });
       return { lines: [`⏸ Goal paused — ${g.turnsUsed}/${g.maxTurns} turns used. Use /goal resume to keep going, or /goal clear to stop.`] };
     }
-    return { lines: [`↻ Continuing toward goal (${g.turnsUsed}/${g.maxTurns}): ${verdict.reason}`], prompt: continuation(g.text), label: '↻ goal' };
+    return { lines: [`↻ Goal not reached yet (${g.turnsUsed}/${g.maxTurns}): ${verdict.reason}`], prompt: continuation(g.text), label: '↻ goal' };
   }
 
   // ── /loop ────────────────────────────────────────────────────────────────

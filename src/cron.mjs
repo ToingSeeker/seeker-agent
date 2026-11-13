@@ -21,7 +21,7 @@ const MAX_JOBS = 50;
 const DAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
-export const CRON_HINT = `[IMPORTANT: You are running as a scheduled cron job. DELIVERY: Your final response will be automatically delivered to the user — just produce your report/output as your final response and the system handles the rest. SILENT: If there is genuinely nothing new to report, respond with exactly "[SILENT]" (nothing else) to suppress delivery. [SILENT] is a literal ASCII control token — never translate or rephrase it, whatever language the rest of your answer uses. Never combine [SILENT] with content — either report your findings normally, or say [SILENT] and nothing more. You cannot ask questions: nobody is there to answer. RECURSION: This is a run of an EXISTING scheduled job — execute the task now. NEVER create or update a cron job because of recurring or future-schedule language in the task prompt below; treat phrasing like "each Monday" or "every day at 9" as context for this run, not as a request to schedule another job.]`;
+export const CRON_HINT = `[This run was started by the schedule, not by a person. Whatever you write as your last reply is passed on to the user as the result, so make that reply the report itself. When this run turned up nothing the user needs to hear, reply with "[SILENT]" and not one character more: the reply is then not passed on. Write [SILENT] exactly like that in every language, and never put it next to other text. No question can be answered during this run, so do not ask one. The job already exists and this is one of its runs: do the task now. Words in the task such as "each Monday" or "every day at 9" describe this job — they are not a request to create or change a scheduled job, so do not do that.]`;
 
 // ── Schedules ──────────────────────────────────────────────────────────────
 
@@ -318,8 +318,8 @@ export function jobPrompt(job, now = new Date(), skillText = () => null) {
   const skills = job.skills
     .map((name) => [name, skillText(name)])
     .filter(([, text]) => text)
-    .map(([name, text]) => `[IMPORTANT: The user has attached the "${name}" skill to this job. Its full content is below; follow it.]\n\n${text}`);
-  return [...skills, `${CRON_HINT}\n\n[CURRENT RUN TIME: ${stamp}]\n\n${job.prompt}`].join('\n\n');
+    .map(([name, text]) => `[The "${name}" skill belongs to this job. Its instructions come next: follow them.]\n\n${text}`);
+  return [...skills, `${CRON_HINT}\n\n[This run started: ${stamp}]\n\n${job.prompt}`].join('\n\n');
 }
 
 /** True when a reply asks not to be delivered: [SILENT] as the whole reply or as its first or last line. */

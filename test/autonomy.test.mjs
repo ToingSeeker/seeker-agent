@@ -36,10 +36,10 @@ test('a goal is pursued turn after turn until the judge finds it done', async ()
   assert.match(set.lines[0], /Goal set \(up to 20 turns\)/);
 
   const first = await auto.afterTurn({ interrupted: false, response: 'Fixed two; one still fails.' });
-  assert.match(first.lines[0], /^↻ Continuing toward goal \(1\/20\): tests still fail$/);
-  assert.match(first.prompt, /^\[Continuing toward your standing goal\]\nGoal: make the test suite pass\n\nContinue working toward this goal\./);
-  assert.match(asked[0].user, /^Goal:\nmake the test suite pass\n\nAgent's most recent response:\nFixed two; one still fails\./);
-  assert.match(asked[0].system, /^You are a strict judge/);
+  assert.match(first.lines[0], /^↻ Goal not reached yet \(1\/20\): tests still fail$/);
+  assert.match(first.prompt, /^\[Carrying on with the goal you were given\]\nGoal: make the test suite pass\n\nTake the next definite step towards it\./);
+  assert.match(asked[0].user, /^Goal:\nmake the test suite pass\n\nThe agent's latest reply:\nFixed two; one still fails\./);
+  assert.match(asked[0].system, /^You decide whether an agent that works by itself has reached the goal/);
 
   const second = await auto.afterTurn({ interrupted: false, response: 'All 12 tests pass now.' });
   assert.deepEqual(second, { lines: ['✓ Goal achieved: all tests pass'] });
@@ -52,7 +52,7 @@ test('a goal pauses on interrupt, on a block, when the budget is used, and when 
   stopped.auto.goalCommand('ship it');
   assert.match((await stopped.auto.afterTurn({ interrupted: true, response: 'x' })).lines[0], /paused — you interrupted/);
   assert.equal(stopped.asked.length, 0, 'an interrupted turn is not judged');
-  assert.match(stopped.auto.goalCommand('resume').prompt, /Continuing toward your standing goal/);
+  assert.match(stopped.auto.goalCommand('resume').prompt, /Carrying on with the goal you were given/);
   assert.equal(stopped.auto.goal.status, 'active');
 
   const blocked = make(['{"verdict":"blocked","reason":"needs the production password"}']);
@@ -94,7 +94,7 @@ test('a waiting goal is parked without using its budget and wakes when the time 
   assert.equal(auto.hasDue(), true);
   const due = auto.takeDue();
   assert.equal(due.kind, 'goal');
-  assert.match(due.prompt, /Continuing toward your standing goal/);
+  assert.match(due.prompt, /Carrying on with the goal you were given/);
   assert.equal(auto.hasDue(), false);
 });
 
@@ -159,7 +159,7 @@ test('a heartbeat fires when its interval has passed, once however long the sess
   clock.t += 45 * 60_000; // busy for 45 minutes
   const beat = auto.takeDue();
   assert.equal(beat.kind, 'heartbeat');
-  assert.match(beat.prompt, /^\[Heartbeat — recurring instruction, fires every 10m\]\ncheck the deploy\n\nIf there is nothing meaningful/);
+  assert.match(beat.prompt, /^\[Heartbeat: a standing instruction that comes back every 10m\]\ncheck the deploy\n\nIf this instruction gives you nothing real/);
   assert.equal(auto.hasDue(), false, 'the missed beats collapsed into one');
   assert.equal(auto.heartbeat.fireCount, 1);
   auto.heartbeatCommand('stop');

@@ -263,13 +263,13 @@ export function memoryBlocks(cwd) {
     // An entry that would act as an instruction is shown as blocked rather than read out.
     const shown = entries.map((entry) => {
       const threat = scanThreats(entry);
-      return threat ? `[BLOCKED: ${STORES[target].label} entry contained threat pattern '${threat}'. Use the memory tool (action remove, target '${target}') to delete the original.]` : entry;
+      return threat ? `[Withheld: an entry in ${STORES[target].label} matched the pattern '${threat}'. Remove the original with the memory tool (action remove, target '${target}').]` : entry;
     });
     blocks.push(`${RULE}\n${STORES[target].title} [${usage(target, entries)}]\n${RULE}\n${shown.join(ENTRY_DELIMITER)}`);
   }
   return blocks.length ? { text: blocks.join('\n\n'), count } : null;
 }
 
-export const MEMORY_GUIDANCE = `You have persistent memory, carried across sessions and loaded into each new session's context; the memory tool's schema defines what belongs there. Skills come first: when you learn something while doing a task — a procedure, a pitfall, and the user's preferences and corrections for that kind of work — record it in the skill you used or built for the task (skill_manage), where it loads only when relevant. Memory is the narrow exception for facts that apply to EVERY session regardless of task (who the user is, environment facts, standing conventions with no task home); it has a hard character budget, so when it fills, replace or consolidate stale entries rather than skipping the save. Write entries as declarative facts, not instructions to yourself: 'User prefers concise responses' ✓ — 'Always respond concisely' ✗ (imperative phrasing gets re-read as a directive in later sessions and can override the user's current request). A fact stale within a week belongs in session history; procedures and workflows belong in skills.`;
+export const MEMORY_GUIDANCE = `Some of what you learn is kept between sessions and shown to you at the start of each one. The memory tool says what may go there. Start with skills: what you learn while doing a job — the way to do it, what goes wrong, how the user wants that kind of work done — belongs in the skill for that job (skill_manage), which is only loaded when the job comes up. Memory is for the few facts that matter in every session whatever the task: who the user is, how the environment is set up, conventions that have no task of their own. Its room is limited, so when it is full, merge or replace entries that are out of date instead of giving up on the save. Phrase an entry as a fact, not as an order to yourself: "The user likes short answers" is right, "Always answer briefly" is wrong, because an order read back in a later session can overrule what the user asks for then. What will be out of date within a week is left to the session history; ways of working go in skills.`;
 
-export const SESSION_SEARCH_GUIDANCE = `When the user references something from a past conversation or you suspect relevant cross-session context exists, use session_search to recall it before asking them to repeat themselves.`;
+export const SESSION_SEARCH_GUIDANCE = `If the user mentions an earlier conversation, or earlier sessions probably hold something that matters here, look it up with session_search instead of asking the user to say it again.`;

@@ -31,7 +31,7 @@ test('a file, a line range and a folder are attached under the message', async (
   fs.writeFileSync(path.join(cwd, 'src/a.js'), 'one\ntwo\nthree\nfour\n');
   const out = await expandReferences('jelaskan @file:src/a.js:2-3 dan @folder:src', { cwd, contextLimit: 32_768 });
   assert.deepEqual(out.attached, ['@file:src/a.js:2-3', '@folder:src']);
-  assert.ok(out.text.startsWith('jelaskan @file:src/a.js:2-3 dan @folder:src\n\n--- Attached Context ---'));
+  assert.ok(out.text.startsWith('jelaskan @file:src/a.js:2-3 dan @folder:src\n\n--- Attached ---'));
   assert.match(out.text, /```js\ntwo\nthree\n```/);
   assert.doesNotMatch(out.text, /one|four/);
   assert.match(out.text, /📁 @folder:src[^\n]*\na\.js/);
@@ -44,7 +44,7 @@ test('paths outside the folder and credential files are refused with a warning',
   const out = await expandReferences('@file:../x.txt @file:.env @file:/etc/hosts @folder:escape @file:nope.txt', { cwd, contextLimit: 32_768 });
   assert.deepEqual(out.attached, []);
   assert.equal(out.warnings.length, 5);
-  assert.match(out.text, /--- Context Warnings ---/);
+  assert.match(out.text, /--- Notes on the attachments ---/);
   assert.doesNotMatch(out.text, /TOKEN=abc/);
   assert.match(out.warnings[0], /outside the working folder/);
   assert.match(out.warnings[1], /credentials/);

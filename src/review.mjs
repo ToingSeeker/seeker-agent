@@ -2,48 +2,48 @@
 // a look back over the conversation for facts worth remembering and lessons worth
 // keeping in a skill.
 
-const MEMORY_ROUTING = `Memory has THREE distinct stores — pick the right one for each fact:
-  • target='user': who the user is — persona, preferences, communication and work style, personal details they revealed, and expectations about how you should behave.
-  • target='memory': facts about the ENVIRONMENT you operate in that hold in every project — tool quirks, machine setup, config gotchas, paths and endpoints that matter.
-  • target='project': facts about the project in this working folder only — its conventions, commands and gotchas.
+const MEMORY_ROUTING = `There are three places a fact can go. Choose one:
+  • target='user' — the person: who they are, what they like, how they talk and work, personal details they shared, what they expect from you.
+  • target='memory' — the surroundings you work in, true in all projects: oddities of tools, how the machine is set up, configuration traps, paths and endpoints you need.
+  • target='project' — only the project in this folder: its conventions, its commands, its traps.
 
-One fact goes to ONE store, never several — writing it to more than one bloats the files until they hit their size limits and crowds out the facts that matter; misrouting it puts it where the next session won't look.
+A fact is stored once. Copies in several stores fill them up until the limit pushes out what matters, and a fact in the wrong store is not found by the session that needs it.
 
-Save only facts GROUNDED in this conversation — a user message or tool result you can point to. Never infer the user's traits, skill level, role, mood or preferences from topic, tone or tools used, and never turn a one-off request into a standing preference unless the user marked it general ('always', 'from now on', 'remember') or stated a standing like/dislike ('I hate X', 'stop doing Y'). If unsure, leave it out — a wrong fact misleads every future session.`;
+Store a fact only if this conversation shows it: you must be able to point at the user's message or the tool result. Do not guess the user's character, level, job, mood or tastes from the subject, the tone or the tools in use. A request made once is not a lasting preference unless the user said it is general ('always', 'from now on', 'remember') or stated a lasting like or dislike ('I hate X', 'stop doing Y'). When in doubt, store nothing: a wrong fact misleads all sessions after this one.`;
 
-const MEMORY_REVIEW = `Review the conversation above and consider saving to memory if appropriate.
+const MEMORY_REVIEW = `Look back over the conversation above and decide whether anything in it should be remembered.
 
 ${MEMORY_ROUTING}
 
-If something stands out, save it once, in the right store, using the memory tool with the matching target. If nothing is worth saving, just say 'Nothing to save.' and stop.`;
+If something qualifies, store it once in the right place with the memory tool. If nothing does, answer 'Nothing to save.' and stop.`;
 
-const LESSONS = `How to write a lesson:
-  • Procedure first: the steps that worked, as imperative instructions.
-  • A pitfall is a rule plus its WHY ("Run the migration before the seed — the seed reads columns the migration adds").
-  • No PR numbers, dates, ticket ids or the story of how it was learned. One rule per lesson. Fix a wrong lesson in place rather than adding a contradicting one.
+const LESSONS = `Writing a lesson:
+  • Begin with the procedure: the steps that worked, written as instructions.
+  • A trap is written as a rule and its reason ("Apply the schema change before loading sample data — the sample data fills columns the change creates").
+  • Leave out PR numbers, dates, ticket ids and how the lesson was learned. One lesson, one rule. A lesson that turned out wrong is corrected where it stands, not contradicted by a second one.
 
-Do NOT capture: failures of this machine or network, claims that a tool "does not work", transient errors, one-off narratives, or problems that were never resolved.`;
+Not lessons: trouble with this machine or the network, statements that some tool "does not work", errors that went away, stories of a single occasion, problems left unsolved.`;
 
-const SKILL_REVIEW = `Review the conversation above for something worth keeping as procedural knowledge. Be ACTIVE — a session with real work usually holds at least one small improvement to a skill. A pass that does nothing is a missed chance to work better next time.
+const SKILL_REVIEW = `Look back over the conversation above for know-how worth keeping. Lean towards acting: when real work was done there is usually some small way to make a skill better, and a review that changes nothing gives that up.
 
-Signals worth acting on: the user corrected how you work or what style they want for this kind of task; you worked out a technique or a sequence of commands that was not obvious; a skill you loaded was wrong, incomplete or missing a pitfall you then hit.
+Worth acting on: the user corrected your way of working or the style they want for this sort of task; you found a technique or an order of commands that was not obvious; a skill you loaded was wrong, had a gap, or did not warn about a trap you fell into.
 
-In this order of preference:
-  1. Patch a skill that was loaded in this conversation.
-  2. Patch an existing skill that covers this class of task.
+Prefer the earliest of these that fits:
+  1. Patch a skill loaded during this conversation.
+  2. Patch another existing skill that covers this kind of task.
   3. Add a supporting file (references/…) to such a skill.
-  4. Create a new skill — named after the CLASS of task (e.g. "railway-deploys"), never after one bug, error message or codename.
+  4. Create a skill, named for the kind of task (for example "railway-deploys") and not for one bug, error message or code name.
 
-Before patching a skill, read its SKILL.md in this review (read_file) so the patch matches the file as it is now. Never delete a skill here.
+Read a skill's SKILL.md with read_file during this review before you patch it, so the patch fits the file as it is. Do not delete skills here.
 
 ${LESSONS}
 
-'Nothing to save.' is a real answer, but it should not be the default.`;
+'Nothing to save.' is allowed, but it should be the exception.`;
 
 /** The instruction for one review pass: memory, skills, or both. */
 export function reviewPrompt({ memory, skills }) {
-  const body = memory && skills ? `${SKILL_REVIEW}\n\nThen, separately, consider memory. ${MEMORY_ROUTING}\n\nProcedures and task-specific corrections go in a skill; only facts that hold in EVERY session go in memory.` : memory ? MEMORY_REVIEW : SKILL_REVIEW;
-  return `${body}\n\nYou can only call memory and skill management tools (and read files). Other tools will be denied at runtime — do not attempt them. This is an unattended pass: the user will not read your reply.`;
+  const body = memory && skills ? `${SKILL_REVIEW}\n\nAfter that, as a separate question, consider memory. ${MEMORY_ROUTING}\n\nWays of working and corrections for one kind of task go in a skill. Memory only takes facts that matter in every session.` : memory ? MEMORY_REVIEW : SKILL_REVIEW;
+  return `${body}\n\nIn this pass only the memory and skill tools and reading files are available; any other tool call is refused, so do not try one. Nobody reads your reply: this pass runs unattended.`;
 }
 
 /** One line saying what a review saved, read from its tool results; null when it saved nothing. */
