@@ -28,6 +28,7 @@ seeker --yolo                # no permission prompts (dangerous commands are sti
 Inside a session: `/init`, `/model`, `/key`, `/resume`, `/config`, `/skills`, `/mcp`, `/clear`, `/compact`,
 `/status`, `/think`, `/yolo`, `/help`, `/exit`, and `!command`.
 Type `/` for command suggestions, Tab to complete, Alt+Enter for a new line, ↑↓ for message history.
+The robot in the header blinks and looks around; `/config` → `animation` turns that off.
 
 ## Install
 
@@ -214,6 +215,7 @@ plain Node.
 | `src/session.mjs`, `src/config.mjs` | saved conversations (`~/.seeker/sessions/`) and settings (`~/.seeker/config.json`) |
 | `src/commands.mjs`, `src/menu.mjs` | slash commands, the `/config` menu, the `/model` and `/resume` pickers |
 | `src/ui.mjs`, `src/markdown.mjs`, `src/text.mjs` | rendering: header, panels, tool-step tree, status bar; measuring and wrapping coloured text |
+| `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
 
 ## Tests

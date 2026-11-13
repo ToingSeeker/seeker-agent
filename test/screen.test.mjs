@@ -139,3 +139,42 @@ test('a colour left open continues on the next line', () => {
   screen.append('\x1b[2mdim one\ndim two\x1b[0m\n');
   assert.equal(screen.rows[1], '\x1b[2mdim two\x1b[0m');
 });
+
+test('header art: the robot and wordmark keep their width in every pose', async () => {
+  const { ROBOT_WIDTH, pose, robotRows, wordmarkRows } = await import('../src/mascot.mjs');
+  const { visibleLength } = await import('../src/text.mjs');
+  const seen = new Set();
+  for (let tick = 0; tick < 64; tick++) {
+    for (const busy of [false, true]) {
+      const state = pose(tick, busy);
+      seen.add(`${state.eyes}/${state.look}`);
+      for (const color of [true, false]) {
+        const rows = robotRows(state, color);
+        assert.equal(rows.length, 4);
+        for (const row of rows) assert.equal(visibleLength(row), ROBOT_WIDTH);
+        if (!color) assert.ok(!rows.join('').includes('\x1b'));
+      }
+      if (!busy) assert.equal(state.antenna, false);
+    }
+  }
+  // The loop blinks and glances both ways, and repeats.
+  assert.deepEqual([...seen].sort(), ['closed/center', 'open/center', 'open/left', 'open/right']);
+  assert.deepEqual(pose(70), pose(6));
+  assert.notEqual(robotRows(pose(18)).join(''), robotRows(pose(0)).join(''));
+  const word = wordmarkRows();
+  assert.equal(word.length, 3);
+  assert.ok(word.every((row) => visibleLength(row) === visibleLength(word[0])));
+});
+
+test('header: rows never exceed the window, wide or narrow', async () => {
+  const { UI } = await import('../src/ui.mjs');
+  const { visibleLength } = await import('../src/text.mjs');
+  const ui = new UI();
+  for (const width of [120, 96, 70, 64, 40]) {
+    const rows = ui.headerRows(width, { ready: true, provider: { local: true, label: 'Ollama' } });
+    assert.equal(rows.length, 5);
+    for (const row of rows) assert.ok(visibleLength(row) <= Math.max(width, 51), `width ${width}: ${visibleLength(row)}`);
+    // Whether the model is local or in the cloud must stay visible on any ordinary window.
+    if (width >= 64) assert.ok(rows.join('\n').includes('READY'), `badge shown at width ${width}`);
+  }
+});

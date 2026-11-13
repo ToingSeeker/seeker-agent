@@ -208,7 +208,7 @@ export async function main(argv) {
   }
 
   const cwd = process.cwd();
-  const ui = new UI({ print, showThinking: config.showThinking });
+  const ui = new UI({ print, showThinking: config.showThinking, animation: config.animation });
 
   /** Reaches a provider and settles on a model. Throws with a message fit to show the user. */
   const connect = async (id) => {
@@ -345,6 +345,7 @@ export async function main(argv) {
   });
   ui.attach(screen);
   screen.start();
+  ui.startMascot();
   ui.welcome({
     cwd,
     model: config.model,
@@ -364,6 +365,7 @@ export async function main(argv) {
     stopAllProcesses();
     hub.closeAll();
     ui.stopSpinner();
+    ui.stopMascot();
     screen.close();
     term.restore();
     process.stdout.write(`${c.dim('Goodbye.')}\n`);

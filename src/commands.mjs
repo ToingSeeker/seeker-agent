@@ -132,6 +132,11 @@ export async function applySetting(key, value, ctx) {
   saveConfig({ [key]: value });
   if (key === 'permissionMode') permissions.mode = value;
   if (key === 'showThinking') ui.showThinking = value;
+  if (key === 'animation') {
+    ui.animation = value;
+    ui.startMascot();
+    ui.screen?.render();
+  }
 }
 
 /**

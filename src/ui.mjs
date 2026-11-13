@@ -6,6 +6,7 @@ import os from 'node:os';
 import { MdStream } from './markdown.mjs';
 import { VERSION } from './config.mjs';
 import { ANSI, padEnd, truncate, truncateStart, visibleLength } from './text.mjs';
+import { RESTING, ROBOT_WIDTH, pose, robotRows, wordmarkRows } from './mascot.mjs';
 
 export { padEnd, truncate, truncateStart, visibleLength };
 
@@ -32,8 +33,10 @@ export const kilo = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
 export const contextSize = (n) => (n >= 1_000_000 ? `${Math.round(n / 100_000) / 10}M` : `${Math.round(n / (n % 1024 === 0 && n % 1000 !== 0 ? 1024 : 1000))}k`);
 
 const SPINNER = ['◐', '◓', '◑', '◒'];
-const LOGO = ['    ▲    ', '  ◀ ✛ ▶  ', '    ▼    ', '         '];
-const WORDMARK = ['╔═╗╔═╗╔═╗╦╔═╔═╗╦═╗', '╚═╗║╣ ║╣ ╠╩╗║╣ ╠╦╝', '╚═╝╚═╝╚═╝╩ ╩╚═╝╩╚═'];
+const WORDMARK = wordmarkRows();
+// For a window too narrow for the block letters.
+const SMALL_WORDMARK = ['╔═╗╔═╗╔═╗╦╔═╔═╗╦═╗', '╚═╗║╣ ║╣ ╠╩╗║╣ ╠╦╝', '╚═╝╚═╝╚═╝╩ ╩╚═╝╩╚═'];
+const MASCOT_TICK = 150;
 
 /** Branch and whether the tree is clean; null outside a repository. `clean` is null if git was too slow to say. */
 export function gitInfo(cwd) {
@@ -47,12 +50,16 @@ export function gitInfo(cwd) {
 }
 
 export class UI {
-  constructor({ print = false, showThinking = true } = {}) {
+  constructor({ print = false, showThinking = true, animation = true } = {}) {
     this.print = print;
     this.showThinking = showThinking;
+    this.animation = animation;
+    this.mascot = RESTING;
+    this.mascotTimer = null;
     this.activity = print ? process.stderr : process.stdout;
     const colors = !process.env.NO_COLOR;
-    this.c = palette(colors && Boolean(this.activity.isTTY));
+    this.colors = colors && Boolean(this.activity.isTTY);
+    this.c = palette(this.colors);
     this.answerMarkdown = colors && Boolean(process.stdout.isTTY);
     this.atLineStart = true;
     this.timer = null;
@@ -128,18 +135,49 @@ export class UI {
 
   // ── Opening screen ───────────────────────────────────────────────────────
 
+  /** Brings the robot in the header to life: it blinks, glances around, and flashes its antenna while the model works. */
+  startMascot() {
+    this.stopMascot();
+    if (!this.screen || !this.animation) return;
+    let tick = 0;
+    this.mascotTimer = setInterval(() => {
+      const next = pose(++tick, Boolean(this.timer));
+      const prev = this.mascot;
+      if (next.eyes === prev.eyes && next.look === prev.look && next.antenna === prev.antenna) return;
+      this.mascot = next;
+      this.screen.render();
+    }, MASCOT_TICK);
+    // The animation alone must never keep the process alive.
+    this.mascotTimer.unref();
+  }
+
+  stopMascot() {
+    if (this.mascotTimer) clearInterval(this.mascotTimer);
+    this.mascotTimer = null;
+    this.mascot = RESTING;
+  }
+
   /** The rows pinned to the top of the screen. */
   headerRows(width, { ready, provider }) {
     const { c } = this;
     const bar = c.dim('│');
-    const rows = WORDMARK.map((word, i) => ` ${c.accent(LOGO[i])} ${bar}  ${c.accentBold(word)}`);
-    rows.push(` ${LOGO[3]} ${bar}  Your local coding companion  ${c.dim(`v${VERSION}`)}`);
+    const robot = robotRows(this.mascot, this.colors);
     const dot = c.accent('•');
     // A cloud model sees the code it is given; the badge must not claim otherwise.
     const where = provider.local ? `LOCAL ${dot} PRIVATE` : `${c.yellow('CLOUD')} ${dot} ${provider.label.toUpperCase()}`;
     const badge = `${where} ${dot} ${ready ? 'READY' : c.yellow('CHAT ONLY')}`;
     const room = width - visibleLength(badge);
-    if (room > visibleLength(rows[1]) + 2) rows[1] = padEnd(rows[1], room) + badge;
+    const build = (wordmark) => {
+      const rows = wordmark.map((word, i) => ` ${robot[i]} ${bar}  ${c.accentBold(word)}`);
+      rows.push(` ${robot[3]} ${bar}  Your local coding companion  ${c.dim(`v${VERSION}`)}`);
+      // The badge goes beside the wordmark if there is room, otherwise beside the tagline.
+      const at = [1, 3].find((i) => room > visibleLength(rows[i]) + 2);
+      if (at !== undefined) rows[at] = padEnd(rows[at], room) + badge;
+      return { rows, fits: at !== undefined && visibleLength(rows[0]) <= width };
+    };
+    // The block letters are for show; where they would push the badge out, the small ones are used.
+    let { rows, fits } = build(WORDMARK);
+    if (!fits) ({ rows } = build(SMALL_WORDMARK));
     rows.push(c.dim('─'.repeat(width)));
     return rows;
   }

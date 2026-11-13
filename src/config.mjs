@@ -17,6 +17,7 @@ export const DEFAULTS = {
   numCtx: 32768,
   think: true,
   showThinking: true,
+  animation: true, // the robot in the header blinks
   permissionMode: 'ask', // 'ask' | 'auto'
   maxSteps: 60,
   keepAlive: '30m',
@@ -34,6 +35,7 @@ export const SETTINGS = {
   numCtx: { parse: int(2048), help: 'context window in tokens (min 2048)' },
   think: { parse: bool, help: 'let the model reason before answering' },
   showThinking: { parse: bool, help: 'show that reasoning on screen' },
+  animation: { parse: bool, help: 'animate the robot in the header' },
   permissionMode: { parse: (v) => (['ask', 'auto'].includes(v) ? v : undefined), help: 'ask before edits and commands, or run them' },
   maxSteps: { parse: int(1), help: 'tool steps allowed per message' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },

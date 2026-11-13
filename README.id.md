@@ -26,6 +26,7 @@ seeker --yolo                # tanpa tanya izin (perintah berbahaya tetap ditany
 
 Di dalam sesi: `/init`, `/model`, `/resume`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/help`, `/exit`, dan `!perintah`.
 Ketik `/` untuk melihat saran perintah, Tab untuk melengkapi, Alt+Enter untuk baris baru, ↑↓ untuk riwayat pesan.
+Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya.
 
 ## Model dan penyedia
 
@@ -191,12 +192,13 @@ ollama pull qwen3.5:27b
 | `src/ollama.mjs`, `src/http.mjs` | client streaming Ollama dan HTTP dasar |
 | `src/skills.mjs` | skill: `~/.seeker/skills/<nama>/SKILL.md`, `.seeker/skills/<nama>/SKILL.md`, dan skill plugin `~/.seeker/plugins/<plugin>/skills/…` yang dipanggil sebagai `/plugin:nama` |
 | `src/ui.mjs`, `src/markdown.mjs` | tampilan: header, panel, pohon langkah tool, status bar |
+| `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
 | `src/screen.mjs` | tata letak layar penuh: header menempel di atas, kotak input di bawah, percakapan di tengah (baris lama masuk scrollback terminal) |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |
 | `src/input.mjs` | editor input (raw key press, riwayat, paste) |
 | `src/menu.mjs` | menu `/config` dan pemilih `/model`, `/resume` |
 
-Pengaturan disimpan di `~/.seeker/config.json` (`model`, `numCtx`, `think`, `showThinking`, `host`),
+Pengaturan disimpan di `~/.seeker/config.json` (`model`, `numCtx`, `think`, `showThinking`, `animation`, `host`),
 riwayat percakapan di `~/.seeker/sessions/`. Catatan yang berlaku di semua proyek: `~/.seeker/SEEKER.md`.
 
 ## Tes

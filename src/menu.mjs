@@ -7,6 +7,7 @@ const CHOICES = {
   numCtx: [8192, 16384, 32768, 65536, 131072],
   think: [true, false],
   showThinking: [true, false],
+  animation: [true, false],
   permissionMode: ['ask', 'auto'],
   maxSteps: [30, 60, 100, 200],
   keepAlive: ['5m', '30m', '2h', '24h'],
