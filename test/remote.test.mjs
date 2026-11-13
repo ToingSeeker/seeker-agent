@@ -12,7 +12,7 @@ import { DEFAULTS, VERSION } from '../src/config.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
-import { RemoteDaemon, deriveKeys, seal, unseal } from '../src/remote.mjs';
+import { RemoteDaemon, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
@@ -625,4 +625,63 @@ test('remote: the phone is told what the agent is doing, how the turn ended, and
   await until(() => meta().tools.total === 0 && meta().tokens === null && meta().outcome === null);
   await daemon.stop();
   await running;
+});
+
+test('remote: a new project folder is made only inside the home folder, never hidden, never through a link out of it', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-home-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-outside-'));
+  newProjectFolder(path.join(home, 'shop', 'web'), home);
+  assert.ok(fs.statSync(path.join(home, 'shop', 'web')).isDirectory());
+  assert.throws(() => newProjectFolder(home, home), /inside your home folder/);
+  assert.throws(() => newProjectFolder(path.join(outside, 'x'), home), /inside your home folder/);
+  assert.throws(() => newProjectFolder(path.join(home, '..', 'x'), home), /inside your home folder/);
+  assert.throws(() => newProjectFolder(path.join(home, '.ssh', 'x'), home), /hidden/);
+  assert.throws(() => newProjectFolder(path.join(home, 'a', '.git'), home), /hidden/);
+  assert.throws(() => newProjectFolder(path.join(home, 'a', 'b', 'c', 'd', 'e'), home), /too many/);
+  assert.throws(() => newProjectFolder(path.join(home, 'bad\nname'), home), /cannot be used/);
+  fs.symlinkSync(outside, path.join(home, 'link'));
+  assert.throws(() => newProjectFolder(path.join(home, 'link', 'x'), home), /inside your home folder/);
+  assert.equal(fs.existsSync(path.join(outside, 'x')), false);
+  fs.writeFileSync(path.join(home, 'file'), '');
+  assert.throws(() => newProjectFolder(path.join(home, 'file', 'x'), home), /a file, not a folder/);
+});
+
+test('remote: the phone can make a new project folder and is taken to it; a missing folder is not made unless asked', async (t) => {
+  const secret = 'a-fifth-long-secret-for-the-new-folder-test';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const config = { ...DEFAULTS, host: 'http://127.0.0.1:9', remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [], build, info: { tools: true, thinking: false, context: null }, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  const name = `seeker-new-${crypto.randomBytes(4).toString('hex')}`;
+  const made = path.join(os.homedir(), name);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    fs.rmSync(made, { recursive: true, force: true });
+  });
+  await until(() => me.state.online);
+
+  await me.send('open', { path: `~/${name}` });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /No such folder/.test(r.text)));
+  assert.equal(fs.existsSync(made), false);
+
+  await me.send('open', { path: `~/${name}`, create: true });
+  await until(() => me.state.events.some((e) => e.t === 'opened'));
+  const opened = me.state.events.find((e) => e.t === 'opened');
+  assert.ok(fs.statSync(made).isDirectory());
+  assert.equal(opened.created, true);
+  assert.equal(me.state.workspaces.get(opened.id).path, `~/${name}`);
+
+  await me.send('open', { path: '~/.ssh/evil', create: true });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /hidden/.test(r.text)));
+  assert.equal(fs.existsSync(path.join(os.homedir(), '.ssh', 'evil')), false);
 });

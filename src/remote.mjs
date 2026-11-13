@@ -379,6 +379,33 @@ class Workspace {
   }
 }
 
+/** Where a folder named on the phone is: `~` is the home folder, and a bare name is inside it. */
+const folderPath = (folder) => path.resolve(os.homedir(), folder === '~' || folder.startsWith('~/') ? path.join(os.homedir(), folder.slice(1)) : folder);
+
+/**
+ * Makes a folder for a new project, asked for from the phone. Only inside the
+ * home folder, and never in or as a hidden folder: a phone must not be able to
+ * write into ~/.ssh or anywhere outside what the user thinks of as their projects.
+ * @throws {Error} with a message fit to show as it is
+ */
+export function newProjectFolder(cwd, home = os.homedir()) {
+  const parts = path.relative(home, cwd).split(path.sep);
+  if (!parts[0] || parts[0] === '..' || path.isAbsolute(parts[0])) throw new Error('A new project folder has to be inside your home folder.');
+  if (parts.length > 4) throw new Error('That is too many folders deep for a new project.');
+  for (const part of parts) {
+    if (part.startsWith('.')) throw new Error('A new project folder cannot be hidden or inside a hidden folder.');
+    if (part.length > 100 || /[\u0000-\u001f\u007f\\:]/.test(part)) throw new Error(`"${part.slice(0, 40)}" cannot be used as a folder name.`);
+  }
+  // The part of the path that exists already may be a link leading somewhere else.
+  let existing = path.dirname(cwd);
+  while (!fs.existsSync(existing)) existing = path.dirname(existing);
+  const real = fs.realpathSync(existing);
+  const inside = path.relative(fs.realpathSync(home), real);
+  if (inside.startsWith('..') || path.isAbsolute(inside)) throw new Error('A new project folder has to be inside your home folder.');
+  if (!fs.statSync(real).isDirectory()) throw new Error(`${path.basename(existing)} is a file, not a folder.`);
+  fs.mkdirSync(cwd, { recursive: true });
+}
+
 // ── The daemon ─────────────────────────────────────────────────────────────
 
 /** Which kinds of notification a phone wants; everything is on unless it was switched off. */
@@ -573,9 +600,9 @@ export class RemoteDaemon {
   }
 
   // ── workspaces ──
-  async openWorkspace(folder) {
-    const expanded = folder === '~' || folder.startsWith('~/') ? path.join(os.homedir(), folder.slice(1)) : folder;
-    const cwd = path.resolve(os.homedir(), expanded);
+  async openWorkspace(folder, { create = false } = {}) {
+    const cwd = folderPath(folder);
+    if (create && !fs.existsSync(cwd)) newProjectFolder(cwd);
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`No such folder: ${folder}`);
     const existing = [...this.workspaces.values()].find((w) => w.cwd === cwd);
     if (existing) return existing;
@@ -689,9 +716,14 @@ export class RemoteDaemon {
           workspace.reset();
           return this.send(this.snapshot(), { snapshot: true });
         case 'open': {
-          const opened = await this.openWorkspace(String(command.path ?? ''));
-          this.log(`opened ${opened.cwd}`);
-          return this.send(this.snapshot(), { snapshot: true });
+          const before = new Set(this.workspaces.keys());
+          const create = command.create === true;
+          const made = create && !fs.existsSync(folderPath(String(command.path ?? '')));
+          const opened = await this.openWorkspace(String(command.path ?? ''), { create });
+          this.log(`${made ? 'created and opened' : 'opened'} ${opened.cwd}`);
+          await this.send(this.snapshot(), { snapshot: true });
+          // Lets the phone that asked go straight to it.
+          return this.send({ t: 'opened', id: opened.id, created: made, fresh: !before.has(opened.id) });
         }
         case 'close':
           if (!workspace || workspace.status !== 'idle') return;

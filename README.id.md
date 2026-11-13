@@ -143,6 +143,8 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
 - **Home** — sesi yang paling butuh kamu (menunggu persetujuan, lalu yang sedang jalan, lalu yang terakhir),
   komputer yang terhubung beserta waktu bolak-balik yang terukur, proyek yang terbuka, dan `/init` `/model` `/resume`.
+  Tombol **+** membuka folder di komputer, atau membuat folder baru untuk proyek baru. Folder baru hanya
+  bisa dibuat di dalam folder home, dan tidak pernah di folder tersembunyi.
 - **Sesi** — apa yang sedang dilakukan agen (berpikir, menjalankan tool, menulis jawaban, menunggumu,
   selesai, gagal atau dihentikan), tiap langkah saat terjadi beserta keluarannya, serta konteks, token dan
   jumlah tool seperti yang dilaporkan komputer. Stop, Review, Resume dan Retry hanya muncul saat berlaku.

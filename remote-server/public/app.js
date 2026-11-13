@@ -199,7 +199,16 @@ function apply(event) {
       state.latency = { ms: Math.round(performance.now() - sent), at: Date.now() };
       break;
     }
+    case 'opened':
+      // Only the phone that just asked follows it there; this event reaches every phone.
+      if (state.opening && Date.now() - state.opening < 15_000 && state.workspaces.has(event.id)) {
+        state.opening = 0;
+        if (event.created) toast('Folder created.');
+        go({ name: 'session', ws: event.id });
+      }
+      break;
     case 'toast':
+      state.opening = 0;
       // It may be the Mac refusing an answer that came too late: nothing is waiting on one any more.
       state.deciding.clear();
       toast(event.text);
@@ -568,16 +577,21 @@ function workspaceRow(ws) {
 
 function addWorkspace() {
   const input = h('input', { class: 'field', placeholder: '~/project-folder', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
-  const open = async (folder) => {
-    if (!folder.trim()) return;
+  const open = async (folder, create = false) => {
+    let name = folder.trim();
+    if (!name) return input.focus();
+    // A bare name for a new project means a folder in the home folder.
+    if (create && !/^[~/]/.test(name)) name = `~/${name}`;
     closeSheet();
-    if (await command('open', { path: folder.trim() })) toast(`Opening ${folder.trim()}…`);
+    state.opening = Date.now();
+    if (await command('open', create ? { path: name, create: true } : { path: name })) toast(create ? `Creating ${name}…` : `Opening ${name}…`);
   };
   const opened = new Set([...state.workspaces.values()].map((w) => w.meta.path));
   const rest = state.folders.filter((f) => !opened.has(f));
   sheet(
     'Open a project',
-    h('form', { onsubmit: (e) => (e.preventDefault(), open(input.value)) }, input, h('button', { class: 'btn primary', type: 'submit' }, 'Open')),
+    h('form', { onsubmit: (e) => (e.preventDefault(), open(input.value)) }, input, h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Open'), h('button', { class: 'btn', type: 'button', onclick: () => open(input.value, true) }, 'Create new folder'))),
+    h('div', { class: 'muted small pad' }, 'Create new folder makes it on your Mac, inside your home folder, and opens it.'),
     rest.length ? h('div', { class: 'muted small pad' }, 'On your Mac:') : null,
     ...rest.map((f) => h('button', { class: 'row-btn mono', onclick: () => open(f) }, f)),
   );

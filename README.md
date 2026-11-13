@@ -192,6 +192,8 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
 - **Home** — the session that needs you first (waiting for approval, then running, then the latest), the
   connected computer with the measured round trip to it, your open projects, and `/init` `/model` `/resume`.
+  The **+** opens a folder on the computer, or makes a new one for a new project. A new folder can only be
+  made inside your home folder, and never in a hidden one.
 - **A session** — what the agent is doing right now (thinking, running a tool, writing, waiting for you,
   finished, failed or stopped), every step as it happens with its output, and context, tokens and tool
   counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply.
