@@ -90,8 +90,14 @@ svg {
 
 #app {
   max-width: 620px;
+  /* Held to what is really on screen (see the keyboard code in app.js): on iOS the page's own
+     height stays wrong for a while after the keyboard closes. */
+  position: fixed;
+  top: var(--vv-top, 0px);
+  left: 0;
+  right: 0;
   margin: 0 auto;
-  height: 100dvh;
+  height: var(--vv-h, 100dvh);
   display: flex;
   flex-direction: column;
   padding-top: env(safe-area-inset-top);
@@ -1330,7 +1336,8 @@ pre {
 /* ── bottom sheet and toast ── */
 #sheet {
   position: fixed;
-  inset: 0;
+  inset: var(--vv-top, 0px) 0 auto 0;
+  height: var(--vv-h, 100dvh);
   z-index: 20;
   display: flex;
   align-items: flex-end;
