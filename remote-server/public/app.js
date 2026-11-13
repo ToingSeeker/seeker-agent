@@ -569,7 +569,7 @@ function workspaceRow(ws) {
     'button',
     { class: `row ws${meta.status === 'approval' ? ' attention' : ''}`, onclick: () => go({ name: 'session', ws: meta.id }) },
     h('span', { class: 'ico', icon: 'folder' }),
-    h('span', { class: 'grow' }, h('span', { class: 'label line' }, meta.name), h('span', { class: 'sub mono line' }, meta.path, meta.branch ? ` · ${meta.branch}` : ''), h('span', { class: 'sub line' }, meta.lastAt ? `Last activity ${ago(meta.lastAt)}` : 'No activity yet')),
+    h('span', { class: 'grow' }, h('span', { class: 'label line' }, meta.name), h('span', { class: 'sub mono line' }, meta.path, meta.branch ? ` · ${meta.branch}` : ''), h('span', { class: 'sub line' }, meta.terminal ? 'Terminal session · ' : '', meta.lastAt ? `Last activity ${ago(meta.lastAt)}` : 'No activity yet')),
     st.key !== 'idle' && chip(st),
     h('span', { class: 'chev', icon: 'chevron' }),
   );
@@ -897,17 +897,21 @@ function session(ws) {
     sheet(
       meta.name,
       h('button', { class: 'row-btn', onclick: () => (closeSheet(), sendText(meta.id, INIT)) }, '/init — write SEEKER.md for this project'),
-      h('button', { class: 'row-btn', onclick: () => (closeSheet(), newConversation(meta)) }, '/new — start a new conversation'),
-      h('button', { class: 'row-btn red', onclick: () => (closeSheet(), confirm(`Close ${meta.name}? Its conversation is saved on your Mac.`) && (command('close', { ws: meta.id }), go({ name: 'home' }))) }, 'Close this project'),
+      // A conversation typed in a terminal is started, ended and given its model there.
+      meta.terminal && h('div', { class: 'muted small pad' }, 'This conversation runs in a terminal on your Mac. A new conversation, another model, or closing it are done there.'),
+      !meta.terminal && h('button', { class: 'row-btn', onclick: () => (closeSheet(), newConversation(meta)) }, '/new — start a new conversation'),
+      !meta.terminal && h('button', { class: 'row-btn red', onclick: () => (closeSheet(), confirm(`Close ${meta.name}? Its conversation is saved on your Mac.`) && (command('close', { ws: meta.id }), go({ name: 'home' }))) }, 'Close this project'),
     );
   const up = state.linked && state.online;
   return [
-    h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.branch || 'no git', ' • ', meta.path)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
+    h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.path)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
     h(
       'div',
       { class: 'group' },
       row('laptop', state.device?.name ?? 'Your Mac', h('span', { class: `dot ${up ? 'on' : 'off'}`, role: 'img', 'aria-label': up ? 'connected' : 'not connected' })),
-      h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
+      meta.terminal
+        ? h('div', { class: 'row' }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))))
+        : h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
     ),
     statusBanner(ws, pending),
     section([h('span', { icon: 'list' }), 'ACTIVITY'], st.busy && up && h('span', { class: 'live' }, h('i'), 'LIVE')),
@@ -1172,9 +1176,10 @@ function draw() {
       $('controls').dataset.signature = signature;
     }
     $('controls').hidden = buttons.length === 0;
-    $('send').disabled = st.busy || sending || !up;
+    // A terminal session takes a picture at any time: it goes into the message being typed there.
+    $('send').disabled = (st.busy && !ws.meta.terminal) || sending || !up;
     $('tokens').textContent = `${kilo(ws.meta.used)} / ${sizeOf(ws.meta.limit)}`;
-    $('input').placeholder = !up ? 'Not connected…' : st.busy ? 'Seeker is working…' : 'Message or /command…';
+    $('input').placeholder = !up ? 'Not connected…' : st.busy ? (ws.meta.terminal ? 'Working… a picture can still be sent' : 'Seeker is working…') : ws.meta.terminal ? 'Message, or just a picture…' : 'Message or /command…';
     // Said aloud once per change, for a reader who cannot see the banner turn colour.
     const say = `${ws.meta.name}: ${st.label.toLowerCase()}`;
     if (say !== announced) $('announce').textContent = announced = say;
@@ -1211,8 +1216,8 @@ function slashCommands() {
   const busy = agentState(ws.meta).busy;
   return [
     { name: '/init', about: 'write SEEKER.md for this project', off: busy, run: () => sendText(id, INIT) },
-    { name: '/model', about: 'switch the model', off: busy, run: chooseModel },
-    { name: '/new', about: 'start a new conversation', off: busy, run: () => newConversation(ws.meta) },
+    { name: '/model', about: 'switch the model', off: busy || ws.meta.terminal, run: chooseModel },
+    { name: '/new', about: 'start a new conversation', off: busy || ws.meta.terminal, run: () => newConversation(ws.meta) },
     { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => command('stop', { ws: id }) },
     { name: '/image', about: 'attach a photo or screenshot', off: false, run: () => $('file').click() },
   ];

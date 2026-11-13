@@ -14,6 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { HOME_DIR, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { receivedImages } from './images.mjs';
+import { LINK_FILE, listenLink, readLines, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
@@ -197,11 +198,16 @@ export class WebUI {
 
 const TITLES = { exec: 'Run this command?', write: 'Apply this change?', net: 'Open this address?', other: 'Use this tool?' };
 
-class Workspace {
-  constructor(daemon, cwd) {
+export class Workspace {
+  /**
+   * @param {object} daemon  the RemoteDaemon, or for a session running in a terminal the TerminalLink that leads to one
+   * @param {{ id?: string, terminal?: boolean }} [opts]  `terminal`: the conversation is typed in a terminal on this machine
+   */
+  constructor(daemon, cwd, { id = null, terminal = false } = {}) {
     this.daemon = daemon;
     this.cwd = cwd;
-    this.id = crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 10);
+    this.terminal = terminal;
+    this.id = id ?? crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 10);
     this.name = path.basename(cwd) || cwd;
     this.items = [];
     this.status = 'idle'; // idle | working | approval
@@ -272,6 +278,7 @@ class Workspace {
       limit: agent.contextLimit(),
       vision: Boolean(agent.caps.vision || agent.provider.ownTools),
       progress: todos.length ? { done, total: todos.length, current } : null,
+      ...(this.terminal ? { terminal: true } : {}),
     };
   }
 
@@ -379,6 +386,56 @@ class Workspace {
   }
 }
 
+/**
+ * A session that runs in a terminal on this machine and joined over the local link.
+ * The daemon does not own its agent: it keeps a copy of what the terminal reports,
+ * so a snapshot can include it, and passes on what the phone sends.
+ */
+class LinkedWorkspace {
+  constructor(socket, ws) {
+    this.linked = true;
+    this.socket = socket;
+    this.id = ws.id;
+    this.items = Array.isArray(ws.items) ? ws.items.slice(-MAX_ITEMS) : [];
+    this.#keep(ws);
+  }
+
+  #keep({ items, ...meta }) {
+    this.last = { ...meta, id: this.id, terminal: true };
+    this.name = String(meta.name ?? 'terminal');
+  }
+
+  get status() {
+    return this.last.status;
+  }
+
+  meta() {
+    return this.last;
+  }
+
+  /** Applies an event the terminal sent to the copy kept here. */
+  track(event) {
+    if (event.t === 'ws' && event.ws) this.#keep(event.ws);
+    else if (event.t === 'item' && event.item) {
+      this.items.push(event.item);
+      if (this.items.length > MAX_ITEMS) this.items.shift();
+    } else if (event.t === 'patch') {
+      const item = this.items.find((i) => i.id === event.id);
+      if (!item) return;
+      Object.assign(item, event.patch ?? {});
+      if (event.append) item.text = (item.text ?? '') + event.append;
+    }
+  }
+
+  message(text, images) {
+    writeLine(this.socket, { t: 'message', text, images });
+  }
+
+  stop() {
+    writeLine(this.socket, { t: 'stop' });
+  }
+}
+
 /** Where a folder named on the phone is: `~` is the home folder, and a bare name is inside it. */
 const folderPath = (folder) => path.resolve(os.homedir(), folder === '~' || folder.startsWith('~/') ? path.join(os.homedir(), folder.slice(1)) : folder);
 
@@ -435,7 +492,9 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {} }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null }) {
+    this.linkFile = link; // where sessions running in a terminal join; null = they cannot
+    this.linkServer = null;
     this.remember = remember; // false in tests, so they never touch the user's settings
     this.info = info; // what the current model can do; replaced when the model is switched from the phone
     this.notifyAfter = push.finishedAfter ?? NOTIFY_FINISHED_AFTER;
@@ -565,7 +624,7 @@ export class RemoteDaemon {
 
   /** Makes `model` on `providerId` the model of every open workspace, now and for the next start. */
   async #switchModel(providerId, model) {
-    const busy = [...this.workspaces.values()].find((w) => w.status !== 'idle');
+    const busy = [...this.workspaces.values()].find((w) => !w.linked && w.status !== 'idle');
     if (busy) throw new Error(`${busy.name} is still working. Stop it before switching model.`);
     const first = createProvider(providerId, this.config);
     const info = await first.describe(model); // fails here if the model or the provider is not usable
@@ -577,6 +636,7 @@ export class RemoteDaemon {
       saveProviderConfig(this.config, providerId, { model });
     }
     for (const workspace of this.workspaces.values()) {
+      if (workspace.linked) continue; // a terminal session chooses its own model, in the terminal
       // Each workspace gets its own provider object: some keep a session per conversation.
       workspace.agent.setModel(model, info, createProvider(providerId, this.config));
       workspace.agent.usedTokens = 0;
@@ -604,7 +664,7 @@ export class RemoteDaemon {
     const cwd = folderPath(folder);
     if (create && !fs.existsSync(cwd)) newProjectFolder(cwd);
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`No such folder: ${folder}`);
-    const existing = [...this.workspaces.values()].find((w) => w.cwd === cwd);
+    const existing = [...this.workspaces.values()].find((w) => !w.linked && w.cwd === cwd);
     if (existing) return existing;
     const workspace = new Workspace(this, cwd);
     await workspace.open();
@@ -616,7 +676,7 @@ export class RemoteDaemon {
 
   #remember() {
     if (!this.remember) return;
-    this.config.remote = { ...this.config.remote, workspaces: [...this.workspaces.values()].map((w) => w.cwd) };
+    this.config.remote = { ...this.config.remote, workspaces: [...this.workspaces.values()].filter((w) => !w.linked).map((w) => w.cwd) };
     saveConfig({ remote: this.config.remote });
   }
 
@@ -641,6 +701,13 @@ export class RemoteDaemon {
         case 'message': {
           if (!workspace) return;
           const images = receivedImages(command.images);
+          if (workspace.linked) {
+            // The terminal decides what to do with it: it knows whether someone is typing there.
+            const said = typeof command.text === 'string' ? command.text.trim() : '';
+            if (!said && !images.length) return;
+            this.log(`${workspace.name} (terminal) ← ${said ? said.split('\n')[0].slice(0, 70) : `${images.length} image${images.length > 1 ? 's' : ''}`}`);
+            return workspace.message(said, images);
+          }
           const text = (typeof command.text === 'string' ? command.text.trim() : '') || (images.length ? `Look at ${images.length > 1 ? 'these images' : 'this image'}.` : '');
           if (!text) return;
           if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Stop it first.` });
@@ -712,6 +779,7 @@ export class RemoteDaemon {
           return this.send({ t: 'toast', text: sent ? `Sent to ${sent} phone(s).` : 'No phone accepted it. Turn notifications on first.' });
         }
         case 'new':
+          if (workspace?.linked) return this.send({ t: 'toast', text: 'This conversation runs in a terminal on your Mac. Start a new one there.' });
           if (!workspace || workspace.status !== 'idle') return;
           workspace.reset();
           return this.send(this.snapshot(), { snapshot: true });
@@ -726,6 +794,7 @@ export class RemoteDaemon {
           return this.send({ t: 'opened', id: opened.id, created: made, fresh: !before.has(opened.id) });
         }
         case 'close':
+          if (workspace?.linked) return this.send({ t: 'toast', text: 'This conversation runs in a terminal on your Mac. It leaves the list when that terminal is closed.' });
           if (!workspace || workspace.status !== 'idle') return;
           workspace.session.save(workspace.agent.messages, workspace.agent.model);
           this.workspaces.delete(workspace.id);
@@ -739,9 +808,62 @@ export class RemoteDaemon {
     }
   }
 
+  // ── sessions running in a terminal on this machine ──
+  async #serveLink() {
+    if (!this.linkFile) return;
+    try {
+      this.linkServer = await listenLink(this.linkFile, (socket) => this.#joined(socket));
+      if (!this.linkServer) this.log('another `seeker remote` is already taking terminal sessions; this one will not');
+    } catch (err) {
+      this.log(`terminal sessions cannot join (${err.code ?? err.message})`);
+    }
+  }
+
+  #joined(socket) {
+    let workspace = null;
+    socket.on('error', () => {});
+    readLines(socket, (message) => {
+      if (message.t === 'hello') {
+        const ws = message.ws;
+        if (workspace || typeof ws?.id !== 'string' || !/^[a-f0-9]{10}$/.test(ws.id) || this.workspaces.has(ws.id) || typeof ws.status !== 'string') return socket.destroy();
+        workspace = new LinkedWorkspace(socket, ws);
+        this.workspaces.set(workspace.id, workspace);
+        this.log(`terminal session joined: ${workspace.name}`);
+        return this.send(this.snapshot(), { snapshot: true });
+      }
+      if (!workspace) return socket.destroy();
+      if (message.t === 'send' && message.event && typeof message.event === 'object') {
+        const event = message.event;
+        // A terminal speaks for itself only.
+        if (event.t === 'toast') return this.send({ t: 'toast', text: String(event.text ?? '').slice(0, 300) });
+        if (event.t === 'ws') {
+          workspace.track(event);
+          return this.send({ t: 'ws', ws: workspace.meta() });
+        }
+        if (event.t !== 'item' && event.t !== 'patch') return;
+        workspace.track(event);
+        return this.send({ ...event, ws: workspace.id });
+      }
+      if (message.t === 'ask' && typeof message.approval?.id === 'string' && !this.approvals.has(message.approval.id)) {
+        const approval = { ...message.approval, ws: workspace.id, wsName: workspace.name };
+        return this.ask(approval).then((answer) => writeLine(socket, { t: 'answer', id: approval.id, answer }));
+      }
+      if (message.t === 'unask' && this.approvals.get(message.id)?.approval.ws === workspace.id) return this.#settle(message.id, null);
+      if (message.t === 'notify' && message.payload && typeof message.payload === 'object') return this.notify(message.payload, typeof message.kind === 'string' ? message.kind : undefined);
+    });
+    socket.once('close', () => {
+      if (!workspace) return;
+      for (const [id, entry] of this.approvals) if (entry.approval.ws === workspace.id) this.#settle(id, null);
+      this.workspaces.delete(workspace.id);
+      this.log(`terminal session left: ${workspace.name}`);
+      if (this.running) this.send(this.snapshot(), { snapshot: true });
+    });
+  }
+
   /** Runs until stop(): keeps the command stream to the relay open, reconnecting when it drops. */
   async start() {
     this.running = true;
+    await this.#serveLink();
     for (const folder of this.folders) {
       await this.openWorkspace(folder).catch((err) => this.log(`skipped ${folder}: ${err.message}`));
     }
@@ -782,9 +904,15 @@ export class RemoteDaemon {
   async stop() {
     if (!this.running) return;
     for (const workspace of this.workspaces.values()) {
+      if (workspace.linked) {
+        workspace.socket.destroy(); // the terminal carries on by itself
+        continue;
+      }
       workspace.stop();
       workspace.session.save(workspace.agent.messages, workspace.agent.model);
     }
+    this.linkServer?.close();
+    if (this.linkServer && this.linkFile) fs.rmSync(this.linkFile, { force: true });
     for (const id of [...this.approvals.keys()]) this.#settle(id, null);
     this.running = false;
     this.stream?.abort();

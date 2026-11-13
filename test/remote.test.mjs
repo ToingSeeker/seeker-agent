@@ -12,7 +12,8 @@ import { DEFAULTS, VERSION } from '../src/config.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
-import { RemoteDaemon, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
+import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
+import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
@@ -684,4 +685,91 @@ test('remote: the phone can make a new project folder and is taken to it; a miss
   await me.send('open', { path: '~/.ssh/evil', create: true });
   await until(() => me.state.replies.some((r) => r.t === 'toast' && /hidden/.test(r.text)));
   assert.equal(fs.existsSync(path.join(os.homedir(), '.ssh', 'evil')), false);
+});
+
+test('remote: a session running in a terminal joins the daemon, shows on the phone, and takes messages and approvals from it', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-term-'));
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sk-')), 'l.sock');
+  const secret = 'a-sixth-long-secret-for-the-terminal-link-1';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([
+    [call('write_file', { path: 'a.txt', content: 'one' }), { done: true }],
+    [done('Written.')],
+    [call('write_file', { path: 'b.txt', content: 'two' }), { done: true }],
+    [done('Also written.')],
+  ]);
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret } };
+  const daemon = new RemoteDaemon({ config, folders: [], build: async () => ({}), info: null, remember: false, link });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+
+  // The terminal's side, as cli.mjs puts it together, with a stand-in for the screen.
+  const shown = [];
+  const screen = new Proxy({ c: new Proxy({}, { get: () => (x) => String(x) }) }, { get: (o, k) => o[k] ?? (k === 'answerStream' ? () => ({ push: (x) => shown.push(x), flush() {} }) : (...a) => shown.push([k, ...a])) });
+  const got = [];
+  const port = new TerminalLink({ file: link, info: { tools: true, thinking: false, context: null }, retry: 50, onMessage: (m) => got.push(m) });
+  const mirror = new Workspace(port, cwd, { id: terminalId(cwd), terminal: true });
+  let phoneAsker;
+  let typed = null; // resolves the question open "in the terminal"
+  const here = () => new Promise((resolve) => (typed = resolve));
+  const ask = async (request) => {
+    const first = await Promise.race([here().then((a) => ({ a, by: 'terminal' })), phoneAsker(request).then((a) => ({ a, by: 'phone' }))]);
+    if (first.by === 'terminal') port.withdraw();
+    return first.a;
+  };
+  const agent = new Agent({ config, ui: teeUi(screen, mirror.ui), permissions: new Permissions({ mode: 'ask', cwd, ask }), provider: createProvider('ollama', config), info: port.info, cwd });
+  port.build = async (_c, _u, asker) => ((phoneAsker = asker), { agent, session: { save() {}, startNew() {} } });
+  await mirror.open();
+  port.start(() => ({ ...mirror.meta(), items: mirror.items }));
+  t.after(async () => {
+    me.close();
+    port.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+  });
+
+  await until(() => me.state.workspaces.has(mirror.id));
+  assert.equal(me.state.workspaces.get(mirror.id).terminal, true);
+
+  // A turn typed in the terminal: the phone follows it and may answer its approval.
+  const turn = mirror.run('write a');
+  await until(() => me.state.approvals.length === 1);
+  assert.equal(me.state.approvals[0].ws, mirror.id);
+  assert.equal(me.state.workspaces.get(mirror.id).status, 'approval');
+  await me.send('approve', { id_approval: me.state.approvals[0].id, decision: 'allow' });
+  await turn;
+  assert.equal(fs.readFileSync(path.join(cwd, 'a.txt'), 'utf8'), 'one');
+  await until(() => me.state.workspaces.get(mirror.id).outcome === 'completed');
+  const seen = me.state.workspaces.get(mirror.id).items;
+  assert.ok(seen.some((i) => i.kind === 'user' && i.text === 'write a'));
+  assert.ok(seen.some((i) => i.kind === 'assistant' && /Written/.test(i.text)));
+  assert.ok(shown.some((x) => Array.isArray(x) && x[0] === 'toolStart'), 'the terminal still shows everything itself');
+
+  // Answered in the terminal instead: the request leaves the phone.
+  const second = mirror.run('write b');
+  await until(() => me.state.approvals.length === 1);
+  typed('y');
+  await second;
+  assert.equal(fs.readFileSync(path.join(cwd, 'b.txt'), 'utf8'), 'two');
+  await until(() => me.state.approvals.length === 0);
+
+  // A message from the phone is handed to the terminal, which decides what to do with it.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64').toString('base64');
+  await me.send('message', { ws: mirror.id, text: '', images: [{ name: 'shot.png', data: png }] });
+  await until(() => got.length === 1);
+  assert.equal(got[0].text, '');
+  assert.equal(got[0].images[0].mime, 'image/png');
+  await me.send('message', { ws: mirror.id, text: 'hello', images: [{ name: 'x.png', data: 'bm90IGFuIGltYWdl' }] });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /not a PNG/.test(r.text)));
+  assert.equal(got.length, 1, 'what is not a picture never reaches the terminal');
+
+  // What only the daemon's own projects can do is refused, and the terminal leaving removes it.
+  await me.send('new', { ws: mirror.id });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /runs in a terminal/.test(r.text)));
+  port.close();
+  await until(() => !me.state.workspaces.has(mirror.id));
 });

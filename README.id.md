@@ -155,6 +155,21 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
 Tidak ada angka yang dikira-kira di HP. Angka yang belum dilaporkan komputer tampil sebagai “—”.
 
+### Sesi yang sedang kamu ketik di terminal
+
+Selama `seeker remote` berjalan, `seeker` biasa yang dibuka di terminal pada komputer yang sama akan
+bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang perlu diatur; kalau
+`seeker remote` tidak jalan, terminal bekerja persis seperti sebelumnya.
+
+- **Gambar dari HP** — kirim screenshot tanpa teks, dan path-nya masuk ke pesan yang sedang kamu ketik di
+  terminal, seperti file yang di-drag ke sana. Selesaikan kalimatnya lalu tekan Enter.
+- **Pesan dari HP** — pesan yang berisi teks dijalankan sebagai giliran sendiri saat terminal sedang
+  bebas. Ketikan yang belum selesai kembali ke kotak sesudahnya. Isinya selalu pesan untuk model: baris
+  shell `!` dan `/perintah` tidak dijalankan dari HP.
+- **Persetujuan** — ditanyakan di dua tempat; jawaban pertama yang berlaku dan yang satunya tertutup.
+- **Tidak dari HP** — percakapan baru, ganti model, dan menutup sesi dilakukan di terminal. Sesi yang
+  dijalankan dengan `--yolo` tampil di HP tapi tidak menerima tugas dari sana.
+
 ### Setelah terpasang
 
 - **HP baru:** jalankan `seeker remote --setup` lagi dan buka link-nya di HP itu.

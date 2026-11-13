@@ -41,6 +41,9 @@ export class Terminal {
     this.endCapture = null;
     this.onInterrupt = null;
     this.restored = false;
+    this.reading = null; // the message box, while a message is being typed in it
+    this.draft = ''; // text waiting to be in the box the next time it opens
+    this.injected = undefined;
     this.history = [];
     try {
       const saved = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
@@ -148,8 +151,8 @@ export class Terminal {
    * @param {(state: object) => 'clear'|'cancel'|'ignore'} opts.onCtrlC
    * @returns {Promise<string|null>} the text, or null if cancelled
    */
-  #edit({ draw, width, multiline, useHistory, complete, onCtrlC }) {
-    const state = { text: '', cursor: 0 };
+  #edit({ draw, width, multiline, useHistory, complete, onCtrlC, initial = '', expose = null }) {
+    const state = { text: initial, cursor: initial.length };
     let result = null;
     let pasting = false;
     let historyAt = this.history.length;
@@ -237,6 +240,8 @@ export class Terminal {
       return false;
     };
 
+    // Lets text arrive from somewhere other than the keyboard while this is being typed.
+    expose?.({ text: () => state.text, insert: (s) => (insert(s), draw(state)) });
     draw(state);
     return this.captureKeys(onKey).then(() => result);
   }
@@ -247,7 +252,7 @@ export class Terminal {
    * @param {string} opts.placeholder
    * @param {(text: string) => string[]} [opts.suggest]   rows shown under the box
    * @param {(text: string) => string|null} [opts.complete]
-   * @returns {Promise<string|null>} null = the user wants to leave
+   * @returns {Promise<string|object|null>} null = the user wants to leave; an object = what inject() was given
    */
   async readInput({ placeholder, suggest, complete }) {
     let exitArmedAt = 0;
@@ -261,6 +266,8 @@ export class Terminal {
       multiline: true,
       useHistory: true,
       complete,
+      initial: this.draft,
+      expose: (box) => (this.reading = box),
       onCtrlC: (state) => {
         if (state.text) return 'clear';
         if (armed()) return 'cancel';
@@ -268,9 +275,36 @@ export class Terminal {
         return 'ignore';
       },
     });
+    const typed = this.reading?.text() ?? '';
+    this.reading = null;
+    this.draft = '';
     this.screen.setFooter({ input: null, suggestions: [], exitArmed: false });
+    if (this.injected !== undefined) {
+      const value = this.injected;
+      this.injected = undefined;
+      // What was being typed is not lost: it is back in the box when this turn is over.
+      this.draft = typed;
+      return value;
+    }
     if (text !== null) this.#remember(text);
     return text;
+  }
+
+  /** Puts text into the message box as if typed: now if it is open, otherwise the next time it opens. */
+  typeIn(text) {
+    if (this.reading) this.reading.insert(text);
+    else this.draft += text;
+  }
+
+  /**
+   * Ends the read in progress and makes readInput return `value` instead of what was typed.
+   * @returns {boolean} false when no message is being typed right now
+   */
+  inject(value) {
+    if (!this.reading || this.closed) return false;
+    this.injected = value;
+    this.cancelWait();
+    return true;
   }
 
   /**

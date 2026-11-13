@@ -204,6 +204,21 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
 Nothing on these screens is estimated on the phone. A number the computer has not reported shows as “—”.
 
+### A session you are typing in the terminal
+
+While `seeker remote` is running, a plain `seeker` started in a terminal on the same computer joins it by
+itself and shows on the phone as a *terminal session*. Nothing has to be set up; if `seeker remote` is not
+running, the terminal works exactly as before.
+
+- **A picture from the phone** — send a screenshot with no text and its path is put into the message you are
+  typing in the terminal, as if you had dragged the file in. Finish the sentence and press Enter.
+- **A message from the phone** — one with words runs as a turn of its own when the terminal is free. What
+  you had half typed is back in the box afterwards. It is always a message for the model: `!` shell lines
+  and `/commands` are not run from the phone.
+- **Approvals** — asked in both places; the first answer decides and the other one closes.
+- **Not from the phone** — a new conversation, another model, and closing the session are done in the
+  terminal. A session started with `--yolo` shows on the phone but takes no tasks from it.
+
 ### Later
 
 - **New phone:** run `seeker remote --setup` again and open the link on it.

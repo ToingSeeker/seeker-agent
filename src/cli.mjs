@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { Agent } from './agent.mjs';
 import { matchCommands, resolveModel, runCommand } from './commands.mjs';
-import { RemoteDaemon, remoteCredentials, stayAwake } from './remote.mjs';
+import { RemoteDaemon, Workspace, remoteCredentials, stayAwake } from './remote.mjs';
+import { saveImages } from './images.mjs';
+import { TerminalLink, teeUi, terminalId } from './link.mjs';
 import { VERSION, loadConfig, normalizeHost, saveConfig } from './config.mjs';
 import { Terminal } from './input.mjs';
 import { isConnectionRefused, version } from './ollama.mjs';
@@ -101,6 +103,26 @@ async function ensureOllama(host, ui) {
     ui.stopSpinner();
   }
   throw new Error('Ollama is not running and could not be started. Run `ollama serve` or open the Ollama app, then try again.');
+}
+
+/**
+ * Asks in the terminal and, while a phone can be reached, on the phone too: whichever answers first decides.
+ * @param {Function} here  the terminal's own asker
+ */
+function eitherAsker(here, { port, term, ui, phone }) {
+  return async (request) => {
+    if (!port?.linked) return here(request);
+    const there = phone(request);
+    if (!there) return here(request);
+    const first = await Promise.race([here(request).then((answer) => ({ answer, by: 'terminal' })), there.then((answer) => ({ answer, by: 'phone' }))]);
+    if (first.by === 'terminal') {
+      port.withdraw();
+      return first.answer;
+    }
+    term.cancelWait(); // closes the question still open here
+    if (first.answer !== null) ui.toolLine(ui.c.dim(`› answered on the phone: ${first.answer === 'y' ? 'yes' : first.answer === 'a' ? 'always' : first.answer === 'n' ? 'no' : first.answer}`));
+    return first.answer;
+  };
 }
 
 function permissionAsker(ui, term) {
@@ -291,9 +313,18 @@ export async function main(argv) {
 
   const screen = print ? null : new Screen({ header: (width) => ui.headerRows(width, { ready: agent.caps.tools, provider: agent.provider }), colors: ui.c });
   const term = print ? null : new Terminal(ui, screen);
-  const permissions = new Permissions({ mode: config.permissionMode, cwd, ask: term ? permissionAsker(ui, term) : null });
-  const agent = new Agent({ config, ui, permissions, provider, info, cwd });
+  // An interactive session also shows on the phone while `seeker remote` runs on this machine:
+  // `mirror` is the copy the phone sees, `port` the way to the daemon. With no daemon, both stay idle.
+  const port = term ? new TerminalLink({ info }) : null;
+  const mirror = port ? new Workspace(port, cwd, { id: terminalId(cwd), terminal: true }) : null;
+  let phoneAsker = null;
+  const permissions = new Permissions({ mode: config.permissionMode, cwd, ask: term ? eitherAsker(permissionAsker(ui, term), { port, term, ui, phone: (request) => phoneAsker?.(request) }) : null });
+  const agent = new Agent({ config, ui: mirror ? teeUi(ui, mirror.ui) : ui, permissions, provider, info, cwd });
   const session = new Session(cwd);
+  if (mirror) {
+    port.build = async (_cwd, _ui, asker) => ((phoneAsker = asker), { agent, session });
+    await mirror.open();
+  }
   // Extra tools from MCP servers; they join the agent's tool list as each server comes up.
   const hub = new McpHub({ servers: readServers(config, cwd), onChange: (tools) => agent.setExtraTools(tools) });
   const reportServers = () => {
@@ -361,6 +392,7 @@ export async function main(argv) {
   if (opts.continue && agent.messages.length) ui.notice(`  Continuing the previous conversation (${agent.messages.length} messages).`);
 
   const exit = () => {
+    port.close();
     session.save(agent.messages, agent.model);
     stopAllProcesses();
     hub.closeAll();
@@ -394,13 +426,33 @@ export async function main(argv) {
 
   // Outside a prompt the only key that matters is Ctrl+C, which stops the agent.
   term.onInterrupt = () => {
-    if (agent.busy) agent.interrupt();
+    if (agent.busy) mirror.stop();
   };
 
-  const turn = async (text) => {
-    await agent.runTurn(text);
-    session.save(agent.messages, agent.model);
+  // Runs the turn and saves the conversation, keeping the phone's copy in step.
+  const turn = (text, images = []) => mirror.run(text, images);
+
+  // From the phone. A picture by itself goes into the message being typed here, as a path, the way
+  // a dragged file would; a message with words is a turn of its own, if the terminal is free for one.
+  port.onStop = () => agent.busy && mirror.stop();
+  port.onMessage = ({ text, images }) => {
+    if (!text) {
+      if (!images.length) return;
+      let files;
+      try {
+        files = saveImages(images);
+      } catch (err) {
+        return port.toast(`The picture could not be saved on your Mac: ${err.message}`);
+      }
+      term.typeIn(`${files.map((f) => (/\s/.test(f) ? `"${f}"` : f)).join(' ')} `);
+      const what = images.length > 1 ? `${images.length} pictures are` : 'The picture is';
+      return port.toast(term.reading ? `${what} in the message being typed in the terminal.` : `${what} waiting in the terminal's message box.`);
+    }
+    // A phone may be lost or borrowed: it never gets to start work that runs without asking.
+    if (permissions.mode === 'auto') return port.toast('This terminal session runs without asking (--yolo), so it cannot be given tasks from the phone.');
+    if (agent.busy || !term.inject({ text, images })) port.toast(`${mirror.name} is busy in the terminal. Send it again when it has finished.`);
   };
+  port.start(() => ({ ...mirror.meta(), items: mirror.items }));
 
   const suggest = (text) =>
     matchCommands(text, agent.skills)
@@ -420,6 +472,13 @@ export async function main(argv) {
     ui.ensureNewline();
     const input = await term.readInput({ placeholder: 'Ask Seeker to build, fix, or explore…', suggest, complete });
     if (input === null) break;
+    if (typeof input === 'object') {
+      // Sent from the phone. It is only ever a message for the model: never a `!` shell line or a /command.
+      const pictures = input.images.length ? `\n[${input.images.length} image${input.images.length > 1 ? 's' : ''} from the phone]` : '';
+      ui.userEcho(`${input.text}${pictures}`);
+      await turn(input.text, input.images);
+      continue;
+    }
     const text = input.trim();
     if (!text) continue;
     ui.userEcho(text);
