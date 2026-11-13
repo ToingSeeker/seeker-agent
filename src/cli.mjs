@@ -27,6 +27,8 @@ Usage:
   cat log.txt | seeker -p "what caused this error?"
   seeker remote              let your phone control SEEKER on this machine (see: seeker remote --setup)
   seeker serve               offer SEEKER as an OpenAI-compatible API on this machine (needs SEEKER_API_KEY; --port 8642)
+  seeker gateway             answer in Telegram, Discord or Slack (tokens and allow lists in the config: see the README)
+  seeker acp                 run as an agent inside an editor that speaks the Agent Client Protocol (Zed, …)
   seeker cron tick           run scheduled jobs that are due (for the system scheduler); seeker cron list shows them
 
 Options:
@@ -175,6 +177,8 @@ export async function main(argv) {
 
   const cronCommand = opts.prompt[0] === 'cron' && ['tick', 'list'].includes(opts.prompt[1]) && opts.prompt.length === 2 ? opts.prompt[1] : null;
   const serve = opts.prompt.length === 1 && opts.prompt[0] === 'serve';
+  const gateway = opts.prompt.length === 1 && opts.prompt[0] === 'gateway';
+  const acp = opts.prompt.length === 1 && opts.prompt[0] === 'acp';
   const remote = opts.prompt[0] === 'remote';
   if (remote) {
     opts.prompt.shift();
@@ -228,11 +232,11 @@ export async function main(argv) {
     const stat = fs.fstatSync(0);
     hasInput = stat.isFIFO() || stat.isFile();
   } catch {}
-  if (piped && hasInput && !remote && !cronCommand && !serve) {
+  if (piped && hasInput && !remote && !cronCommand && !serve && !gateway && !acp) {
     const stdin = await readStdin();
     if (stdin) prompt = prompt ? `${prompt}\n\n<stdin>\n${stdin}\n</stdin>` : stdin;
   }
-  const print = Boolean(opts.print) || piped || remote || Boolean(cronCommand) || serve;
+  const print = Boolean(opts.print) || piped || remote || Boolean(cronCommand) || serve || gateway || acp;
   if (print && !prompt && !remote && !cronCommand) {
     console.error('seeker: -p needs a message, e.g. seeker -p "explain this project"');
     process.exit(2);
@@ -284,6 +288,37 @@ export async function main(argv) {
   } catch (err) {
     ui.error(`seeker: ${err.message}`);
     process.exit(1);
+  }
+
+  if (acp) {
+    // stdout carries the protocol and nothing else; everything for a person goes to stderr.
+    const { runAcp } = await import('./acp.mjs');
+    await runAcp({ config, info, input: process.stdin, output: process.stdout, log: (line) => console.error(`seeker acp · ${line}`) });
+    stopAllProcesses();
+    return;
+  }
+
+  if (gateway) {
+    const { createGateway } = await import('./gateway.mjs');
+    const log = (line) => console.error(`${new Date().toTimeString().slice(0, 8)}  ${line}`);
+    const hub = new McpHub({ servers: readServers(config, cwd) });
+    await hub.connectAll();
+    const running = await createGateway({ config, cwd, info, tools: () => hub.tools(), log });
+    if (!running) {
+      ui.error('seeker: no chat platform is set up.\n  Put a bot token and your own user id in ~/.seeker/config.json, for example:\n  "gateway": { "telegram": { "token": "123:ABC…", "allow": ["123456789"] } }\n  (discord: token + allow · slack: botToken + appToken + allow — see the README)');
+      process.exit(1);
+    }
+    console.error(`SEEKER gateway · ${config.model} via ${provider.label}\n${running.platforms.map((p) => `${p.name} (${p.allow.size} allowed)`).join(' · ')}\nFolder: ${cwd}   ·   every edit and command is asked about in the chat\nCtrl+C stops it.`);
+    const stop = () => {
+      running.stop();
+      stopAllProcesses();
+      hub.closeAll();
+      setTimeout(() => process.exit(0), 300).unref();
+    };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+    await running.start();
+    return;
   }
 
   if (serve) {

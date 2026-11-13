@@ -192,6 +192,47 @@ It listens on this machine only and every request needs the key. Nobody is there
 request can read files and run harmless commands but not change anything; `"apiServer": { "allowChanges": true }`
 in the config lets requests edit files and run ordinary commands. Risky commands are refused either way.
 
+## In a chat app
+
+`seeker gateway` answers in Telegram, Discord or Slack. Each chat is its own conversation, working in the folder
+the gateway was started in. Nothing has to be reachable from the internet: SEEKER connects out to the chat service.
+
+```json
+"gateway": {
+  "telegram": { "token": "123456:ABC…", "allow": ["123456789"] },
+  "discord":  { "token": "…", "allow": ["223344556677889900"] },
+  "slack":    { "botToken": "xoxb-…", "appToken": "xapp-…", "allow": ["U012ABCDEF"] }
+}
+```
+
+Set up only the ones you use; the tokens can also come from `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`,
+`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`.
+
+- **Telegram:** make a bot with @BotFather and use its token.
+- **Discord:** make an application with a bot, invite it to your server, and use the bot token. No privileged intent
+  is needed.
+- **Slack:** make an app with Socket Mode on, an app-level token (`connections:write`), the bot scopes `chat:write`,
+  `im:history` and `app_mentions:read`, and the events `message.im` and `app_mention`.
+
+Nobody is let in by default. Only the user ids in `allow` get an answer; anyone else is told their own id once, so
+to find yours, message the bot and copy the id it replies with. In a group or channel the bot answers only when it is
+mentioned. Before SEEKER edits a file or runs a command it asks in the chat (`y`, `n`, or say what to do instead),
+and "run without asking" is never available from a chat. `/new` starts a fresh conversation, `/stop` interrupts,
+`/status` shows the model and folder.
+
+## In an editor
+
+`seeker acp` runs SEEKER as an agent inside an editor that speaks the
+[Agent Client Protocol](https://agentclientprotocol.com), such as Zed. The editor starts the process itself and
+shows the answer, the tool steps and the permission questions in its own panel. In Zed's settings:
+
+```json
+"agent_servers": { "SEEKER": { "type": "custom", "command": "seeker", "args": ["acp"] } }
+```
+
+It uses the provider, model and permission setting from `~/.seeker/config.json`. Sessions are not reloaded by the
+editor yet, and MCP servers passed by the editor are ignored (SEEKER's own `/mcp` servers are not started either).
+
 ## Hooks
 
 Commands of your own that run at fixed points and can veto or adjust what happens. In `~/.seeker/config.json`:
@@ -404,6 +445,8 @@ plain Node.
 | `src/autonomy.mjs` | `/goal`, `/loop` and `/heartbeat` |
 | `src/cron.mjs`, `src/cron-runner.mjs` | scheduled jobs: schedules, the job store, running a due job |
 | `src/hooks.mjs` | the user's shell hooks and their approval |
+| `src/gateway.mjs`, `src/platforms/` | `seeker gateway`: Telegram, Discord and Slack |
+| `src/acp.mjs` | `seeker acp`: the Agent Client Protocol for editors |
 | `src/api-server.mjs` | `seeker serve`: the OpenAI-compatible API |
 | `src/lint.mjs`, `src/extract.mjs` | syntax check after a write; documents read as text |
 | `src/remote.mjs`, `src/webpush.mjs`, `remote-server/` | remote control: daemon on the computer, push notifications, relay and phone web app |
