@@ -322,6 +322,46 @@ jadi permintaan boleh membaca file dan menjalankan perintah yang tidak berbahaya
 `"apiServer": { "allowChanges": true }` di config mengizinkan permintaan mengedit file dan menjalankan perintah biasa.
 Perintah berisiko tetap ditolak.
 
+## Di aplikasi chat
+
+`seeker gateway` menjawab di Telegram, Discord, atau Slack. Tiap chat adalah percakapan sendiri, bekerja di folder
+tempat gateway dijalankan. Tidak ada yang perlu bisa dijangkau dari internet: SEEKER yang menghubungi layanan chat.
+
+```json
+"gateway": {
+  "telegram": { "token": "123456:ABC…", "allow": ["123456789"] },
+  "discord":  { "token": "…", "allow": ["223344556677889900"] },
+  "slack":    { "botToken": "xoxb-…", "appToken": "xapp-…", "allow": ["U012ABCDEF"] }
+}
+```
+
+Isi yang kamu pakai saja; token juga bisa lewat `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `SLACK_BOT_TOKEN`, dan
+`SLACK_APP_TOKEN`.
+
+- **Telegram:** buat bot lewat @BotFather dan pakai tokennya.
+- **Discord:** buat aplikasi dengan bot, undang ke servermu, dan pakai token botnya. Tidak perlu privileged intent.
+- **Slack:** buat app dengan Socket Mode menyala, token tingkat app (`connections:write`), scope bot `chat:write`,
+  `im:history`, dan `app_mentions:read`, serta event `message.im` dan `app_mention`.
+
+Secara bawaan tidak ada yang diizinkan masuk. Hanya id pengguna di `allow` yang dijawab; orang lain diberi tahu
+id mereka sendiri satu kali, jadi untuk mengetahui id-mu, kirim pesan ke bot lalu salin id yang ia balas. Di grup
+atau channel, bot hanya menjawab kalau disebut. Sebelum mengedit file atau menjalankan perintah, SEEKER bertanya
+dulu di chat (`y`, `n`, atau tulis apa yang harus dilakukan), dan mode "jalan tanpa bertanya" tidak pernah tersedia
+dari chat. `/new` memulai percakapan baru, `/stop` menghentikan, `/status` menampilkan model dan folder.
+
+## Di editor
+
+`seeker acp` menjalankan SEEKER sebagai agen di dalam editor yang memakai
+[Agent Client Protocol](https://agentclientprotocol.com), misalnya Zed. Editor yang menjalankan prosesnya dan
+menampilkan jawaban, langkah tool, serta pertanyaan izin di panelnya sendiri. Di pengaturan Zed:
+
+```json
+"agent_servers": { "SEEKER": { "type": "custom", "command": "seeker", "args": ["acp"] } }
+```
+
+Ia memakai penyedia, model, dan pengaturan izin dari `~/.seeker/config.json`. Sesi belum bisa dimuat ulang oleh
+editor, dan server MCP yang dikirim editor diabaikan (server `/mcp` milik SEEKER juga tidak dijalankan).
+
 ## Hooks
 
 Perintah milikmu sendiri yang berjalan di titik-titik tertentu dan bisa membatalkan atau mengubah yang terjadi. Di
@@ -385,6 +425,8 @@ rantainya.
 | `src/autonomy.mjs` | `/goal`, `/loop`, dan `/heartbeat` |
 | `src/cron.mjs`, `src/cron-runner.mjs` | tugas terjadwal: jadwal, penyimpanan job, menjalankan job yang jatuh tempo |
 | `src/hooks.mjs` | hooks shell milik pengguna dan persetujuannya |
+| `src/gateway.mjs`, `src/platforms/` | `seeker gateway`: Telegram, Discord, dan Slack |
+| `src/acp.mjs` | `seeker acp`: Agent Client Protocol untuk editor |
 | `src/api-server.mjs` | `seeker serve`: API yang kompatibel dengan OpenAI |
 | `src/lint.mjs`, `src/extract.mjs` | cek sintaks setelah menulis; dokumen dibaca sebagai teks |
 | `src/claude-code.mjs`, `src/external-tools.mjs` | penyedia Claude Code lewat Claude Agent SDK; tampilan dan klasifikasi izin untuk tool miliknya |
