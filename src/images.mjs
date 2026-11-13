@@ -35,11 +35,14 @@ export const kilobytes = (bytes) => (bytes >= 1_000_000 ? `${(bytes / 1_000_000)
  * @throws {Error} with a message fit to show as it is
  */
 export function loadImage(file) {
+  const name = path.basename(file);
+  // Sized before it is read: a file is not an image just because its name says so.
+  const stat = fs.statSync(file);
+  if (!stat.isFile()) throw new Error(`${name} is not a file`);
+  if (stat.size > MAX_IMAGE_BYTES) throw new Error(`${name} is ${kilobytes(stat.size)}; images can be at most ${kilobytes(MAX_IMAGE_BYTES)}. Save a smaller copy and use that`);
   const buf = fs.readFileSync(file);
   const mime = imageType(buf);
-  const name = path.basename(file);
   if (!mime) throw new Error(`${name} is not a PNG, JPEG, GIF or WebP image`);
-  if (buf.length > MAX_IMAGE_BYTES) throw new Error(`${name} is ${kilobytes(buf.length)}; images can be at most ${kilobytes(MAX_IMAGE_BYTES)}. Save a smaller copy and use that`);
   return { name, mime, data: buf.toString('base64'), bytes: buf.length };
 }
 
@@ -113,7 +116,9 @@ export function hoistToolImages(messages) {
  * @throws {Error} if there is no image on the clipboard or no way to read it here
  */
 export function saveClipboardImage(dir = os.tmpdir()) {
-  const file = path.join(dir, `seeker-paste-${Date.now().toString(36)}.png`);
+  // A folder of its own that only this user can open, so nobody else can plant or read the file.
+  const folder = fs.mkdtempSync(path.join(dir, 'seeker-paste-'));
+  const file = path.join(folder, 'clipboard.png');
   const attempts =
     process.platform === 'darwin'
       ? [['osascript', ['-e', 'set png to (the clipboard as «class PNGf»)', '-e', `set f to open for access POSIX file ${JSON.stringify(file)} with write permission`, '-e', 'write png to f', '-e', 'close access f']]]
@@ -127,9 +132,10 @@ export function saveClipboardImage(dir = os.tmpdir()) {
     if (result.error?.code === 'ENOENT') continue;
     ran = true;
     if (result.status !== 0) continue;
-    if (process.platform !== 'darwin') fs.writeFileSync(file, result.stdout);
+    if (process.platform !== 'darwin') fs.writeFileSync(file, result.stdout, { flag: 'wx', mode: 0o600 });
     if (fs.existsSync(file) && imageType(fs.readFileSync(file))) return file;
+    fs.rmSync(file, { force: true });
   }
-  fs.rmSync(file, { force: true });
+  fs.rmSync(folder, { recursive: true, force: true });
   throw new Error(ran ? 'There is no image on the clipboard.' : 'Reading the clipboard needs wl-paste or xclip on this system.');
 }

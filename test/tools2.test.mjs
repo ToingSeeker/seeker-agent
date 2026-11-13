@@ -326,3 +326,14 @@ test('images: read_file returns an image to a model that can see, and says so to
   assert.equal(seen.images[0].data, PNG.toString('base64'));
   await assert.rejects(() => read.run({ path: 'shot.png' }, { cwd: dir, vision: false }), /cannot see images/);
 });
+
+test('images: an oversized or non-file "image" is refused before it is read', async () => {
+  const { MAX_IMAGE_BYTES, loadImage } = await import('../src/images.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-img-'));
+  const big = path.join(dir, 'big.png');
+  fs.writeFileSync(big, '');
+  fs.truncateSync(big, MAX_IMAGE_BYTES + 1); // sparse: nothing this size is written or read
+  assert.throws(() => loadImage(big), /at most/);
+  fs.mkdirSync(path.join(dir, 'folder.png'));
+  assert.throws(() => loadImage(path.join(dir, 'folder.png')), /not a file/);
+});
