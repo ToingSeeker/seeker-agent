@@ -1,9 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { HOME_DIR } from './config.mjs';
+import { HOME_DIR, projectSlug } from './config.mjs';
+import { discoverContextFiles } from './context-files.mjs';
+import { MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, memoryBlocks } from './memory.mjs';
 
-const INSTRUCTION_FILES = ['SEEKER.md', 'AGENTS.md', 'CLAUDE.md'];
+export { projectSlug };
+
 const MAX_INSTRUCTIONS = 12_000;
 // Share of the model's context the memory index may take; the rest is for the work itself.
 const MEMORY_SHARE = 0.2;
@@ -12,8 +15,6 @@ const SKILLS_SHARE = 0.08;
 const CHARS_PER_TOKEN = 3.5;
 
 export const MEMORY_DIR = path.join(HOME_DIR, 'memory');
-/** The folder name a working directory maps to under ~/.seeker (sessions, project memory). */
-export const projectSlug = (cwd) => cwd.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'root';
 export const projectMemoryDir = (cwd) => path.join(MEMORY_DIR, 'projects', projectSlug(cwd));
 
 const readIndex = (dir) => {
@@ -52,7 +53,7 @@ export function memorySection(cwd, contextLimit) {
     return `## ${s.title} — files in ${s.dir}\nThis index (${count} notes) is too large to include for this model. It is at ${s.dir}/MEMORY.md: search it with grep for the project or topic at hand before starting work that may depend on earlier sessions.`;
   });
   return {
-    text: `# Memory
+    text: `# Notes on file
 Notes saved in earlier sessions about the user, their projects and how they want work done. Each line is an index entry: a summary that points to a file in the folder named in its heading. Read the file before relying on a note. A note says what was true when it was written — if it names a file, command or setting, check that it still exists.
 
 ${parts.join('\n\n')}`,
@@ -69,18 +70,15 @@ function readCapped(file) {
   }
 }
 
-/** User-level notes first, then the first project instruction file found in cwd. */
-export function loadInstructions(cwd) {
+/**
+ * User-level notes first, then the project's own instruction files (see context-files.mjs for
+ * which ones apply). `real` is each project file's resolved path.
+ */
+export function loadInstructions(cwd, contextLimit) {
   const found = [];
   const global = readCapped(path.join(HOME_DIR, 'SEEKER.md'));
   if (global) found.push({ file: '~/.seeker/SEEKER.md', text: global });
-  for (const name of INSTRUCTION_FILES) {
-    const text = readCapped(path.join(cwd, name));
-    if (text) {
-      found.push({ file: name, text });
-      break;
-    }
-  }
+  found.push(...discoverContextFiles(cwd, contextLimit));
   return found;
 }
 
@@ -90,7 +88,7 @@ export function loadInstructions(cwd) {
  */
 export function skillsSection(skills, contextLimit) {
   const budget = Math.floor(contextLimit * SKILLS_SHARE * CHARS_PER_TOKEN);
-  const intro = `# Skills\nThese are instructions prepared for specific kinds of task. When the user's request matches one, call the \`skill\` tool with its exact name BEFORE doing anything else, then follow what it returns.`;
+  const intro = `# Skills\nThese are instructions prepared for specific kinds of task. When the user's request matches one, call the \`skill\` tool with its exact name BEFORE doing anything else, then follow what it returns. If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it with skill_manage before finishing.`;
   const each = Math.floor((budget - intro.length) / skills.length) - 1; // one character per line is its line break
   const line = (s, room) => `- ${s.name}: ${s.description.length > room ? `${s.description.slice(0, room - 1)}…` : s.description}`;
   const shortest = Math.min(...skills.map((s) => each - s.name.length - 4));
@@ -103,10 +101,13 @@ export function skillsSection(skills, contextLimit) {
 
 export function buildSystemPrompt({ cwd, model, skills = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768 }) {
   const memory = memorySection(cwd, contextLimit);
+  const own = memoryBlocks(cwd);
   const where = provider.local
     ? `You run entirely on the user's own machine through ${provider.label} (model: ${model}).`
     : `You are powered by ${model === 'default' ? 'Claude' : model} through ${provider.label}; the tools run on the user's own machine.`;
-  const instructions = loadInstructions(cwd);
+  const instructions = loadInstructions(cwd, contextLimit);
+  const loaded = [...instructions.map((i) => i.file), ...(own ? [`memory (${own.count} entr${own.count === 1 ? 'y' : 'ies'})`] : []), ...(memory ? [memory.label] : [])];
+  const contextFiles = instructions.map((i) => i.real).filter(Boolean);
   if (provider.ownTools) {
     // This text is added to the provider's own instructions, so it only says what differs.
     const notes = [
@@ -115,9 +116,10 @@ export function buildSystemPrompt({ cwd, model, skills = [], provider = { label:
 - Be concise: lead with the answer or the result, and report honestly what you verified and what you did not.
 - Do not commit, push or delete files unless the user asked for exactly that.`,
       ...instructions.map(({ file, text }) => `# Project instructions (${file})\nThe user wrote these; follow them.\n\n${text}`),
+      ...(own ? [`# What you know from earlier sessions\n${own.text}`] : []),
       ...(memory ? [memory.text] : []),
     ];
-    return { prompt: notes.join('\n\n'), instructionFiles: [...instructions.map((i) => i.file), ...(memory ? [memory.label] : [])] };
+    return { prompt: notes.join('\n\n'), instructionFiles: loaded, contextFiles };
   }
   const isGit = fs.existsSync(path.join(cwd, '.git'));
   const parts = [
@@ -147,10 +149,12 @@ export function buildSystemPrompt({ cwd, model, skills = [], provider = { label:
 - Platform: ${os.platform()} ${os.arch()}, shell ${path.basename(process.env.SHELL || 'sh')}
 - Today: ${new Date().toISOString().slice(0, 10)}`,
   ];
+  parts.push(`# Memory and skills\n${MEMORY_GUIDANCE}\n\n${SESSION_SEARCH_GUIDANCE}\n\nWhen you work out a non-trivial workflow, record it with skill_manage for future reuse.`);
   if (skills.length) parts.push(skillsSection(skills, contextLimit));
   for (const { file, text } of instructions) {
     parts.push(`# Project instructions (${file})\nThe user wrote these; follow them.\n\n${text}`);
   }
+  if (own) parts.push(own.text);
   if (memory) parts.push(memory.text);
-  return { prompt: parts.join('\n\n'), instructionFiles: [...instructions.map((i) => i.file), ...(memory ? [memory.label] : [])] };
+  return { prompt: parts.join('\n\n'), instructionFiles: loaded, contextFiles };
 }

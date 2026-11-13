@@ -118,14 +118,21 @@ export class Permissions {
    * @param {{ mode: 'ask'|'auto', cwd: string, ask: null | ((q: object) => Promise<string|null>) }} opts
    *        `ask` is null when nobody is there to answer (print mode).
    */
-  constructor({ mode, cwd, ask }) {
+  constructor({ mode, cwd, ask, autoLearn = false }) {
     this.mode = mode;
+    // Whether memory and skills may be saved without asking (config `autoLearn`).
+    this.autoLearn = autoLearn;
     this.cwd = cwd;
     this.ask = ask;
     this.allowWrites = false;
     this.bashPrefixes = new Set();
     this.hosts = new Set();
     this.toolNames = new Set();
+  }
+
+  /** True when `name` (memory, skill_manage) may save without the user being asked. */
+  mayLearn(name) {
+    return this.mode === 'auto' || this.autoLearn || this.toolNames.has(name);
   }
 
   #bashAllowed(command) {
@@ -168,6 +175,24 @@ export class Permissions {
       } catch {}
       if (this.mode === 'auto' || this.hosts.has(host)) return { ok: true };
       if (host) always = { label: `always allow ${host}`, apply: () => this.hosts.add(host) };
+    }
+
+    if (tool.risk === 'learn') {
+      // Memory and skills are read back as context in later sessions: what a web page or a file talked
+      // the model into saving would stay. So it is the user who lets it be saved.
+      // Looking at the schedule changes nothing.
+      if (tool.name === 'cronjob_manage' && args?.action === 'list') return { ok: true };
+      // A job that may change files runs later with nobody watching: that is agreed to each time,
+      // whatever was answered "always" before.
+      let unattendedWrites = tool.name === 'cronjob_manage' && (args?.allow_changes === true || args?.allow_changes === 'true');
+      // Changing, resuming or running a job that already may change files is the same decision.
+      if (tool.name === 'cronjob_manage' && !unattendedWrites && ['update', 'resume', 'run'].includes(String(args?.action ?? '').toLowerCase())) {
+        const { readJobs } = await import('./cron.mjs');
+        unattendedWrites = readJobs().some((j) => j.id === args?.job_id && j.allow_changes);
+      }
+      if (unattendedWrites) warning = 'This scheduled job will be able to change files and run commands with nobody watching.';
+      else if (this.mayLearn(tool.name)) return { ok: true };
+      else always = { label: `always allow ${tool.name} this session`, apply: () => this.toolNames.add(tool.name) };
     }
 
     if (tool.risk === 'other') {
