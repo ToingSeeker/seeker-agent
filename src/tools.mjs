@@ -103,6 +103,8 @@ function httpGet(url, { signal, headers, publicOnly }) {
 }
 
 const MAX_OUTPUT = 24_000;
+// Files read_file hands to extract.mjs instead of showing as text.
+const DOCUMENT_LIKE = /\.(ipynb|docx?|rtf|odt|pdf|xlsx|db|sqlite3?)$/i;
 const MAX_LINE = 400;
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', '.next', '.venv', '__pycache__', '.cache']);
 
@@ -183,6 +185,10 @@ function htmlToText(html) {
     .trim();
 }
 
+/** Text to add to a write or edit result when the saved file does not parse ('' otherwise). */
+const checkSyntax = async (file) => (CHECKED.test(file) ? (await import('./lint.mjs')).syntaxCheck(file).catch(() => '') : '');
+const CHECKED = /\.(m?js|cjs|json|py|sh|bash|rb|php)$/i;
+
 const TODO_MARK = { pending: '☐', in_progress: '◐', completed: '☑' };
 
 // Commands started with `background: true`, by id. They outlive the tool call that
@@ -261,12 +267,56 @@ export function parseSearchResults(html) {
   return results;
 }
 
+/**
+ * Fetches a page as plain text, following redirects by hand: the first host is the one the user
+ * approved, and a redirect must not turn that approval into a request to this machine or its network.
+ * @returns {Promise<{ status: number, url: string, text: string }>}
+ */
+export async function fetchPage(address, signal) {
+  let url;
+  try {
+    url = new URL(address);
+  } catch {
+    throw new ToolError('"url" must be a valid http(s) URL');
+  }
+  if (!/^https?:$/.test(url.protocol)) throw new ToolError('Only http(s) URLs are supported');
+  const timeout = AbortSignal.timeout(30_000);
+  const approvedHost = url.host;
+  let res;
+  // Redirects are followed by hand: the user approved one host, and a redirect must not turn
+  // that approval into a request to this machine or its network.
+  for (let hop = 0; ; hop++) {
+    const elsewhere = url.host !== approvedHost;
+    res = await httpGet(url, {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      headers: { 'user-agent': 'seeker-cli', accept: 'text/html,text/plain,application/json,*/*' },
+      publicOnly: elsewhere,
+    }).catch((e) => {
+      if (elsewhere && /inside this machine or network/.test(e.message)) {
+        throw new ToolError(`${approvedHost} redirected to ${url.host}, an address inside this machine or network. It was not followed; fetch that address directly if it is what you want.`);
+      }
+      throw new ToolError(`Request failed: ${e.cause?.message || e.message}`);
+    });
+    if (!(res.status >= 300 && res.status < 400 && res.location)) break;
+    if (hop >= 5) throw new ToolError('Too many redirects');
+    let next;
+    try {
+      next = new URL(res.location, url);
+    } catch {
+      throw new ToolError(`The server redirected to an address that is not a URL: ${res.location}`);
+    }
+    if (!/^https?:$/.test(next.protocol)) throw new ToolError(`The server redirected to ${next.protocol} which is not supported`);
+    url = next;
+  }
+  return { status: res.status, url: url.href, text: res.type.includes('html') ? htmlToText(res.text) : res.text };
+}
+
 export const TOOLS = [
   {
     name: 'read_file',
     risk: 'read',
     description:
-      'Read a text file, or look at an image (PNG, JPEG, GIF, WebP). Text comes back as lines prefixed with their line number; use offset/limit for large files. Always read a file before editing it.',
+      'Read a text file, look at an image (PNG, JPEG, GIF, WebP), or read a document as text (PDF, .docx, .xlsx, .ipynb, SQLite). Text comes back as lines prefixed with their line number; use offset/limit for large files. Always read a file before editing it.',
     parameters: {
       type: 'object',
       properties: {
@@ -298,10 +348,22 @@ export const TOOLS = [
         const { bytes, ...attached } = image;
         return { output: `${attached.name} is an image (${mime}, ${kilobytes(bytes)}). It is attached; look at it.`, note: `image · ${kilobytes(bytes)}`, images: [attached] };
       }
-      if (stat.size > 5_000_000) throw new ToolError(`File is ${stat.size} bytes — too large; use grep to find the part you need`);
-      const buf = await fsp.readFile(file);
-      if (buf.subarray(0, 8000).includes(0)) throw new ToolError('Binary file — cannot be read as text');
-      const lines = buf.toString('utf8').split('\n');
+      let text;
+      let extracted = false;
+      const { DOCUMENT_EXTENSIONS, extractDocument } = DOCUMENT_LIKE.test(file) ? await import('./extract.mjs') : {};
+      if (DOCUMENT_EXTENSIONS?.has(path.extname(file).toLowerCase())) {
+        // A PDF, Word file, notebook, spreadsheet or database: its text is extracted rather than its bytes shown.
+        const doc = await extractDocument(file);
+        if (doc.error) throw new ToolError(doc.error);
+        text = doc.text;
+        extracted = true;
+      } else {
+        if (stat.size > 5_000_000) throw new ToolError(`File is ${stat.size} bytes — too large; use grep to find the part you need`);
+        const buf = await fsp.readFile(file);
+        if (buf.subarray(0, 8000).includes(0)) throw new ToolError('Binary file — cannot be read as text');
+        text = buf.toString('utf8');
+      }
+      const lines = text.split('\n');
       if (lines.at(-1) === '') lines.pop();
       const offset = Math.max(1, Number(args.offset) || 1);
       const limit = Math.max(1, Number(args.limit) || 800);
@@ -312,7 +374,8 @@ export const TOOLS = [
         .join('\n');
       const last = offset - 1 + slice.length;
       const more = last < lines.length ? `\n\n[lines ${offset}-${last} of ${lines.length}; pass offset=${last + 1} to continue]` : '';
-      return { output: body + more, note: `${slice.length} lines` };
+      const origin = extracted ? `[Text extracted from ${path.basename(file)}; this is not the file's own bytes, so do not write it back with write_file or edit_file.]\n` : '';
+      return { output: origin + body + more, note: `${slice.length} lines${extracted ? ' · extracted' : ''}` };
     },
   },
   {
@@ -340,10 +403,12 @@ export const TOOLS = [
     async run(args, { cwd }) {
       const file = resolvePath(pathArg(args), cwd);
       const existed = fs.existsSync(file);
+      if (existed && /\.(docx?|rtf|odt|pdf|xlsx|db|sqlite3?)$/i.test(file)) throw new ToolError(`${path.basename(file)} is a binary document; read_file showed its extracted text, not its bytes. Writing text over it would destroy it. Write to a new file instead.`);
       await fsp.mkdir(path.dirname(file), { recursive: true });
       await fsp.writeFile(file, args.content);
       const count = args.content.split('\n').length;
-      return { output: `${existed ? 'Overwrote' : 'Created'} ${file} (${count} lines)`, note: `${existed ? 'overwrote' : 'created'} · ${count} lines` };
+      const lint = await checkSyntax(file);
+      return { output: `${existed ? 'Overwrote' : 'Created'} ${file} (${count} lines)${lint}`, note: `${existed ? 'overwrote' : 'created'} · ${count} lines${lint ? ' · syntax error' : ''}` };
     },
   },
   {
@@ -388,7 +453,8 @@ export const TOOLS = [
       const next = args.replace_all ? parts.join(args.new_string) : parts[0] + args.new_string + parts.slice(1).join(args.old_string);
       await fsp.writeFile(file, next);
       const n = args.replace_all ? parts.length - 1 : 1;
-      return { output: `Edited ${file} (${n} replacement${n > 1 ? 's' : ''})`, note: `${n} replacement${n > 1 ? 's' : ''}` };
+      const lint = await checkSyntax(file);
+      return { output: `Edited ${file} (${n} replacement${n > 1 ? 's' : ''})${lint}`, note: `${n} replacement${n > 1 ? 's' : ''}${lint ? ' · syntax error' : ''}` };
     },
   },
   {
@@ -559,43 +625,8 @@ export const TOOLS = [
     verbs: ['Fetching', 'Fetched'],
     summary: (a) => a.url,
     async run(args, { signal }) {
-      let url;
-      try {
-        url = new URL(args.url);
-      } catch {
-        throw new ToolError('"url" must be a valid http(s) URL');
-      }
-      if (!/^https?:$/.test(url.protocol)) throw new ToolError('Only http(s) URLs are supported');
-      const timeout = AbortSignal.timeout(30_000);
-      const approvedHost = url.host;
-      let res;
-      // Redirects are followed by hand: the user approved one host, and a redirect must not turn
-      // that approval into a request to this machine or its network.
-      for (let hop = 0; ; hop++) {
-        const elsewhere = url.host !== approvedHost;
-        res = await httpGet(url, {
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-          headers: { 'user-agent': 'seeker-cli', accept: 'text/html,text/plain,application/json,*/*' },
-          publicOnly: elsewhere,
-        }).catch((e) => {
-          if (elsewhere && /inside this machine or network/.test(e.message)) {
-            throw new ToolError(`${approvedHost} redirected to ${url.host}, an address inside this machine or network. It was not followed; fetch that address directly if it is what you want.`);
-          }
-          throw new ToolError(`Request failed: ${e.cause?.message || e.message}`);
-        });
-        if (!(res.status >= 300 && res.status < 400 && res.location)) break;
-        if (hop >= 5) throw new ToolError('Too many redirects');
-        let next;
-        try {
-          next = new URL(res.location, url);
-        } catch {
-          throw new ToolError(`The server redirected to an address that is not a URL: ${res.location}`);
-        }
-        if (!/^https?:$/.test(next.protocol)) throw new ToolError(`The server redirected to ${next.protocol} which is not supported`);
-        url = next;
-      }
-      const text = res.type.includes('html') ? htmlToText(res.text) : res.text;
-      return { output: `HTTP ${res.status} ${url.href}\n\n${text}`, note: `HTTP ${res.status} · ${text.length} characters` };
+      const page = await fetchPage(args.url, signal);
+      return { output: `HTTP ${page.status} ${page.url}\n\n${page.text}`, note: `HTTP ${page.status} · ${page.text.length} characters` };
     },
   },
   {
@@ -613,6 +644,7 @@ export const TOOLS = [
       const wanted = String(args.name ?? '').trim().toLowerCase().replace(/^\//, '');
       const found = skills.find((s) => s.name === wanted);
       if (!found) throw new ToolError(`No skill named "${wanted}". Available: ${skills.map((s) => s.name).join(', ') || '(none)'}`);
+      import('./skill-manage.mjs').then((m) => m.recordUse(found.name), () => {});
       return { output: renderSkill(found) };
     },
   },
@@ -721,22 +753,208 @@ export const TOOLS = [
   {
     name: 'task',
     risk: 'read',
-    description: 'Hand a self-contained piece of work to a helper agent that starts with an empty context and has the same tools. Use it for searches and investigations that would fill your own context with file contents: you get back only its report. The helper knows nothing of this conversation, so the prompt must say everything it needs — the goal, where to look, what to return.',
+    description: 'Hand self-contained work to helper agents that each start with an empty context and have the same tools. Use it for searches and investigations that would fill your own context with file contents, and for independent pieces of work that can go on side by side: you get back only each helper\'s report. One helper: pass `prompt`. Several at once (up to 3): pass `tasks`. A helper knows nothing of this conversation, so each prompt must say everything it needs — the goal, where to look, what to return. A report is a self-report, not a verified fact: check what matters (a file it says it wrote, a test it says passes) before telling the user.',
     parameters: {
       type: 'object',
       properties: {
         description: { type: 'string', description: 'Three to five words naming the job' },
-        prompt: { type: 'string', description: 'The full instructions for the helper' },
+        prompt: { type: 'string', description: 'The full instructions for one helper' },
+        tasks: {
+          type: 'array',
+          description: 'Several jobs to run in parallel, up to 3. Each helper sees only its own prompt — repeat shared background in every one that needs it.',
+          items: {
+            type: 'object',
+            properties: { description: { type: 'string', description: 'Three to five words naming the job' }, prompt: { type: 'string', description: 'The full instructions for this helper' } },
+            required: ['prompt'],
+          },
+        },
       },
-      required: ['prompt'],
     },
     verbs: ['Delegating', 'Delegated'],
-    summary: (a) => a.description ?? String(a.prompt ?? '').slice(0, 60),
+    summary: (a) => (Array.isArray(a.tasks) && a.tasks.length ? `${a.tasks.length} tasks in parallel` : (a.description ?? String(a.prompt ?? '').slice(0, 60))),
     async run(args, ctx) {
-      if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new ToolError('"prompt" is required');
+      let tasks = args.tasks;
+      if (typeof tasks === 'string') {
+        try {
+          tasks = JSON.parse(tasks);
+        } catch {
+          tasks = null;
+        }
+      }
+      if (Array.isArray(tasks) && tasks.length) {
+        if (!ctx.delegateMany) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
+        if (tasks.length > 3) throw new ToolError(`At most 3 helpers can run at once; ${tasks.length} were asked for. Send them in batches.`);
+        const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : '') }));
+        if (jobs.some((j) => !j.prompt.trim())) throw new ToolError('Every task needs a "prompt".');
+        const results = await ctx.delegateMany(jobs);
+        const output = results.map((r, i) => `## Helper ${i + 1}: ${r.description} — ${r.status}\n${r.report || '(it returned nothing)'}`).join('\n\n');
+        return { output, note: `${results.filter((r) => r.status === 'completed').length}/${results.length} completed` };
+      }
+      if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new ToolError('"prompt" (one helper) or "tasks" (several) is required');
       if (!ctx.delegate) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
       const report = await ctx.delegate(args.prompt, this.summary(args));
       return { output: report || '(the helper returned nothing)', note: `${report.split('\n').filter((l) => l.trim()).length} lines reported` };
+    },
+  },
+  {
+    name: 'memory',
+    // Saved text is read back as context in every later session, so saving it is asked about.
+    risk: 'learn',
+    // What a model with a small context is told instead: the long form costs it too much room.
+    brief: "Save durable facts that survive across sessions (they are put into every future session, so keep entries short). One call per target with an 'operations' array of {action: add|patch|remove, content?, old_text?}; it applies all-or-nothing and the size limit is checked on the final result. Targets: 'user' = who the user is; 'memory' = facts true in every project; 'project' = this folder only. Save only what holds for EVERY session — not task progress, and not procedures (those go in a skill via skill_manage).",
+    description:
+      "Save durable facts to persistent memory that survive across sessions. Memory is injected into every future session, so keep entries compact and high-signal.\n\nHOW: make ALL your changes to one target in ONE call via an 'operations' array (each item: {action, content?, old_text?}). The batch applies atomically and the char limit is checked only on the FINAL result — so a single call can remove/patch stale entries to free room AND add new ones. One batch call finishes the update; don't repeat it.\n\nWHEN: only for facts that apply to EVERY session regardless of task: who the user is, stable environment facts, standing conventions. Anything learned while doing a task (procedures, pitfalls, the user's corrections for that kind of work) belongs in a skill via skill_manage, where it loads only when relevant.\n\nIF FULL: an add is rejected with the current entries shown. Reissue as ONE batch that removes or shortens stale entries and adds the new one together.\n\nTARGETS: 'user' = who the user is (name, role, preferences, style). 'memory' = your notes that hold in every project (environment, conventions, tool quirks). 'project' = facts about the project in this working folder only.\n\nSKIP: trivial or easily re-discovered facts, raw data dumps, task progress, completed-work logs, temporary TODO state (session_search finds those).",
+    parameters: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', enum: ['memory', 'user', 'project'], description: "Which store: 'memory' for notes that hold everywhere, 'user' for the user profile, 'project' for this folder only." },
+        operations: {
+          type: 'array',
+          description: 'The changes, applied in order as one all-or-nothing batch.',
+          items: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', enum: ['add', 'patch', 'remove'] },
+              content: { type: 'string', description: "Required for 'add' and 'patch'. For 'add', the new entry. For 'patch', the text that replaces old_text; the rest of the entry is kept." },
+              old_text: { type: 'string', description: "REQUIRED for 'patch' and 'remove': text from one entry. 'patch' replaces exactly this span (it must occur once in the entry); 'remove' deletes the whole entry. Omit for 'add'." },
+            },
+            required: ['action'],
+          },
+        },
+      },
+      required: ['target', 'operations'],
+    },
+    verbs: ['Updating memory', 'Updated memory'],
+    // Shown when approval is asked, so the user sees what would be remembered.
+    summary: (a) => {
+      const ops = Array.isArray(a.operations) ? a.operations : a.action ? [a] : [];
+      const text = ops.map((op) => (op?.action === 'add' ? `+ ${op.content ?? ''}` : op?.action === 'remove' ? `− ${op.old_text ?? ''}` : `~ ${op?.old_text ?? ''} → ${op?.content ?? ''}`)).join(' · ');
+      return `${a.target ?? ''}: ${text}`.replace(/\s+/g, ' ').slice(0, 300);
+    },
+    async run(args, ctx) {
+      const { updateMemory } = await import('./memory.mjs');
+      const result = updateMemory(args, { cwd: ctx.cwd, turn: ctx.turn, addOnly: ctx.review });
+      return { output: JSON.stringify(result, null, 1), note: result.success ? result.usage : 'not saved' };
+    },
+  },
+  {
+    name: 'session_search',
+    risk: 'read',
+    // What a model with a small context is told instead: the long form costs it too much room.
+    brief: "Search or read past SEEKER conversations. `query` = find matching sessions; `session_id` = read one; `session_id` + `around_message_index` = scroll in it; no args = list recent ones. Use it when the user refers to earlier work before asking them to repeat it.",
+    description:
+      "Search or read past SEEKER conversations, or scroll inside one. Four shapes, picked by args: `query` = discovery (the best matching sessions, the top one opened up); `session_id` + `around_message_index` = scroll (a window of messages around one); `session_id` alone = read a whole session (its start and end); no args = browse recent sessions. Results are the saved messages themselves. Searches conversation history ONLY — when the user gave a direct source (URL, file, live system), inspect that first; never conclude 'not found' from history alone. Use for questions about past conversations: 'what did we do about X', 'where did we leave Y'.",
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Words to look for. All must appear in one message; use OR between alternatives, "quotes" for an exact phrase, -word to exclude, deploy* for a prefix.' },
+        session_id: { type: 'string', description: 'A session id from an earlier result, to read or scroll in.' },
+        around_message_index: { type: 'integer', description: 'With session_id: show the messages around this index.' },
+        window: { type: 'integer', description: 'Messages each side when scrolling. Default 5, max 20.' },
+        limit: { type: 'integer', description: 'How many sessions. Default 3 when searching, 10 when browsing; max 10.' },
+        sort: { type: 'string', enum: ['newest', 'oldest'], description: 'Order by time instead of relevance.' },
+        detail: { type: 'string', enum: ['adaptive', 'full'], description: "'full' opens up every result, not just the best. Default adaptive." },
+        after: { type: 'string', description: 'Only sessions after this: an ISO date, or 7d / 24h / 2w ago.' },
+        before: { type: 'string', description: 'Only sessions before this.' },
+        role_filter: { type: 'string', description: 'Roles to search, comma separated. Default "user,assistant"; add "tool" to search command output.' },
+      },
+    },
+    verbs: ['Searching past sessions', 'Searched past sessions'],
+    summary: (a) => (a.query ? `"${a.query}"` : a.session_id ? String(a.session_id).split('/').at(-1) : 'recent'),
+    async run(args, ctx) {
+      const { searchSessions } = await import('./session-search.mjs');
+      const result = searchSessions(args, { currentFile: ctx.sessionFile ?? null });
+      const count = result.results?.length ?? result.recent_sessions?.length ?? (result.messages ? 1 : 0);
+      return { output: JSON.stringify(result, null, 1), note: result.success ? `${count} session${count === 1 ? '' : 's'}` : 'not found' };
+    },
+  },
+  {
+    name: 'skill_manage',
+    // Saved text is read back as context in every later session, so saving it is asked about.
+    risk: 'learn',
+    // What a model with a small context is told instead: the long form costs it too much room.
+    brief: "Create or update skills — reusable instructions for a kind of task. 'operations' is an array of {action, name, …}: create (content = full SKILL.md with `name` and `description` frontmatter), patch (old_string + new_string), write_file / remove_file (file_path under references/, templates/, scripts/ or assets/), delete (alone in its call). All-or-nothing. Description max 120 chars: 'Use when <trigger>. <behaviour>.'. Prefer patching the skill you used over creating a new one.",
+    description:
+      "Create, update or delete skills: your procedural memory for recurring tasks. The call is an operations array (a single edit is a list of one); it applies atomically — any failure rolls every touched skill back. Ops: create (full SKILL.md with `name` and `description` frontmatter; lands in ~/.seeker/skills), patch (targeted old_string/new_string fix — preferred; content alone REPLACES the whole SKILL.md, read it with read_file first), write_file/remove_file (supporting files under references/, templates/, scripts/ or assets/), delete (sole op only). Description: max 120 chars, 'Use when <trigger>. <behaviour>.'. Write lessons, not logs: imperative rule + why, no PR numbers/dates/incident narration, one rule per lesson. Prefer patching the skill you just used over creating a new one; name a new skill after the class of task, not one incident.",
+    parameters: {
+      type: 'object',
+      properties: {
+        operations: {
+          type: 'array',
+          description: 'Ordered ops; each names its target skill (lowercase, hyphens/underscores, max 64 chars).',
+          items: {
+            type: 'object',
+            properties: {
+              action: { type: 'string', enum: ['create', 'patch', 'write_file', 'remove_file', 'delete'] },
+              name: { type: 'string', description: 'The skill this op applies to.' },
+              content: { type: 'string', description: 'create: the full SKILL.md. patch without old_string: the full replacement SKILL.md.' },
+              old_string: { type: 'string', description: 'patch: exact text to replace.' },
+              new_string: { type: 'string', description: 'patch: replacement; an empty string deletes the match.' },
+              replace_all: { type: 'boolean', description: 'patch: replace every occurrence.' },
+              file_path: { type: 'string', description: "Path RELATIVE to the skill's own folder, e.g. 'references/api.md'; first segment references/, templates/, scripts/ or assets/. On patch: patch that file instead of SKILL.md." },
+              file_content: { type: 'string', description: 'write_file: the file content.' },
+            },
+            required: ['action', 'name'],
+          },
+        },
+      },
+      required: ['operations'],
+    },
+    verbs: ['Updating skills', 'Updated skills'],
+    summary: (a) => (Array.isArray(a.operations) ? a.operations.map((op) => `${op?.action ?? '?'} ${op?.name ?? ''}`.trim()).join(', ') : ''),
+    async run(args, ctx) {
+      const { manageSkills } = await import('./skill-manage.mjs');
+      const result = manageSkills(args, { skills: ctx.skills ?? [], review: ctx.review });
+      if (result.success) ctx.skillsChanged?.(result.created);
+      return { output: JSON.stringify(result, null, 1), note: result.success ? result.done.join(', ') : 'not changed' };
+    },
+  },
+  {
+    name: 'cronjob_manage',
+    // A job's prompt runs later with nobody watching, so creating or changing one is asked about.
+    risk: 'learn',
+    brief: "Schedule a task to run by itself, once or repeatedly: action create (needs 'schedule' and 'prompt'), list, update, pause, resume, remove, run. Schedule forms: 'every 2h', 'in 30m' (once), 'every monday 9am', 'weekdays at 9am', '0 9 * * *', or an ISO time. The job runs in a fresh session with none of this conversation, so its prompt must be self-contained.",
+    description:
+      "Schedule recurring or one-off agent tasks (cron jobs): create, list, edit, run. action='create' schedules a job from a prompt; 'list' inspects jobs; 'update'/'pause'/'resume'/'remove' manage one by job_id (always list first — never guess job IDs); 'run' fires a job immediately.\n\nJobs run in a fresh session with no current-chat context, so prompts must be self-contained, and the agent's FINAL RESPONSE is what gets delivered — cron runs are autonomous and cannot ask questions. A job may read files and run harmless commands; it changes files only if created with allow_changes, and never runs risky commands. Jobs run while SEEKER is open, or when the system scheduler runs `seeker cron tick`. Prefer updating an existing job over creating near-duplicates.",
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['create', 'list', 'update', 'pause', 'resume', 'remove', 'run'], description: "When action=create, the 'schedule' and 'prompt' fields are REQUIRED." },
+        job_id: { type: 'string', description: 'Required for update/pause/resume/remove/run.' },
+        schedule: { type: 'string', description: "REQUIRED for create. Schedule forms: (1) recurring interval — '30m', 'every 2h', 'every hour' (forever by default); (2) explicit one-shot by duration — 'in 30m', 'in 2h' (fires ONCE that far from now; use this for 'remind me in N minutes' — do NOT hand-compute an absolute timestamp); (3) natural day/time — 'every monday 9am', 'weekdays at 9am', 'every day at 9am'; (4) cron syntax — '0 9 * * *' (daily 9am); (5) absolute one-shot — ISO timestamp '2026-06-01T09:00:00'." },
+        prompt: { type: 'string', description: "For create/update: the full self-contained prompt (when it runs goes in 'schedule'; data windows like 'since yesterday' stay here)." },
+        name: { type: 'string', description: 'A short name for the job.' },
+        repeat: { type: 'integer', description: 'Optional repeat count. Omit for defaults (once for one-shot, forever for recurring).' },
+        skills: { type: 'array', items: { type: 'string' }, description: 'Names of skills whose instructions the job should follow.' },
+        allow_changes: { type: 'boolean', description: 'Let the job write and edit files and run ordinary commands in its folder. Default false: it can only read and report.' },
+      },
+      required: ['action'],
+    },
+    verbs: ['Scheduling', 'Scheduled'],
+    // Shown when approval is asked: everything that decides what will run unattended, for a change as for a new job.
+    summary: (a) => {
+      const parts = [String(a.action ?? ''), a.job_id ? String(a.job_id) : ''];
+      if (a.schedule !== undefined) parts.push(`schedule: ${a.schedule}`);
+      if (a.allow_changes !== undefined) parts.push(a.allow_changes === true || a.allow_changes === 'true' ? '(MAY CHANGE FILES and run commands)' : '(read-only)');
+      if (a.repeat !== undefined) parts.push(`repeat: ${a.repeat}`);
+      if (Array.isArray(a.skills) && a.skills.length) parts.push(`skills: ${a.skills.join(', ')}`);
+      if (a.prompt !== undefined) {
+        const prompt = String(a.prompt).replace(/\s+/g, ' ');
+        parts.push(`prompt: ${prompt.length > 600 ? `${prompt.slice(0, 600)}… [${prompt.length - 600} more characters]` : prompt}`);
+      }
+      return parts.filter(Boolean).join(' · ');
+    },
+    async run(args, ctx) {
+      const { manageJobs } = await import('./cron.mjs');
+      if (String(args.action).toLowerCase() === 'run') {
+        if (!ctx.cronRun) throw new ToolError('A job can only be run by hand from an interactive session.');
+        const result = await ctx.cronRun(String(args.job_id ?? ''));
+        if (!result) throw new ToolError(`No job with id "${args.job_id ?? ''}". List the jobs first.`);
+        return { output: JSON.stringify({ success: !result.error, error: result.error, reply: result.reply, saved_to: result.file }, null, 1), note: result.error ? 'failed' : 'ran' };
+      }
+      const result = manageJobs(args, { cwd: ctx.cwd });
+      ctx.cronChanged?.();
+      return { output: JSON.stringify(result, null, 1), note: result.success ? (result.jobs ? `${result.count} job${result.count === 1 ? '' : 's'}` : (result.job?.schedule ?? 'done')) : 'not done' };
     },
   },
   {
@@ -807,8 +1025,20 @@ export function validateArgs(tool, args) {
   return null;
 }
 
-/** The tool list in the shape Ollama's /api/chat expects. */
-export const toolSpecs = (tools = TOOLS) =>
-  tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
+/**
+ * The tool list in the shape Ollama's /api/chat expects. With `compact`, tools that have a
+ * short description use it: on a small context every request carries these definitions.
+ */
+export const toolSpecs = (tools = TOOLS, { compact = false } = {}) =>
+  tools.map((t) => ({ type: 'function', function: { name: t.name, description: (compact && t.brief) || t.description, parameters: compact && t.brief ? slim(t.parameters) : t.parameters } }));
+
+/** A schema with the parameter descriptions shortened to their first sentence. */
+function slim(schema) {
+  if (!schema || typeof schema !== 'object') return schema;
+  if (Array.isArray(schema)) return schema.map(slim);
+  const out = {};
+  for (const [key, value] of Object.entries(schema)) out[key] = key === 'description' && typeof value === 'string' ? value.split(/(?<=[.;])\s/)[0] : slim(value);
+  return out;
+}
 
 export { rel };

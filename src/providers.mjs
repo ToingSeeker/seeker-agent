@@ -11,6 +11,7 @@ import { HttpError, errorText, lines, open, readAll, requestJson } from './http.
 import { claudeCodeProvider } from './claude-code.mjs';
 import * as ollama from './ollama.mjs';
 import { hoistToolImages } from './images.mjs';
+import { KeyPool, keysFor } from './failover.mjs';
 
 export const PROVIDERS = [
   { id: 'ollama', label: 'Ollama', kind: 'ollama', local: true },
@@ -47,8 +48,26 @@ export function providerDefs(config) {
   return [...PROVIDERS, ...custom];
 }
 
+// One pool of API keys per provider, rebuilt when the configured keys change.
+const pools = new Map();
+
+/** The keys set for a provider (environment variable, `apiKey`, `apiKeys`) as a pool that can rest one and move on. */
+export function keyPool(def, config) {
+  const keys = keysFor(def, config);
+  const signature = `${config.providers?.[def.id]?.keyStrategy ?? ''}\n${keys.join('\n')}`;
+  let entry = pools.get(def.id);
+  if (entry?.signature !== signature) {
+    entry = { signature, pool: new KeyPool(keys, config.providers?.[def.id]?.keyStrategy) };
+    pools.set(def.id, entry);
+  }
+  return entry.pool;
+}
+
+/** The key in use for a provider right now, or null when it has none. */
 export function apiKey(def, config) {
-  return (def.env && process.env[def.env]) || config.providers?.[def.id]?.apiKey || null;
+  const pool = keyPool(def, config);
+  // With every key resting, the first is still offered: the service's own answer is the better error.
+  return pool.size ? (pool.active() ?? pool.keys[0].key) : null;
 }
 
 /** Local servers need no key; Claude can also sign in through `ant auth login`, so a missing key is not fatal there. */
@@ -153,6 +172,7 @@ function openaiProvider(def, config) {
   let catalogue = null;
 
   async function* chat({ model, system, messages, tools, signal }) {
+    keyPool(def, config).pick(); // lets a round-robin or least-used pool move on per request
     const body = { model, messages: toOpenAIMessages(system, messages), stream: true, stream_options: { include_usage: true } };
     if (tools?.length) body.tools = tools;
     let res = await open(`${base}/chat/completions`, { method: 'POST', body, headers: headers(), signal });
@@ -178,7 +198,7 @@ function openaiProvider(def, config) {
       } catch {
         continue;
       }
-      if (event.error) throw new HttpError(`${def.label}: ${event.error.message ?? JSON.stringify(event.error)}`);
+      if (event.error) throw new HttpError(`${def.label}: ${event.error.message ?? JSON.stringify(event.error)}`, Number(event.error.code) || undefined);
       if (event.usage) usage = event.usage;
       const delta = event.choices?.[0]?.delta;
       if (!delta) continue;
@@ -247,29 +267,40 @@ function anthropicProvider(def, config) {
   let client = null;
   const details = new Map();
 
+  let clientKey = null;
+
   async function connect() {
-    if (client) return client;
+    const current = apiKey(def, config);
+    // A rotated key needs a client of its own.
+    if (client && current === clientKey) return client;
     try {
       sdk = (await import('@anthropic-ai/sdk')).default;
     } catch {
       throw new Error('Claude needs the Anthropic SDK: run `npm install` in the seeker folder.');
     }
-    const key = apiKey(def, config);
+    const key = current;
+    clientKey = key;
     // Without a key the SDK falls back to its own sources (ANTHROPIC_AUTH_TOKEN, an `ant auth login` profile).
     const baseURL = config.providers?.[def.id]?.baseUrl; // only for a gateway in front of the API
     client = new sdk({ ...(key ? { apiKey: key } : {}), ...(baseURL ? { baseURL } : {}) });
     return client;
   }
 
-  /** Turns the SDK's typed errors into one readable line. */
+  /** Turns the SDK's typed errors into one readable line, keeping the status so a failed request can be recovered. */
   function explain(err) {
     if (!sdk || !(err instanceof sdk.APIError)) return err;
-    if (err instanceof sdk.AuthenticationError) return new Error('Anthropic: the API key was rejected — set a new one with /key');
-    if (err instanceof sdk.PermissionDeniedError) return new Error(`Anthropic: this key may not use that model (${err.message})`);
-    if (err instanceof sdk.NotFoundError) return new Error(`Anthropic: model not found (${err.message})`);
-    if (err instanceof sdk.RateLimitError) return new Error('Anthropic: rate limited — wait a moment and try again');
-    if (err instanceof sdk.APIConnectionError) return new Error(`Anthropic: could not connect (${err.message})`);
-    return new Error(`Anthropic: ${err.status ?? ''} ${err.message}`.replace(/\s+/g, ' '));
+    let message;
+    if (err instanceof sdk.AuthenticationError) message = 'Anthropic: the API key was rejected — set a new one with /key';
+    else if (err instanceof sdk.PermissionDeniedError) message = `Anthropic: this key may not use that model (${err.message})`;
+    else if (err instanceof sdk.NotFoundError) message = `Anthropic: model not found (${err.message})`;
+    else if (err instanceof sdk.RateLimitError) message = 'Anthropic: rate limited — wait a moment and try again';
+    else if (err instanceof sdk.APIConnectionError) message = `Anthropic: could not connect (${err.message})`;
+    else message = `Anthropic: ${err.status ?? ''} ${err.message}`.replace(/\s+/g, ' ');
+    const plain = new Error(message);
+    plain.status = err.status ?? null;
+    if (err instanceof sdk.APIConnectionError) plain.code = 'ECONNRESET';
+    plain.retryAfter = err.headers?.get?.('retry-after') ?? null;
+    return plain;
   }
 
   async function info(model) {
@@ -285,6 +316,7 @@ function anthropicProvider(def, config) {
   }
 
   async function* chat({ model, system, messages, tools, signal }) {
+    keyPool(def, config).pick();
     const c = await connect();
     const meta = await info(model);
     const params = {

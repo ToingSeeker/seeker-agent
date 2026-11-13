@@ -4,7 +4,7 @@ import { SETTINGS, saveConfig, saveProviderConfig } from './config.mjs';
 import { isConnectionRefused } from './http.mjs';
 import { serverFingerprint } from './mcp.mjs';
 import { configMenu, pickList } from './menu.mjs';
-import { apiKey, createProvider, needsKey, providerDefs } from './providers.mjs';
+import { apiKey, createProvider, keyPool, needsKey, providerDefs } from './providers.mjs';
 import { renderSkill } from './skills.mjs';
 import { contextSize, kilo } from './ui.mjs';
 
@@ -15,6 +15,14 @@ export const COMMANDS = [
   ['/model', 'Switch provider and model (local or cloud)'],
   ['/key', 'Set the API key for a cloud provider'],
   ['/resume', 'Continue a saved session'],
+  ['/rollback', 'Undo file changes: restore a checkpoint taken before SEEKER edited (/rollback diff 2, /rollback 2 src/app.js)'],
+  ['/goal', 'Set a goal SEEKER keeps working on until it is done (/goal pause · resume · clear)'],
+  ['/loop', 'Re-run a prompt: /loop 5m check the deploy · /loop <prompt> paces itself (--times N, --until …)'],
+  ['/heartbeat', 'Re-enter this session when idle: /heartbeat every 10m <instruction>'],
+  ['/cron', 'Scheduled jobs: list them, pause, resume or remove one'],
+  ['/hooks', 'Your shell hooks: see them and approve one to let it run'],
+  ['/memory', 'Show what SEEKER remembers across sessions'],
+  ['/curator', 'Skills SEEKER wrote itself: usage, tidy up now, pin one'],
   ['/paste', 'Send the image on the clipboard (a screenshot), with an optional message'],
   ['/config', 'Open settings'],
   ['/skills', 'List skills — run one with /<name>'],
@@ -45,6 +53,7 @@ export function matchCommands(text, skills) {
 export async function switchModel(provider, model, { agent, config }) {
   const info = await provider.describe(model);
   agent.setModel(model, info, provider);
+  agent.primary = null; // a model chosen by hand ends any stand-in by a backup
   agent.usedTokens = 0;
   agent.lastStats = null;
   config.provider = provider.id;
@@ -133,11 +142,69 @@ export async function applySetting(key, value, ctx) {
   config[key] = value;
   saveConfig({ [key]: value });
   if (key === 'permissionMode') permissions.mode = value;
+  if (key === 'autoLearn') permissions.autoLearn = value;
   if (key === 'showThinking') ui.showThinking = value;
   if (key === 'animation') {
     ui.animation = value;
     ui.startMascot();
     ui.screen?.render();
+  }
+}
+
+const ago = (date) => {
+  const minutes = Math.round((Date.now() - date.getTime()) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / 1440)}d ago`;
+};
+
+/**
+ * /rollback            choose a checkpoint from a list
+ * /rollback 2          restore the second-newest checkpoint
+ * /rollback 2 src/a.js restore one file from it
+ * /rollback diff 2     show what changed since it
+ */
+async function rollback(words, { agent, ui, term }) {
+  const { c } = ui;
+  if (agent.config.checkpoints === false) return ui.notice('  Checkpoints are off ("checkpoints": false in ~/.seeker/config.json).');
+  const checkpoints = await import('./checkpoints.mjs');
+  const all = await checkpoints.list(agent.cwd);
+  if (!all.length) return ui.notice('  No checkpoints for this folder yet. One is taken before SEEKER first changes a file in a message.');
+  const numbered = (word) => (/^\d+$/.test(word ?? '') && all[Number(word) - 1]) || null;
+  const describe = (cp) => `${ago(cp.when)}${cp.files ? ` · ${cp.files} file${cp.files > 1 ? 's' : ''} +${cp.added} −${cp.removed}` : ''}`;
+
+  if (words[0] === 'diff') {
+    const cp = numbered(words[1]);
+    if (!cp) return ui.warn(`  /rollback diff <number> — there are ${all.length} checkpoints`);
+    const changes = await checkpoints.diff(agent.cwd, cp.id);
+    if (!changes?.stat) return ui.notice(`  Nothing has changed since checkpoint ${words[1]} (${cp.reason}).`);
+    ui.line(`  ${c.dim(`Since checkpoint ${words[1]} — ${cp.reason} (${ago(cp.when)}):`)}`);
+    ui.line(changes.stat.split('\n').map((l) => `  ${l}`).join('\n'));
+    const lines = changes.text.split('\n');
+    ui.line(lines.slice(0, 80).map((l) => (l.startsWith('+') ? c.green(l) : l.startsWith('-') ? c.red(l) : c.dim(l))).join('\n'));
+    if (lines.length > 80) ui.line(c.dim(`  … ${lines.length - 80} more lines`));
+    return;
+  }
+
+  let cp = numbered(words[0]);
+  const file = cp ? words.slice(1).join(' ') || null : null;
+  if (!cp) {
+    if (words.length) return ui.warn(`  /rollback <number> [file] — there are ${all.length} checkpoints; /rollback alone lists them`);
+    const at = await pickList({ term, ui, title: 'Restore the folder to how it was…', items: all.map((x, i) => ({ label: `${i + 1}. ${x.reason}`, hint: describe(x) })) });
+    if (at === -1) return;
+    cp = all[at];
+  }
+  const result = await checkpoints.restore(agent.cwd, cp.id, file);
+  if (!result.ok) return ui.warn(`  ${result.error}`);
+  ui.notice(`  ↩ Restored ${file ?? 'the folder'} to checkpoint ${cp.short} (${cp.reason}, ${ago(cp.when)}).${result.removed.length ? ` Removed ${result.removed.length} file${result.removed.length > 1 ? 's' : ''} created since.` : ''}`);
+  if (result.saved) ui.notice('  The state from just before this rollback is now the newest checkpoint, so it can be undone with /rollback 1.');
+  // The model still believes what it read and wrote after that point; it is told otherwise.
+  if (agent.messages.length) {
+    agent.messages.push(
+      { role: 'user', content: `[The user rolled ${file ? `the file ${file}` : 'the working folder'} back to a checkpoint taken ${ago(cp.when)} ("${cp.reason}"). Changes made to ${file ? 'it' : 'files'} after that point are no longer on disk. Read a file again before relying on what you remember of it.]` },
+      { role: 'assistant', content: 'Understood. I will re-read files before relying on their earlier contents.' },
+    );
   }
 }
 
@@ -193,6 +260,15 @@ export async function runCommand(input, ctx) {
       ui.line(`  ${c.dim('thinking')} ${config.think && agent.caps.thinking ? 'on' : 'off'}`);
       ui.line(`  ${c.dim('images  ')} ${agent.provider.ownTools || agent.caps.vision ? 'yes' : 'no, this model cannot see images'}`);
       ui.line(`  ${c.dim('approval')} ${permissions.mode === 'auto' ? 'automatic (YOLO)' : 'ask first'}`);
+      {
+        const { fallbackChain } = await import('./failover.mjs');
+        const chain = fallbackChain(config);
+        const keys = ['openai', 'anthropic'].includes(agent.provider.kind) ? keyPool(agent.provider, config).summary() : null;
+        if (keys?.total > 1) ui.line(`  ${c.dim('api keys')} ${keys.total}${keys.resting ? ` (${keys.resting} resting after being turned away)` : ''}`);
+        ui.line(`  ${c.dim('fallback')} ${chain.length ? chain.map((f) => `${f.model} via ${f.provider}`).join(' → ') : c.dim('none — add "fallback" to ~/.seeker/config.json')}`);
+        if (agent.primary) ui.line(`  ${c.dim('        ')} ${c.yellow(`standing in for ${agent.primary.model} via ${agent.primary.provider.label}`)}`);
+        ui.line(`  ${c.dim('undo    ')} ${config.checkpoints === false ? 'checkpoints off' : 'checkpoints on (/rollback)'}`);
+      }
       return;
     }
 
@@ -339,6 +415,7 @@ export async function runCommand(input, ctx) {
       });
       if (at === -1) return;
       const picked = agent.skills[at];
+      import('./skill-manage.mjs').then((m) => m.recordUse(picked.name), () => {});
       ui.notice(`  Running /${picked.name}`);
       return { prompt: renderSkill(picked, arg), label: `/${picked.name}` };
     }
@@ -362,8 +439,97 @@ export async function runCommand(input, ctx) {
       return;
     }
 
+    case 'goal':
+    case 'loop':
+    case 'proactive':
+    case 'hb':
+    case 'heartbeat': {
+      if (!ctx.autonomy) return ui.warn(`  /${name} works in an interactive session.`);
+      const auto = await ctx.autonomy();
+      const kind = name.toLowerCase();
+      const out = kind === 'goal' ? auto.goalCommand(arg) : kind === 'loop' || kind === 'proactive' ? auto.loopCommand(arg) : auto.heartbeatCommand(arg);
+      for (const line of out.lines) ui.notice(`  ${line}`);
+      return out.prompt ? { prompt: out.prompt, label: out.label } : undefined;
+    }
+
+    case 'cron': {
+      const cron = await import('./cron.mjs');
+      const [action, id] = rest;
+      if (['pause', 'resume', 'remove'].includes(action)) {
+        const out = cron.manageJobs({ action, job_id: id }, { cwd: agent.cwd });
+        return out.success ? ui.notice(`  Job ${id} ${action === 'remove' ? 'removed' : `${action}d`}.`) : ui.warn(`  ${out.error}`);
+      }
+      const jobs = cron.readJobs();
+      if (!jobs.length) return ui.line(`  ${c.dim('No scheduled jobs. Ask for one in plain words: "every weekday at 9, check the open pull requests and summarise them".')}`);
+      for (const j of jobs) {
+        ui.line(`  ${c.accent(j.id)}  ${j.name}`);
+        ui.line(`    ${c.dim(`${j.schedule.display} · ${j.state}${j.next_run_at ? ` · next ${new Date(j.next_run_at).toLocaleString()}` : ''} · ran ${j.repeat.completed}×${j.last_status === 'error' ? ` · last run failed: ${j.last_error}` : ''}${j.allow_changes ? ' · may change files' : ' · read-only'}`)}`);
+      }
+      ui.line(`  ${c.dim('/cron pause <id> · /cron resume <id> · /cron remove <id> · replies are kept in ~/.seeker/cron/output')}`);
+      return;
+    }
+
+    case 'hooks': {
+      const hooks = await import('./hooks.mjs');
+      const all = hooks.configuredHooks(config);
+      if (!all.length) {
+        ui.line(`  ${c.dim('No shell hooks are configured. In ~/.seeker/config.json:')}`);
+        ui.line('    "hooks": { "pre_tool_call": [{ "matcher": "bash", "command": "~/bin/guard.sh" }] }');
+        ui.line(`  ${c.dim(`Events: ${hooks.EVENTS.join(', ')}. A hook gets JSON on stdin; pre_tool_call may answer {"action":"block","message":"…"}.`)}`);
+        return;
+      }
+      const at = await pickList({ term, ui, title: 'Shell hooks — Enter approves one', items: all.map((h) => ({ label: `${h.event}${h.matcher ? ` [${h.matcher}]` : ''}  ${h.command}`, hint: hooks.isApproved(h) ? 'approved' : 'NOT approved — does not run' })) });
+      if (at === -1 || hooks.isApproved(all[at])) return;
+      ui.line(`  ${c.yellow('This command will run on your behalf, with your full user rights, every time the event happens:')}`);
+      ui.line(`    ${all[at].command}`);
+      const choice = await pickList({ term, ui, title: 'Allow this hook to run?', items: [{ label: 'No' }, { label: 'Yes, approve it' }] });
+      if (choice !== 1) return ui.notice('  Left unapproved.');
+      hooks.approve(all[at]);
+      return ui.notice('  Approved. It runs from now on.');
+    }
+
+    case 'undo':
+    case 'rollback':
+      return rollback(rest, ctx);
+
+    case 'memory': {
+      const { STORES, readStore, usage } = await import('./memory.mjs');
+      let any = false;
+      for (const target of ['user', 'memory', 'project']) {
+        const entries = readStore(target, agent.cwd);
+        if (!entries.length) continue;
+        any = true;
+        ui.line(`  ${c.accent(STORES[target].title)} ${c.dim(`[${usage(target, entries)}]`)}`);
+        for (const entry of entries) ui.line(`    ${c.dim('·')} ${entry.replace(/\n/g, '\n      ')}`);
+      }
+      if (!any) ui.line(`  ${c.dim('Nothing remembered yet. SEEKER saves durable facts with its memory tool as you work; tell it "remember that …" to save one now.')}`);
+      else ui.line(`  ${c.dim(`Files: ${STORES.memory.file().replace(/[^/]+$/, '')} — edit them by hand, or ask SEEKER to forget something.`)}`);
+      return;
+    }
+
+    case 'curator': {
+      const { agentSkills, curate, setPinned } = await import('./skill-manage.mjs');
+      const [action, target] = rest;
+      if (action === 'pin' || action === 'unpin') {
+        if (!target) return ui.warn(`  /curator ${action} <skill name>`);
+        setPinned(target.toLowerCase(), action === 'pin');
+        return ui.notice(`  ${target} ${action === 'pin' ? 'pinned: it will not be retired or deleted' : 'unpinned'}.`);
+      }
+      if (action === 'run') {
+        const report = curate();
+        agent.reload();
+        return ui.notice(`  Curator: ${report.archived.length} archived${report.archived.length ? ` (${report.archived.join(', ')})` : ''}, ${report.stale.length} marked stale, ${report.reactivated.length} active again.`);
+      }
+      const own = agentSkills();
+      if (!own.length) return ui.line(`  ${c.dim('SEEKER has not written any skills yet. It records a workflow as a skill after working one out; skills you installed yourself are never touched by the curator.')}`);
+      for (const s of own) ui.line(`  ${c.accent(s.name.padEnd(28))} ${s.state.padEnd(8)} ${c.dim(`used ${s.uses}× · patched ${s.patches}×${s.pinned ? ' · pinned' : ''}`)}`);
+      ui.line(`  ${c.dim('Unused for 14 days → stale; 30 days → moved to ~/.seeker/skills/.archive. /curator run · /curator pin <name>')}`);
+      return;
+    }
+
     default: {
       const skill = agent.skills.find((s) => s.name === name.toLowerCase());
+      if (skill) import('./skill-manage.mjs').then((m) => m.recordUse(skill.name), () => {});
       if (skill) return { prompt: renderSkill(skill, arg), label: `/${skill.name}${arg ? ` ${arg}` : ''}` };
       ui.warn(`  Unknown command: /${name} — type /help`);
     }

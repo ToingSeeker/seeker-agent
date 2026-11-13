@@ -3,8 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const VERSION = '0.1.0';
-export const HOME_DIR = process.env.SEEKER_HOME || path.join(os.homedir(), '.seeker');
+// Under `node --test` with no SEEKER_HOME given, a scratch folder stands in: a test run must
+// never read or write the user's real settings, memory, skills or checkpoints.
+export const HOME_DIR =
+  process.env.SEEKER_HOME || (process.env.NODE_TEST_CONTEXT ? fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-test-home-')) : path.join(os.homedir(), '.seeker'));
 const CONFIG_FILE = path.join(HOME_DIR, 'config.json');
+/** The folder name a working directory maps to under ~/.seeker (sessions, project memory). */
+export const projectSlug = (cwd) => cwd.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '') || 'root';
 
 export const DEFAULTS = {
   provider: 'ollama',
@@ -25,6 +30,17 @@ export const DEFAULTS = {
   skillDirs: [],
   // MCP servers that add tools, as in Claude Code: { name: { command, args, env } | { url, headers }, disabled? }.
   mcpServers: {},
+  // Backup models tried, in order, when the chosen one is rate limited, out of credit or down:
+  // [{ provider: 'openrouter', model: '…' }, { provider: 'ollama', model: 'qwen3.5:27b' }].
+  // Several API keys for one provider go in providers.<id>.apiKeys (rotated when one is turned away).
+  fallback: [],
+  // Snapshot the folder before the first change of a message, so /rollback can undo it.
+  checkpoints: true,
+  // After a reply, look back for facts and lessons worth keeping (memory and skills).
+  review: true,
+  // Let SEEKER save memory and skills without asking each session. Off: it asks the first time (and the
+  // unattended review saves nothing until you have said "always").
+  autoLearn: false,
 };
 
 /** Settings `/config` may change, with how to read each from text. Returns undefined when the text is invalid. */
@@ -38,6 +54,9 @@ export const SETTINGS = {
   animation: { parse: bool, help: 'animate the robot in the header' },
   permissionMode: { parse: (v) => (['ask', 'auto'].includes(v) ? v : undefined), help: 'ask before edits and commands, or run them' },
   maxSteps: { parse: int(1), help: 'tool steps allowed per message' },
+  checkpoints: { parse: bool, help: 'snapshot files before changing them, for /rollback' },
+  autoLearn: { parse: bool, help: 'save memory and skills without asking' },
+  review: { parse: bool, help: 'learn from finished work: save facts and skills after a reply' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },
   host: {
     parse: (v) => {

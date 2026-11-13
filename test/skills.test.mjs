@@ -86,7 +86,7 @@ test('slash suggestions cover commands and skills', async () => {
   const { matchCommands } = await import('../src/commands.mjs');
   const skills = [{ name: 'review', description: 'Review code' }];
   assert.deepEqual(matchCommands('/re', skills).map((m) => m[0]), ['/resume', '/review']);
-  assert.equal(matchCommands('/', skills).length, 16);
+  assert.equal(matchCommands("/", skills).length, 24);
   assert.deepEqual(matchCommands('/review src', skills), [], 'no suggestions once arguments start');
   assert.deepEqual(matchCommands('hello', skills), []);
 });

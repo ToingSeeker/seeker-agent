@@ -48,6 +48,10 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
 
 ## Instruksi dan memori
 
+- `SEEKER.md` di proyek — instruksi proyek; `/init` membuatkannya. Kalau tidak ada: semua `AGENTS.md` dari akar
+  repositori sampai folder kerja, lalu `CLAUDE.md`, lalu `.cursorrules` dan `.cursor/rules/*.mdc`. File instruksi
+  di subfolder (`packages/api/AGENTS.md`) diberikan ke model saat ia pertama kali bekerja di folder itu. File yang
+  isinya seperti prompt injection tidak dimuat.
 - `~/.seeker/SEEKER.md` — aturan kerja yang berlaku di semua proyek.
 - `~/.seeker/memory/` — catatan dari sesi-sesi sebelumnya; `MEMORY.md` adalah indeksnya (satu baris per catatan).
 - `~/.seeker/memory/projects/<folder>/` — catatan khusus satu proyek, dimuat saat SEEKER dijalankan di folder itu.
@@ -196,6 +200,135 @@ npm link             # memasang perintah `seeker`
 ollama pull qwen3.5:27b
 ```
 
+## Belajar dari sesi ke sesi
+
+SEEKER menyimpan apa yang ia pelajari, jadi sesi berikutnya sudah tahu.
+
+- **Memori yang ia tulis sendiri.** Lewat tool `memory`, SEEKER menyimpan fakta singkat ke tiga tempat: siapa kamu
+  (`~/.seeker/memories/USER.md`, 1.375 karakter), hal yang berlaku di semua proyek (`MEMORY.md`, 2.200), dan hal yang
+  berlaku di folder ini (`projects/<folder>.md`, 2.200). Semuanya masuk ke system prompt sesi berikutnya. Batasnya
+  keras: kalau penuh, entri yang basi diganti. Teks yang isinya perintah atau rahasia ditolak. `/memory`
+  menampilkan isinya; bilang "ingat bahwa …" atau "lupakan …" untuk mengubahnya.
+- **Skill yang ia tulis sendiri.** Setelah menemukan cara kerja yang tidak sepele, SEEKER bisa mencatatnya sebagai
+  skill lewat `skill_manage`, dan membetulkan skill yang ternyata salah. `/curator` menampilkannya. Skill yang 14 hari
+  tidak dipakai ditandai basi; setelah 30 hari dipindah ke `~/.seeker/skills/.archive`. Skill yang kamu pasang sendiri
+  tidak pernah disentuh.
+- **Menengok ke belakang setelah menjawab.** Setiap sepuluh pesan, atau setelah banyak langkah tool, sebuah pembantu
+  yang hanya punya tool memori dan skill meninjau percakapan selagi kamu membaca jawaban, lalu menyimpan yang layak
+  disimpan. Ia langsung dihentikan begitu kamu mengetik lagi. Matikan dengan `/config review off`.
+- **Kamu yang menentukan apa yang disimpan.** Yang disimpan akan dibaca lagi sebagai konteks di setiap sesi
+  berikutnya, jadi SEEKER minta izin dulu sambil menunjukkan teksnya. Jawab "always" supaya tidak ditanya lagi
+  selama sesi itu, atau `/config autoLearn on` supaya tidak pernah ditanya. Tinjauan setelah menjawab hanya
+  menyimpan apa yang sudah kamu izinkan dengan cara itu. Skill hanya ditulis di dalam `~/.seeker/skills`, tidak
+  pernah lewat symlink atau ke dalam proyek.
+- **Percakapan lama.** Dengan `session_search` SEEKER bisa mencari dan membaca sesi-sesi sebelumnya dari semua folder,
+  jadi "minggu lalu kita putuskan apa soal webhook?" tidak perlu kamu ulangi.
+
+## Melampirkan konteks dengan @
+
+Tulis salah satu ini di pesan dan isinya ikut dilampirkan:
+
+| Referensi | Yang dilampirkan |
+| --- | --- |
+| `@file:src/app.js` | isi file |
+| `@file:src/app.js:10-40` | baris 10 sampai 40 |
+| `@folder:src` | daftar isi folder |
+| `@diff` · `@staged` | perubahan git yang belum / sudah di-stage |
+| `@git:3` | 3 commit terakhir beserta perubahannya |
+| `@url:https://…` | isi halaman sebagai teks |
+
+Path harus berada di dalam folder kerja, dan file kredensial tidak pernah dilampirkan. Lampiran di atas seperempat
+konteks diberi peringatan; di atas setengah, ditolak.
+
+## Membatalkan perubahan
+
+Sebelum perubahan pertama dalam satu pesan (file ditulis atau diedit, atau perintah shell yang bisa merusak file),
+SEEKER memotret folder. `/rollback` menampilkan daftar potret, `/rollback 2` mengembalikan potret kedua terbaru,
+`/rollback 2 src/app.js` satu file saja, dan `/rollback diff 2` menunjukkan apa yang berubah sejak itu. Rollback
+sendiri dipotret dulu, jadi bisa dibatalkan.
+
+Potret disimpan di repositori git terpisah di `~/.seeker/checkpoints`; tidak ada yang ditulis ke `.git` proyek.
+`node_modules`, hasil build, file `.env`, dan file di atas 10 MB tidak ikut dipotret, jadi tidak ikut dikembalikan.
+Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
+
+## Bekerja sendiri
+
+- **`/goal <yang mau dicapai>`** — SEEKER terus bekerja, pesan demi pesan, sampai seorang juri (model yang sama,
+  ditanya terpisah) menilai tujuannya tercapai. Ia berhenti setelah 20 giliran, saat buntu dan butuh kamu, atau saat
+  kamu menekan Ctrl+C. `/goal pause`, `/goal resume`, `/goal clear`.
+- **`/loop 5m <prompt>`** mengulang prompt tiap lima menit; **`/loop <prompt>`** membiarkan SEEKER mengatur temponya
+  sendiri (makin jarang selama tidak ada yang berubah). `--times N` dan `--until <syarat>` mengakhirinya, begitu juga
+  kalau model menyatakan tugasnya selesai. `/loop stop`.
+- **`/heartbeat every 10m <instruksi>`** memasukkan instruksi itu ke sesi setiap kali sesi sedang menganggur.
+- **Tugas terjadwal.** Minta dengan kalimat biasa ("tiap hari kerja jam 9, rangkum pull request yang terbuka") dan
+  SEEKER membuat job lewat tool `cronjob_manage`, setelah minta izinmu. Job berjalan di sesi baru miliknya sendiri: ia
+  boleh membaca dan menjalankan perintah yang tidak berbahaya, hanya mengubah file kalau kamu izinkan untuk job itu,
+  dan tidak pernah menjalankan perintah berisiko. Jawabannya disimpan di `~/.seeker/cron/output` dan ditampilkan di
+  sesi yang terbuka (atau dikirim ke HP oleh `seeker remote`). Job berjalan selama SEEKER terbuka; supaya tetap jalan
+  tanpa SEEKER terbuka, suruh penjadwal sistem memanggil `seeker cron tick` tiap menit. `/cron` untuk melihat,
+  menjeda, dan menghapusnya.
+- **Beberapa pembantu sekaligus.** Tool `task` bisa menjalankan sampai tiga agen pembantu berdampingan, masing-masing
+  dengan pekerjaannya sendiri; pertanyaan izin diajukan satu per satu.
+
+`/goal`, `/loop`, dan `/heartbeat` hidup bersama sesinya: berakhir saat kamu keluar.
+
+## Sebagai backend aplikasi lain
+
+`seeker serve` menyediakan SEEKER sebagai API yang kompatibel dengan OpenAI (`/v1/chat/completions`, streaming atau
+tidak, dan `/v1/models`), jadi frontend chat seperti Open WebUI atau skrip yang memakai paket `openai` bisa
+memakainya, dengan tool SEEKER yang bekerja di folder tempat ia dijalankan:
+
+```
+SEEKER_API_KEY=$(openssl rand -hex 24) seeker serve          # http://127.0.0.1:8642/v1
+```
+
+Ia hanya mendengarkan di mesin ini dan setiap permintaan wajib membawa key. Tidak ada orang yang bisa memberi izin,
+jadi permintaan boleh membaca file dan menjalankan perintah yang tidak berbahaya tetapi tidak mengubah apa pun;
+`"apiServer": { "allowChanges": true }` di config mengizinkan permintaan mengedit file dan menjalankan perintah biasa.
+Perintah berisiko tetap ditolak.
+
+## Hooks
+
+Perintah milikmu sendiri yang berjalan di titik-titik tertentu dan bisa membatalkan atau mengubah yang terjadi. Di
+`~/.seeker/config.json`:
+
+```json
+{ "hooks": { "pre_tool_call": [{ "matcher": "bash|write_file", "command": "~/bin/guard.sh", "timeout": 60 }] } }
+```
+
+Event: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`.
+Hook menerima satu baris JSON di stdin (`hook_event_name`, `tool_name`, `tool_input`, `cwd`, …). Hook
+`pre_tool_call` boleh mencetak `{"action":"block","message":"…"}` (atau keluar dengan kode 2) untuk menghentikan
+panggilan, atau `{"action":"modify","args":{…}}` untuk mengubah argumennya; hook `pre_llm_call` boleh memblokir pesan
+atau mencetak `{"context":"…"}` untuk menambahinya. Hook yang gagal tidak menghentikan pekerjaan kecuali diberi
+`"fail_closed": true`. Tidak ada hook yang berjalan sebelum kamu menyetujui perintah persis itu di `/hooks`.
+
+## Membaca dan memeriksa file
+
+`read_file` juga membaca PDF (butuh `pdftotext`), file Word dan OpenDocument, `.xlsx`, notebook, dan database SQLite
+sebagai teks. Setelah `write_file` atau `edit_file`, file JavaScript, JSON, Python, shell, Ruby, dan PHP diperiksa
+sintaksnya, dan file yang tidak bisa di-parse dilaporkan bersama hasilnya.
+
+## Model cadangan dan beberapa API key
+
+Di `~/.seeker/config.json`:
+
+```json
+{
+  "fallback": [
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-5.5" },
+    { "provider": "ollama", "model": "qwen3.5:27b" }
+  ],
+  "providers": { "openai": { "apiKeys": ["sk-…", "sk-…"], "keyStrategy": "fill_first" } }
+}
+```
+
+Kalau model yang dipilih kena rate limit, kehabisan kredit, menolak key, atau mati, SEEKER pertama-tama pindah ke
+API key berikutnya, lalu menunggu dan mencoba lagi, lalu turun ke daftar `fallback`, dan memberi tahu kamu. Model
+pilihanmu dicoba lagi di pesan berikutnya. Permintaan yang memang salah (terlalu panjang, rusak) tidak dilempar ke
+tempat lain. `keyStrategy`: `fill_first` (bawaan), `round_robin`, `least_used`, atau `random`; `/status` menampilkan
+rantainya.
+
 ## Cara kerja
 
 | File | Isi |
@@ -208,6 +341,17 @@ ollama pull qwen3.5:27b
 | `src/permissions.mjs` | baca bebas; edit, shell, dan jaringan minta izin |
 | `src/prompt.mjs` | system prompt + instruksi proyek (`SEEKER.md`, lalu `AGENTS.md`, lalu `CLAUDE.md`) |
 | `src/providers.mjs` | daftar penyedia + adapter: Ollama, OpenAI-compatible, Anthropic (SDK) |
+| `src/memory.mjs`, `src/review.mjs` | memori yang ditulis SEEKER sendiri, pemindai yang menolak perintah dan rahasia, tinjauan setelah menjawab |
+| `src/skill-manage.mjs` | skill yang ditulis dan dibetulkan SEEKER, catatan pemakaian, kurator |
+| `src/session-search.mjs` | mencari dan membaca percakapan lama |
+| `src/context-files.mjs`, `src/references.mjs` | file instruksi proyek dan referensi `@` |
+| `src/checkpoints.mjs` | potret sebelum perubahan, `/rollback` |
+| `src/failover.mjs` | rotasi API key, coba ulang, dan penyedia cadangan |
+| `src/autonomy.mjs` | `/goal`, `/loop`, dan `/heartbeat` |
+| `src/cron.mjs`, `src/cron-runner.mjs` | tugas terjadwal: jadwal, penyimpanan job, menjalankan job yang jatuh tempo |
+| `src/hooks.mjs` | hooks shell milik pengguna dan persetujuannya |
+| `src/api-server.mjs` | `seeker serve`: API yang kompatibel dengan OpenAI |
+| `src/lint.mjs`, `src/extract.mjs` | cek sintaks setelah menulis; dokumen dibaca sebagai teks |
 | `src/claude-code.mjs`, `src/external-tools.mjs` | penyedia Claude Code lewat Claude Agent SDK; tampilan dan klasifikasi izin untuk tool miliknya |
 | `src/ollama.mjs`, `src/http.mjs` | client streaming Ollama dan HTTP dasar |
 | `src/skills.mjs` | skill: `~/.seeker/skills/<nama>/SKILL.md`, `.seeker/skills/<nama>/SKILL.md`, dan skill plugin `~/.seeker/plugins/<plugin>/skills/…` yang dipanggil sebagai `/plugin:nama` |

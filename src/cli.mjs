@@ -19,10 +19,13 @@ const USAGE = `SEEKER v${VERSION} — your local coding companion, running on Ol
 
 Usage:
   seeker                     start an interactive session in this folder
+                             (in a message: @file:path  @file:path:10-40  @folder:dir  @diff  @staged  @git:3  @url:https://…)
   seeker "fix the login bug" start with a first message
   seeker -p "explain repo"   answer once and exit (pipeable)
   cat log.txt | seeker -p "what caused this error?"
   seeker remote              let your phone control SEEKER on this machine (see: seeker remote --setup)
+  seeker serve               offer SEEKER as an OpenAI-compatible API on this machine (needs SEEKER_API_KEY; --port 8642)
+  seeker cron tick           run scheduled jobs that are due (for the system scheduler); seeker cron list shows them
 
 Options:
       --provider <id>  where the model runs: ollama, lmstudio, claude-code, anthropic, openai, google,
@@ -33,6 +36,7 @@ Options:
       --yolo           do not ask before editing files or running commands
       --ctx <tokens>   context window for Ollama models (default 32768)
       --no-think       turn thinking mode off
+      --no-checkpoints do not snapshot files before changing them (no /rollback)
       --host <url>     Ollama server address
   -v, --version
   -h, --help`;
@@ -51,10 +55,12 @@ function parseArgs(argv) {
     else if (a === '-c' || a === '--continue') opts.continue = true;
     else if (a === '--yolo') opts.yolo = true;
     else if (a === '--no-think') opts.noThink = true;
+    else if (a === '--no-checkpoints') opts.noCheckpoints = true;
     else if (a === '-m' || a === '--model') opts.model = value(i++, a);
     else if (a === '--provider') opts.provider = value(i++, a);
     else if (a === '--setup') opts.setup = true;
     else if (a === '--url') opts.url = value(i++, a);
+    else if (a === '--port') opts.port = Number(value(i++, a));
     else if (a === '--ctx') opts.ctx = Number(value(i++, a));
     else if (a === '--host') opts.host = value(i++, a);
     else if (a === '--') {
@@ -142,8 +148,11 @@ export async function main(argv) {
     config.numCtx = opts.ctx;
   }
   if (opts.noThink) config.think = false;
+  if (opts.noCheckpoints) config.checkpoints = false;
   if (opts.yolo) config.permissionMode = 'auto';
 
+  const cronCommand = opts.prompt[0] === 'cron' && ['tick', 'list'].includes(opts.prompt[1]) && opts.prompt.length === 2 ? opts.prompt[1] : null;
+  const serve = opts.prompt.length === 1 && opts.prompt[0] === 'serve';
   const remote = opts.prompt[0] === 'remote';
   if (remote) {
     opts.prompt.shift();
@@ -197,12 +206,12 @@ export async function main(argv) {
     const stat = fs.fstatSync(0);
     hasInput = stat.isFIFO() || stat.isFile();
   } catch {}
-  if (piped && hasInput && !remote) {
+  if (piped && hasInput && !remote && !cronCommand && !serve) {
     const stdin = await readStdin();
     if (stdin) prompt = prompt ? `${prompt}\n\n<stdin>\n${stdin}\n</stdin>` : stdin;
   }
-  const print = Boolean(opts.print) || piped || remote;
-  if (print && !prompt && !remote) {
+  const print = Boolean(opts.print) || piped || remote || Boolean(cronCommand) || serve;
+  if (print && !prompt && !remote && !cronCommand) {
     console.error('seeker: -p needs a message, e.g. seeker -p "explain this project"');
     process.exit(2);
   }
@@ -255,6 +264,68 @@ export async function main(argv) {
     process.exit(1);
   }
 
+  if (serve) {
+    const { DEFAULT_PORT, createApiServer } = await import('./api-server.mjs');
+    const key = process.env.SEEKER_API_KEY || config.apiServer?.key;
+    const port = opts.port || config.apiServer?.port || DEFAULT_PORT;
+    let server;
+    try {
+      server = createApiServer({ config, key, cwd, info, log: (line) => console.error(`${new Date().toTimeString().slice(0, 8)}  ${line}`) });
+    } catch (err) {
+      ui.error(`seeker: ${err.message}\n  e.g.  SEEKER_API_KEY=$(openssl rand -hex 24) seeker serve`);
+      process.exit(1);
+    }
+    server.on('error', (err) => {
+      ui.error(`seeker: could not listen on port ${port}: ${err.message}`);
+      process.exit(1);
+    });
+    // This machine only: anything else reaching it must be put in front of it deliberately.
+    server.listen(port, '127.0.0.1', () => {
+      console.error(`SEEKER API · ${config.model} via ${provider.label}\nhttp://127.0.0.1:${port}/v1   (OpenAI-compatible; every request needs the key)\nFolder: ${cwd}   ·   ${config.apiServer?.allowChanges === true ? 'requests MAY edit files and run commands' : 'read-only: requests cannot change files'}   ·   Ctrl+C stops it.`);
+    });
+    const stop = () => {
+      stopAllProcesses();
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 500).unref();
+    };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+    return;
+  }
+
+  if (cronCommand) {
+    const cron = await import('./cron.mjs');
+    if (cronCommand === 'list') {
+      const jobs = cron.readJobs();
+      if (!jobs.length) console.log('No scheduled jobs. Ask SEEKER to schedule one ("every weekday at 9, check the open pull requests").');
+      for (const j of jobs) console.log(`${j.id}  ${j.state.padEnd(9)}  ${j.schedule.display.padEnd(22)}  next ${j.next_run_at ?? '—'}  ${j.name}`);
+      return;
+    }
+    const { tick } = await import('./cron-runner.mjs');
+    const results = await tick({ config, info, deliver: (r) => console.log(r.error ? `✖ ${r.job.name}: ${r.error}` : r.silent ? `· ${r.job.name}: nothing to report` : `${cron.delivered(r.job, r.reply)}\n`) });
+    if (!results.length) console.error('No jobs are due.');
+    stopAllProcesses();
+    return;
+  }
+
+  /** Runs due jobs every minute while this process lives; `deliver` shows a result to the user. */
+  const startCron = (deliver) => {
+    let running = false;
+    const check = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const cron = await import('./cron.mjs');
+        if (cron.hasJobs()) await (await import('./cron-runner.mjs')).tick({ config, deliver: (r) => deliver(r, cron) });
+      } catch {
+      } finally {
+        running = false;
+      }
+    };
+    setTimeout(check, 5000).unref();
+    setInterval(check, 60_000).unref();
+  };
+
   if (remote) {
     const log = (line) => console.error(`${new Date().toTimeString().slice(0, 8)}  ${line}`);
     const hub = new McpHub({ servers: readServers(config, cwd) });
@@ -262,9 +333,10 @@ export async function main(argv) {
     // One agent per project folder. Approval is always asked for here: a phone may be lost or
     // borrowed, so "run without asking" is never available remotely.
     const build = async (folder, remoteUi, asker, current) => {
-      const agent = new Agent({ config, ui: remoteUi, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider(config.provider, config), info: current, cwd: folder });
+      const agent = new Agent({ config, ui: remoteUi, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker, autoLearn: config.autoLearn }), provider: createProvider(config.provider, config), info: current, cwd: folder });
       agent.setExtraTools(hub.tools());
-      return { agent, session: new Session(folder) };
+      agent.session = new Session(folder);
+      return { agent, session: agent.session };
     };
     const named = opts.prompt.length ? opts.prompt : (config.remote.workspaces ?? []);
     const folders = [...new Set(named.length ? named : [cwd])];
@@ -279,6 +351,11 @@ export async function main(argv) {
     process.on('SIGINT', quit);
     process.on('SIGTERM', quit);
     stayAwake();
+    startCron((r, cron) => {
+      if (r.silent) return;
+      log(`cron · ${r.job.name}: ${r.error ? `failed (${r.error})` : 'done'}`);
+      daemon.notify?.({ title: `Scheduled: ${r.job.name}`, body: (r.error ?? r.reply).replace(/\s+/g, ' ').slice(0, 160), tag: `cron-${r.job.id}` });
+    });
     console.error(`SEEKER remote · ${config.model} via ${provider.label}\nrelay  ${config.remote.url}\nTo pair a phone: seeker remote --setup   ·   Ctrl+C stops it.\n`);
     try {
       await daemon.start();
@@ -291,9 +368,12 @@ export async function main(argv) {
 
   const screen = print ? null : new Screen({ header: (width) => ui.headerRows(width, { ready: agent.caps.tools, provider: agent.provider }), colors: ui.c });
   const term = print ? null : new Terminal(ui, screen);
-  const permissions = new Permissions({ mode: config.permissionMode, cwd, ask: term ? permissionAsker(ui, term) : null });
+  const permissions = new Permissions({ mode: config.permissionMode, cwd, ask: term ? permissionAsker(ui, term) : null, autoLearn: config.autoLearn });
   const agent = new Agent({ config, ui, permissions, provider, info, cwd });
   const session = new Session(cwd);
+  agent.session = session;
+  // A one-shot run exits as soon as it has answered; there is no quiet moment to learn in.
+  agent.allowReview = !print;
   // Extra tools from MCP servers; they join the agent's tool list as each server comes up.
   const hub = new McpHub({ servers: readServers(config, cwd), onChange: (tools) => agent.setExtraTools(tools) });
   const reportServers = () => {
@@ -362,6 +442,7 @@ export async function main(argv) {
 
   const exit = () => {
     session.save(agent.messages, agent.model);
+    agent.shellHooks?.run('on_session_end').catch(() => {});
     stopAllProcesses();
     hub.closeAll();
     ui.stopSpinner();
@@ -389,6 +470,31 @@ export async function main(argv) {
     return answer || null;
   };
 
+  // Housekeeping that must not delay the prompt: retire skills nobody uses, drop old snapshots.
+  setTimeout(async () => {
+    try {
+      const report = (await import('./skill-manage.mjs')).curateIfDue();
+      if (report?.archived.length) ui.notice(`  Curator: archived ${report.archived.length} unused skill${report.archived.length > 1 ? 's' : ''} SEEKER had written (${report.archived.join(', ')}). They are in ~/.seeker/skills/.archive.`);
+      (await import('./checkpoints.mjs')).prune();
+    } catch {}
+  }, 3000).unref();
+
+  // Scheduled jobs run while this session is open; a result is shown as soon as it is in.
+  startCron((r, cron) => {
+    if (r.error) ui.warn(`  ⏰ Scheduled job "${r.job.name}" failed: ${r.error}`);
+    else if (!r.silent) ui.notice(`\n${cron.delivered(r.job, r.reply).split('\n').map((l) => `  ${l}`).join('\n')}\n  (saved to ${r.file})`);
+  });
+  agent.hooks.cronRun = async (id) => (await import('./cron-runner.mjs')).runNow(id, { config, info: agent.info });
+
+  // The user's shell hooks, if any are configured.
+  if (Object.keys(config.hooks ?? {}).length) {
+    const { Hooks } = await import('./hooks.mjs');
+    agent.shellHooks = new Hooks({ config, cwd, sessionId: session.file, warn: (text) => ui.warn(`  ⚠ ${text}`) });
+    const waiting = agent.shellHooks.unapproved.length;
+    if (waiting) ui.notice(`  ${waiting} shell hook${waiting > 1 ? 's are' : ' is'} configured but not approved yet, so ${waiting > 1 ? 'they do' : 'it does'} not run. Review with /hooks.`);
+    agent.shellHooks.run('on_session_start').catch(() => {});
+  }
+
   // Servers start in the background so the prompt is usable at once.
   if (!agent.provider.ownTools) hub.connectAll().then(reportServers);
 
@@ -400,6 +506,55 @@ export async function main(argv) {
   const turn = async (text) => {
     await agent.runTurn(text);
     session.save(agent.messages, agent.model);
+  };
+
+  // /goal, /loop and /heartbeat: made on first use, polled only while one of them is waiting for its time.
+  let autonomy = null;
+  let poll = null;
+  const getAutonomy = async () => {
+    if (!autonomy) {
+      const { Autonomy } = await import('./autonomy.mjs');
+      autonomy = new Autonomy({ ask: (system, user) => agent.ask(system, user), config });
+    }
+    return autonomy;
+  };
+  const watchSchedule = () => {
+    if (autonomy?.active && !poll) {
+      // Wakes the waiting prompt when something is due and nothing is being typed.
+      poll = setInterval(() => {
+        if (!autonomy.active) {
+          clearInterval(poll);
+          poll = null;
+        } else if (!agent.busy && autonomy.hasDue()) term.wake();
+      }, 2000);
+      poll.unref();
+    }
+  };
+  const lastReply = () => [...agent.messages].reverse().find((m) => m.role === 'assistant')?.content ?? '';
+  /** After a message: while a goal is active, a judge decides whether SEEKER carries on by itself. */
+  const pursueGoal = async () => {
+    while (autonomy?.goal?.status === 'active' && !autonomy.goal.parkedUntil) {
+      ui.startSpinner('Checking the goal');
+      const next = await autonomy.afterTurn({ interrupted: agent.interrupted, response: lastReply() }).finally(() => ui.stopSpinner());
+      for (const line of next.lines) ui.notice(`  ${line}`);
+      if (!next.prompt) break;
+      ui.userEcho(next.label);
+      await turn(next.prompt);
+    }
+    watchSchedule();
+  };
+  /** Runs whatever /loop, /heartbeat or a parked goal has due. */
+  const runDue = async () => {
+    const due = autonomy?.takeDue();
+    if (!due) return;
+    ui.userEcho(due.label);
+    if (due.prompt.startsWith('/')) {
+      const result = await runCommand(due.prompt, { agent, ui, term, config, permissions, session, hub, autonomy: getAutonomy }).catch((err) => ui.error(`  ${err.message}`));
+      if (result?.prompt) await turn(result.prompt);
+    } else await turn(due.prompt);
+    if (due.kind === 'loop') for (const line of await autonomy.completeLoopTick({ interrupted: agent.interrupted, response: due.prompt.startsWith('/') ? '' : lastReply() })) ui.notice(`  ${line}`);
+    if (due.kind === 'goal') await pursueGoal();
+    watchSchedule();
   };
 
   const suggest = (text) =>
@@ -416,12 +571,16 @@ export async function main(argv) {
     await turn(prompt);
   }
 
+
   for (;;) {
     ui.ensureNewline();
     const input = await term.readInput({ placeholder: 'Ask Seeker to build, fix, or explore…', suggest, complete });
     if (input === null) break;
     const text = input.trim();
-    if (!text) continue;
+    if (!text) {
+      await runDue();
+      continue;
+    }
     ui.userEcho(text);
 
     if (text.startsWith('!')) {
@@ -432,16 +591,19 @@ export async function main(argv) {
     if (text.startsWith('/')) {
       let result;
       try {
-        result = await runCommand(text, { agent, ui, term, config, permissions, session, hub });
+        result = await runCommand(text, { agent, ui, term, config, permissions, session, hub, autonomy: getAutonomy });
       } catch (err) {
         ui.error(`  ${err.message}`);
         continue;
       }
       if (result === 'exit') break;
       if (result?.prompt) await turn(result.prompt);
+      if (result?.prompt) await pursueGoal();
+      watchSchedule();
       continue;
     }
     await turn(text);
+    await pursueGoal();
   }
   exit();
 }
