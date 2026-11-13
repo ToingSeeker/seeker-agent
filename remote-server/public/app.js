@@ -1414,41 +1414,22 @@ $('commands').addEventListener('click', () => {
   );
 });
 
-// The app is held to the part of the screen that is really visible, not to the page's own height.
-// On iOS, and most of all in the home-screen app, the page keeps its full height under the keyboard,
-// and after the keyboard closes its height stays short for a while and creeps back. The visual
-// viewport says what is on screen; an app on the home screen fills the whole screen when no
-// keyboard is up, whatever the page believes meanwhile.
+// With the on-screen keyboard open, iOS keeps the page its full height and slides it under the
+// keys. Sizing the app to what is actually visible keeps the message box above them.
 if (window.visualViewport) {
-  const root = document.documentElement;
-  const homeScreen = navigator.standalone === true; // iOS only; elsewhere the page's height can be trusted
   const typing = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
-  const screenHeight = () => (matchMedia('(orientation: landscape)').matches ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height));
   const fit = () => {
-    // The screen's height stands in only when the app really fills the screen (not in a split view).
-    const fills = homeScreen && Math.abs(window.innerWidth - Math.min(screen.width, screen.height)) < 2 === !matchMedia('(orientation: landscape)').matches && screenHeight() - window.innerHeight < 120;
-    const full = fills ? screenHeight() : window.innerHeight;
-    // Only while a field has the keyboard: as it closes, iOS reports the height in steps, and
-    // following those would walk the page down slowly.
-    const keyboard = typing() && full - visualViewport.height > 120;
-    if (keyboard) {
-      root.style.setProperty('--vv-h', `${visualViewport.height}px`);
-      root.style.setProperty('--vv-top', `${visualViewport.offsetTop}px`);
-    } else {
-      if (fills) root.style.setProperty('--vv-h', `${full}px`);
-      else root.style.removeProperty('--vv-h');
-      root.style.removeProperty('--vv-top');
-      if (window.scrollY) window.scrollTo(0, 0);
-    }
-    root.classList.toggle('keyboard', keyboard);
+    // Only while a field has the keyboard. As it closes, iOS reports the height in steps; following
+    // those would walk the page down slowly, so the full height comes back the moment typing ends.
+    const keyboard = typing() && window.innerHeight - visualViewport.height > 120;
+    $('app').style.height = keyboard ? `${visualViewport.height}px` : '';
+    document.documentElement.classList.toggle('keyboard', keyboard);
+    if (keyboard || window.scrollY) window.scrollTo(0, 0);
   };
-  fit();
   visualViewport.addEventListener('resize', fit);
   visualViewport.addEventListener('scroll', fit);
-  window.addEventListener('resize', fit);
   // After the tick, so moving from one field to another does not count as leaving.
   document.addEventListener('focusout', () => setTimeout(fit, 0));
-  document.addEventListener('focusin', () => setTimeout(fit, 0));
 }
 
 // ── start ──────────────────────────────────────────────────────────────────

@@ -90,17 +90,21 @@ svg {
 
 #app {
   max-width: 620px;
-  /* Held to what is really on screen (see the keyboard code in app.js): on iOS the page's own
-     height stays wrong for a while after the keyboard closes. */
-  position: fixed;
-  top: var(--vv-top, 0px);
-  left: 0;
-  right: 0;
   margin: 0 auto;
-  height: var(--vv-h, 100dvh);
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   padding-top: env(safe-area-inset-top);
+}
+
+/* On the home screen the app owns the whole screen. The dynamic height (dvh) lags behind for a
+   moment after the iOS keyboard closes, which let the page creep down; the large viewport height
+   does not change with the keyboard. In a browser tab dvh stays, since toolbars come and go there. */
+@media (display-mode: standalone) {
+  #app {
+    height: 100vh;
+    height: 100lvh;
+  }
 }
 
 #view {
@@ -1336,8 +1340,7 @@ pre {
 /* ── bottom sheet and toast ── */
 #sheet {
   position: fixed;
-  inset: var(--vv-top, 0px) 0 auto 0;
-  height: var(--vv-h, 100dvh);
+  inset: 0;
   z-index: 20;
   display: flex;
   align-items: flex-end;
