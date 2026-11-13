@@ -317,6 +317,41 @@ seeker remote ~/project-a ~/project-b  # several projects, one workspace each
 Leave it running; the phone shows the computer as online. The computer has to stay on, and on macOS it is
 kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
+### What the phone shows
+
+- **Home** — the session that needs you first (waiting for approval, then running, then the latest), the
+  connected computer with the measured round trip to it, your open projects, and `/init` `/model` `/resume`.
+  The **+** opens a folder on the computer, or makes a new one for a new project. A new folder can only be
+  made inside your home folder, and never in a hidden one.
+- **A session** — what the agent is doing right now (thinking, running a tool, writing, waiting for you,
+  finished, failed or stopped), every step as it happens with its output, and context, tokens and tool
+  counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply.
+- **Approvals** — each command and each file change waits here. A change is shown as a diff with line
+  numbers; a command the safety patterns flag is marked dangerous. One request is one command or one file.
+- **Settings** — connection, model, and which notifications this phone gets: finished tasks, approvals
+  and questions, errors. Everything `/config` holds is here too: thinking, whether to ask for approval,
+  context window, steps per message, how long a model stays in memory, the Ollama address, and the two
+  terminal display settings. A cloud provider's API key can be entered here; it is stored on the computer
+  and never sent back. A setting takes effect at once for projects opened from the phone; a `seeker`
+  already running in a terminal keeps what it started with.
+
+Nothing on these screens is estimated on the phone. A number the computer has not reported shows as “—”.
+
+### A session you are typing in the terminal
+
+While `seeker remote` is running, a plain `seeker` started in a terminal on the same computer joins it by
+itself and shows on the phone as a *terminal session*. Nothing has to be set up; if `seeker remote` is not
+running, the terminal works exactly as before.
+
+- **A picture from the phone** — send a screenshot with no text and its path is put into the message you are
+  typing in the terminal, as if you had dragged the file in. Finish the sentence and press Enter.
+- **A message from the phone** — one with words runs as a turn of its own when the terminal is free. What
+  you had half typed is back in the box afterwards. It is always a message for the model: `!` shell lines
+  and `/commands` are not run from the phone.
+- **Approvals** — asked in both places; the first answer decides and the other one closes.
+- **Not from the phone** — a new conversation, another model, and closing the session are done in the
+  terminal. A session started with `--yolo` shows on the phone but takes no tasks from it.
+
 ### Later
 
 - **New phone:** run `seeker remote --setup` again and open the link on it.
@@ -333,7 +368,8 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 - The computer only makes outbound connections; no port is opened.
 - Conversation and commands are encrypted between phone and computer (AES-256-GCM). The relay holds only
   a hash of the access token (`SEEKER_REMOTE_AUTH`) and can neither read nor forge anything.
-- Edits and commands always need approval on the phone; there is no permission-free mode over remote.
+- Edits and commands need approval on the phone unless you switch that off (in `/config`, or in the phone's
+  Settings). Even then, risky commands and files outside the project folder are still asked about.
 - The relay stores nothing on disk; after a restart the computer sends its state again.
 - Wrong tokens are locked out per address. On Railway the caller's address is read from `x-forwarded-for`;
   behind another proxy that sets that header itself, set `SEEKER_TRUST_PROXY=1`. Without a proxy leave it unset.
@@ -341,7 +377,6 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   computer to the phone's push service with Web Push encryption (`src/webpush.mjs`); the relay is not
   involved. Turn them on in the app's Settings. On iPhone the app must first be added with
   Share → Add to Home Screen.
-- From the phone you can also switch model and answer questions the model asks.
 
 Developed on macOS. The pairing-link copy and the keep-awake helper are macOS-only; everything else is
 plain Node.

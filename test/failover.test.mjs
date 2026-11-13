@@ -170,3 +170,10 @@ test('a request that is simply wrong is not retried or sent elsewhere', async ()
   assert.equal(backup.seen.length, 0);
   assert.ok(notices.some((n) => /Error: main: messages: too long/.test(n)));
 });
+
+test('an error from a model server on this machine is not waited on', () => {
+  const err = Object.assign(new Error('the model fell over'), { status: 500 });
+  assert.equal(decide({ err, attempt: 0, pool: null, hasFallback: false, local: true }).action, 'fail');
+  assert.equal(decide({ err, attempt: 0, pool: null, hasFallback: true, local: true }).action, 'fallback');
+  assert.equal(decide({ err, attempt: 0, pool: null, hasFallback: false }).action, 'retry');
+});

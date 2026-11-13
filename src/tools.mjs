@@ -395,10 +395,17 @@ export const TOOLS = [
     summary: (a) => pathArg(a),
     targetPath: (a, cwd) => resolvePath(pathArg(a), cwd),
     preview(args, { cwd }) {
-      resolvePath(pathArg(args), cwd);
+      const file = resolvePath(pathArg(args), cwd);
       if (typeof args.content !== 'string') throw new ToolError('"content" is required');
       const lines = args.content.split('\n');
-      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12) };
+      // Writing over a file that exists removes all of it: the reviewer must see that, not just what is added.
+      let replaced = null;
+      try {
+        if (fs.statSync(file).isFile()) replaced = fs.readFileSync(file, 'utf8').split('\n').length;
+      } catch {
+        // No such file yet: this creates it.
+      }
+      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: replaced ?? 0 }, overwrites: replaced };
     },
     async run(args, { cwd }) {
       const file = resolvePath(pathArg(args), cwd);
@@ -437,13 +444,23 @@ export const TOOLS = [
       if (from === to) throw new ToolError('old_string and new_string are identical');
       if (!from) throw new ToolError('old_string is empty — use write_file to create a file');
       if (!fs.existsSync(file)) throw new ToolError(`File not found: ${file}`);
-      const count = fs.readFileSync(file, 'utf8').split(from).length - 1;
+      const pieces = fs.readFileSync(file, 'utf8').split(from);
+      const count = pieces.length - 1;
       if (count === 0) throw new ToolError('old_string was not found in the file. Read the file again and copy the text exactly.');
       if (count > 1 && !args.replace_all)
         throw new ToolError(`old_string occurs ${count} times. Add surrounding lines to make it unique, or set replace_all.`);
       const removed = from.split('\n');
       const added = to.split('\n');
-      return { removed: removed.slice(0, 12), added: added.slice(0, 12), more: Math.max(0, removed.length - 12) + Math.max(0, added.length - 12) };
+      return {
+        removed: removed.slice(0, 12),
+        added: added.slice(0, 12),
+        more: Math.max(0, removed.length - 12) + Math.max(0, added.length - 12),
+        // Where the change starts and how large it really is, for a reviewer who sees only the first lines.
+        line: pieces[0].split('\n').length,
+        // With replace_all the same change lands in every place the text occurs.
+        times: args.replace_all ? count : 1,
+        counts: { added: added.length * (args.replace_all ? count : 1), removed: removed.length * (args.replace_all ? count : 1) },
+      };
     },
     async run(args, ctx) {
       this.preview(args, ctx);

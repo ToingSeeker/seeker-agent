@@ -153,7 +153,7 @@ export function fallbackChain(config) {
  * @param {boolean} state.hasFallback  a backup provider is still untried
  * @returns {{ action: 'rotate'|'retry'|'fallback'|'fail', kind: string, delayMs?: number }}
  */
-export function decide({ err, attempt, pool, hasFallback }) {
+export function decide({ err, attempt, pool, hasFallback, local = false }) {
   const kind = classify(err);
   if (kind === 'fatal') return { action: 'fail', kind };
   if (kind === 'rate_limit' || kind === 'billing' || kind === 'auth') {
@@ -168,6 +168,9 @@ export function decide({ err, attempt, pool, hasFallback }) {
     return { action: 'fail', kind };
   }
   if (kind === 'not_found') return hasFallback ? { action: 'fallback', kind } : { action: 'fail', kind };
+  // A model server on this machine that answers with an error is not busy with other people's requests:
+  // the same request fails the same way, so it is reported at once instead of being waited on.
+  if (kind === 'overloaded' && local) return hasFallback ? { action: 'fallback', kind } : { action: 'fail', kind };
   // overloaded / network: a busy service is left for a backup after two tries, the rest after three.
   const tries = hasFallback ? 2 : MAX_RETRIES;
   if (attempt < tries) return { action: 'retry', kind, delayMs: backoffMs(attempt) };

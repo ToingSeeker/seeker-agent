@@ -3,16 +3,18 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { createRelay } from '../remote-server/server.mjs';
 import { Agent } from '../src/agent.mjs';
-import { DEFAULTS } from '../src/config.mjs';
+import { DEFAULTS, VERSION } from '../src/config.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
-import { RemoteDaemon, deriveKeys, seal, unseal } from '../src/remote.mjs';
+import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
+import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
@@ -434,7 +436,7 @@ test('remote: questions from the model, switching model, and notifications reach
 
   await me.send('providers');
   const providers = (await until(() => me.state.replies.find((r) => r.t === 'providers'))).list;
-  assert.deepEqual(providers.find((p) => p.id === 'ollama'), { id: 'ollama', label: 'Ollama', local: true, ready: true, active: true });
+  assert.deepEqual(providers.find((p) => p.id === 'ollama'), { id: 'ollama', label: 'Ollama', local: true, ready: true, active: true, key: null });
   assert.equal(providers.find((p) => p.id === 'openai').ready, Boolean(process.env.OPENAI_API_KEY), 'a provider without a key cannot be picked from the phone');
   await me.send('models', { provider: 'ollama' });
   const models = await until(() => me.state.replies.find((r) => r.t === 'models'));
@@ -518,4 +520,353 @@ test('remote control: pictures sent from the phone reach the model, and what is 
   relay.closeAllConnections();
   model.close();
   model.closeAllConnections();
+});
+
+test('remote: the phone is told what the agent is doing, how the turn ended, and what it cost', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const secret = 'a-fourth-long-secret-for-the-status-test-1';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  // The model: asks for a file, answers, breaks, then never answers at all.
+  const script = [[call('write_file', { path: 'notes.txt', content: 'one\ntwo' }), { done: true }], [done('Written.')], 'broken', 'silent'];
+  const model = http.createServer((req, res) => {
+    req.resume().on('end', () => {
+      const next = script.shift();
+      if (next === 'silent') return;
+      if (next === 'broken') return res.writeHead(500).end(JSON.stringify({ error: 'the model fell over' }));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(next.map((c) => JSON.stringify(c)).join('\n'));
+    });
+  });
+  const pushes = [];
+  const pushService = http.createServer((req, res) => {
+    req.resume().on('end', () => {
+      pushes.push(req.url);
+      res.writeHead(201).end();
+    });
+  });
+  const config = { ...DEFAULTS, host: await listen(model), remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false, push: { anyHost: true, finishedAfter: 0 } });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    for (const server of [relay, model, pushService]) {
+      server.close();
+      server.closeAllConnections();
+    }
+  });
+  await until(() => me.state.online && me.state.device && me.state.workspaces.size === 1);
+  const [{ id }] = [...me.state.workspaces.values()];
+  const meta = () => me.state.workspaces.get(id);
+  const seen = (check) => me.state.events.some((e) => e.t === 'ws' && check(e.ws));
+  assert.equal(me.state.device.version, VERSION);
+  assert.deepEqual([meta().phase, meta().outcome, meta().tokens, meta().tools], [null, null, null, { total: 0, failed: 0, running: null }], 'before anything ran, nothing is claimed');
+
+  // This phone wants approvals and errors, but not "finished".
+  const browser = crypto.createECDH('prime256v1');
+  browser.generateKeys();
+  const subscription = { endpoint: `${await listen(pushService)}/phone`, keys: { p256dh: browser.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') } };
+  await me.send('push_subscribe', { subscription, prefs: { done: false } });
+  await until(() => pushes.length === 1);
+  assert.deepEqual(daemon.subscriptions[0].prefs, { done: false, approval: true, error: true });
+
+  // ── a turn that needs approval and then finishes ──
+  await me.send('message', { ws: id, text: 'write notes' });
+  const approval = await until(() => me.state.approvals[0]);
+  assert.ok(seen((w) => w.status === 'working' && w.phase === 'thinking'), 'waiting for the model is reported as thinking');
+  assert.ok(seen((w) => w.phase === 'executing' && w.tools.running === 'Writing notes.txt'), 'a tool in progress is reported as executing, and named');
+  assert.deepEqual([meta().status, approval.kind, approval.tool], ['approval', 'write', 'write_file']);
+  assert.deepEqual([approval.diff.line, approval.diff.counts], [1, { added: 2, removed: 0 }], 'the reviewer is told where the change starts and how big it is');
+  await until(() => pushes.length === 2);
+
+  // The round trip can be timed: a ping comes straight back with the same id.
+  await me.send('ping');
+  const pong = await until(() => me.state.events.find((e) => e.t === 'pong'));
+  assert.match(pong.id, /^c\d+$/);
+
+  await me.send('approve', { id_approval: approval.id, decision: 'allow' });
+  await until(() => meta().status === 'idle');
+  assert.ok(seen((w) => w.phase === 'responding'), 'the answer being written is reported too');
+  assert.equal(meta().outcome, 'completed');
+  assert.deepEqual(meta().tools, { total: 1, failed: 0, running: null });
+  assert.deepEqual(meta().tokens, { input: 10, output: 5, totalInput: 10, totalOutput: 5 }, 'tokens are the provider’s own count');
+  assert.equal(pushes.length, 2, 'no "finished" notification for a phone that switched those off');
+
+  // An answer for a request that is gone is refused out loud, not dropped.
+  await me.send('approve', { id_approval: approval.id, decision: 'allow' });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && r.text === 'That request was already answered.'));
+
+  // ── a turn that fails ──
+  await me.send('message', { ws: id, text: 'and again' });
+  await until(() => meta().status === 'idle' && meta().outcome === 'failed');
+  assert.match(meta().items.at(-1).text, /the model fell over/);
+  await until(() => pushes.length === 3);
+
+  // Switching a kind off takes effect on the Mac, which is what sends them.
+  await me.send('push_prefs', { endpoint: subscription.endpoint, prefs: { done: false, error: false } });
+  await until(() => me.state.events.some((e) => e.t === 'push_prefs' && e.prefs.error === false));
+  await me.send('push_prefs', { endpoint: 'https://example.invalid/nobody', prefs: {} });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /not on for this phone/.test(r.text)));
+
+  // ── a turn that is stopped ──
+  await me.send('message', { ws: id, text: 'take your time' });
+  await until(() => meta().status === 'working');
+  await me.send('stop', { ws: id });
+  await until(() => meta().status === 'idle');
+  assert.equal(meta().outcome, 'stopped');
+  assert.equal(pushes.length, 3, 'a stopped turn notifies nobody');
+
+  // A new conversation starts the counts again.
+  await me.send('new', { ws: id });
+  await until(() => meta().tools.total === 0 && meta().tokens === null && meta().outcome === null);
+  await daemon.stop();
+  await running;
+});
+
+test('remote: a new project folder is made only inside the home folder, never hidden, never through a link out of it', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-home-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-outside-'));
+  newProjectFolder(path.join(home, 'shop', 'web'), home);
+  assert.ok(fs.statSync(path.join(home, 'shop', 'web')).isDirectory());
+  assert.throws(() => newProjectFolder(home, home), /inside your home folder/);
+  assert.throws(() => newProjectFolder(path.join(outside, 'x'), home), /inside your home folder/);
+  assert.throws(() => newProjectFolder(path.join(home, '..', 'x'), home), /inside your home folder/);
+  assert.throws(() => newProjectFolder(path.join(home, '.ssh', 'x'), home), /hidden/);
+  assert.throws(() => newProjectFolder(path.join(home, 'a', '.git'), home), /hidden/);
+  assert.throws(() => newProjectFolder(path.join(home, 'a', 'b', 'c', 'd', 'e'), home), /too many/);
+  assert.throws(() => newProjectFolder(path.join(home, 'bad\nname'), home), /cannot be used/);
+  fs.symlinkSync(outside, path.join(home, 'link'));
+  assert.throws(() => newProjectFolder(path.join(home, 'link', 'x'), home), /inside your home folder/);
+  assert.equal(fs.existsSync(path.join(outside, 'x')), false);
+  fs.writeFileSync(path.join(home, 'file'), '');
+  assert.throws(() => newProjectFolder(path.join(home, 'file', 'x'), home), /a file, not a folder/);
+});
+
+test('remote: the phone can make a new project folder and is taken to it; a missing folder is not made unless asked', async (t) => {
+  const secret = 'a-fifth-long-secret-for-the-new-folder-test';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const config = { ...DEFAULTS, host: 'http://127.0.0.1:9', remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [], build, info: { tools: true, thinking: false, context: null }, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  const name = `seeker-new-${crypto.randomBytes(4).toString('hex')}`;
+  const made = path.join(os.homedir(), name);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    fs.rmSync(made, { recursive: true, force: true });
+  });
+  await until(() => me.state.online);
+
+  await me.send('open', { path: `~/${name}` });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /No such folder/.test(r.text)));
+  assert.equal(fs.existsSync(made), false);
+
+  await me.send('open', { path: `~/${name}`, create: true });
+  await until(() => me.state.events.some((e) => e.t === 'opened'));
+  const opened = me.state.events.find((e) => e.t === 'opened');
+  assert.ok(fs.statSync(made).isDirectory());
+  assert.equal(opened.created, true);
+  assert.equal(me.state.workspaces.get(opened.id).path, `~/${name}`);
+
+  await me.send('open', { path: '~/.ssh/evil', create: true });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /hidden/.test(r.text)));
+  assert.equal(fs.existsSync(path.join(os.homedir(), '.ssh', 'evil')), false);
+});
+
+test('remote: a session running in a terminal joins the daemon, shows on the phone, and takes messages and approvals from it', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-term-'));
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sk-')), 'l.sock');
+  const secret = 'a-sixth-long-secret-for-the-terminal-link-1';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([
+    [call('write_file', { path: 'a.txt', content: 'one' }), { done: true }],
+    [done('Written.')],
+    [call('write_file', { path: 'b.txt', content: 'two' }), { done: true }],
+    [done('Also written.')],
+  ]);
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret } };
+  const daemon = new RemoteDaemon({ config, folders: [], build: async () => ({}), info: null, remember: false, link });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+
+  // The terminal's side, as cli.mjs puts it together, with a stand-in for the screen.
+  const shown = [];
+  const screen = new Proxy({ c: new Proxy({}, { get: () => (x) => String(x) }) }, { get: (o, k) => o[k] ?? (k === 'answerStream' ? () => ({ push: (x) => shown.push(x), flush() {} }) : (...a) => shown.push([k, ...a])) });
+  const got = [];
+  const port = new TerminalLink({ file: link, info: { tools: true, thinking: false, context: null }, retry: 50, onMessage: (m) => got.push(m) });
+  const mirror = new Workspace(port, cwd, { id: terminalId(cwd), terminal: true });
+  let phoneAsker;
+  let typed = null; // resolves the question open "in the terminal"
+  const here = () => new Promise((resolve) => (typed = resolve));
+  const ask = async (request) => {
+    const first = await Promise.race([here().then((a) => ({ a, by: 'terminal' })), phoneAsker(request).then((a) => ({ a, by: 'phone' }))]);
+    if (first.by === 'terminal') port.withdraw();
+    return first.a;
+  };
+  const agent = new Agent({ config, ui: teeUi(screen, mirror.ui), permissions: new Permissions({ mode: 'ask', cwd, ask }), provider: createProvider('ollama', config), info: port.info, cwd });
+  port.build = async (_c, _u, asker) => ((phoneAsker = asker), { agent, session: { save() {}, startNew() {} } });
+  await mirror.open();
+  port.start(() => ({ ...mirror.meta(), items: mirror.items }));
+  t.after(async () => {
+    me.close();
+    port.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+  });
+
+  await until(() => me.state.workspaces.has(mirror.id));
+  assert.equal(me.state.workspaces.get(mirror.id).terminal, true);
+
+  // The socket and its key are closed to other users, and a caller without the key is turned away.
+  assert.equal(fs.statSync(link).mode & 0o077, 0);
+  assert.equal(fs.statSync(`${link}.key`).mode & 0o077, 0);
+  const stranger = net.connect(link);
+  await new Promise((resolve) => stranger.once('connect', resolve));
+  stranger.write(`${JSON.stringify({ t: 'hello', key: 'x'.repeat(48), ws: { id: 'abcdef0123', status: 'idle', name: 'evil' } })}\n`);
+  await new Promise((resolve) => stranger.once('close', resolve));
+  assert.equal(me.state.workspaces.has('abcdef0123'), false);
+
+  // A turn typed in the terminal: the phone follows it and may answer its approval.
+  const turn = mirror.run('write a');
+  await until(() => me.state.approvals.length === 1);
+  assert.equal(me.state.approvals[0].ws, mirror.id);
+  assert.equal(me.state.workspaces.get(mirror.id).status, 'approval');
+  await me.send('approve', { id_approval: me.state.approvals[0].id, decision: 'allow' });
+  await turn;
+  assert.equal(fs.readFileSync(path.join(cwd, 'a.txt'), 'utf8'), 'one');
+  await until(() => me.state.workspaces.get(mirror.id).outcome === 'completed');
+  const seen = me.state.workspaces.get(mirror.id).items;
+  assert.ok(seen.some((i) => i.kind === 'user' && i.text === 'write a'));
+  assert.ok(seen.some((i) => i.kind === 'assistant' && /Written/.test(i.text)));
+  assert.ok(shown.some((x) => Array.isArray(x) && x[0] === 'toolStart'), 'the terminal still shows everything itself');
+
+  // Answered in the terminal instead: the request leaves the phone.
+  const second = mirror.run('write b');
+  await until(() => me.state.approvals.length === 1);
+  typed('y');
+  await second;
+  assert.equal(fs.readFileSync(path.join(cwd, 'b.txt'), 'utf8'), 'two');
+  await until(() => me.state.approvals.length === 0);
+
+  // A message from the phone is handed to the terminal, which decides what to do with it.
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64').toString('base64');
+  await me.send('message', { ws: mirror.id, text: '', images: [{ name: 'shot.png', data: png }] });
+  await until(() => got.length === 1);
+  assert.equal(got[0].text, '');
+  assert.equal(got[0].images[0].mime, 'image/png');
+  await me.send('message', { ws: mirror.id, text: 'hello', images: [{ name: 'x.png', data: 'bm90IGFuIGltYWdl' }] });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /not a PNG/.test(r.text)));
+  assert.equal(got.length, 1, 'what is not a picture never reaches the terminal');
+
+  // What only the daemon's own projects can do is refused, and the terminal leaving removes it.
+  await me.send('new', { ws: mirror.id });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /runs in a terminal/.test(r.text)));
+  port.close();
+  await until(() => !me.state.workspaces.has(mirror.id));
+});
+
+test('remote: the phone changes the settings /config holds, they take effect at once, and an API key is stored but never sent back', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-config-'));
+  const secret = 'a-seventh-long-secret-for-the-settings-test';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([
+    [call('write_file', { path: 'a.txt', content: 'one' }), { done: true }],
+    [done('Written.')],
+    [call('write_file', { path: 'b.txt', content: 'two' }), { done: true }],
+    [done('Also written.')],
+  ]);
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+  await until(() => me.state.device?.settings);
+  const toasted = (pattern) => until(() => me.state.replies.some((r) => r.t === 'toast' && pattern.test(r.text)));
+  const [ws] = [...me.state.workspaces.keys()];
+  assert.deepEqual(me.state.device.settings, { think: true, showThinking: true, animation: true, permissionMode: 'ask', maxSteps: 60, keepAlive: '30m', host: ollama.host, ollama: true, context: 32768 });
+
+  // Plain settings: parsed as /config parses them, and reported back.
+  await me.send('config', { key: 'think', value: 'false' });
+  await me.send('config', { key: 'numCtx', value: '8192' });
+  await me.send('config', { key: 'maxSteps', value: '12' });
+  await until(() => me.state.device.settings.maxSteps === 12);
+  assert.equal(config.think, false);
+  assert.equal(config.numCtx, 8192);
+  assert.equal(me.state.device.settings.context, 8192);
+  assert.equal(me.state.workspaces.get(ws).limit, 8192);
+
+  // What is not a setting, or not a valid value, changes nothing.
+  await me.send('config', { key: 'numCtx', value: '12' });
+  await toasted(/Not a valid value for numCtx/);
+  for (const key of ['remote', 'providers', 'model', '__proto__', 'constructor']) await me.send('config', { key, value: 'x' });
+  await until(() => me.state.replies.filter((r) => r.t === 'toast' && /Unknown setting/.test(r.text)).length === 5);
+  assert.equal(config.numCtx, 8192);
+  assert.equal(config.remote.secret, secret);
+  assert.equal(config.model, DEFAULTS.model);
+
+  // Asking first: the edit waits for the phone.
+  await me.send('message', { ws, text: 'write a' });
+  await until(() => me.state.approvals.length === 1);
+  assert.equal(fs.existsSync(path.join(cwd, 'a.txt')), false);
+  await me.send('approve', { id_approval: me.state.approvals[0].id, decision: 'allow' });
+  await until(() => me.state.workspaces.get(ws).status === 'idle' && fs.existsSync(path.join(cwd, 'a.txt')));
+
+  // Switched to automatic from the phone: the next edit runs without a request.
+  await me.send('config', { key: 'permissionMode', value: 'auto' });
+  await until(() => me.state.device.settings.permissionMode === 'auto');
+  await me.send('message', { ws, text: 'write b' });
+  await until(() => fs.existsSync(path.join(cwd, 'b.txt')) && me.state.workspaces.get(ws).status === 'idle');
+  assert.equal(me.state.approvals.length, 0);
+
+  // An API key: kept on the Mac, its presence reported, its text never sent anywhere.
+  const apiKey = 'sk-test-0123456789abcdefghijklmnop';
+  await me.send('key', { provider: 'openai', key: apiKey });
+  await toasted(/OpenAI key saved/);
+  assert.equal(config.providers.openai.apiKey, apiKey);
+  await me.send('providers');
+  await until(() => me.state.replies.some((r) => r.t === 'providers'));
+  const list = me.state.replies.findLast((r) => r.t === 'providers').list;
+  assert.equal(list.find((p) => p.id === 'openai').key, process.env.OPENAI_API_KEY ? 'env' : 'set');
+  assert.equal(list.find((p) => p.id === 'ollama').key, null);
+  await me.send('sync');
+  await until(() => me.state.events.filter((e) => e.t === 'snapshot').length >= 2);
+  assert.equal(JSON.stringify(me.state.events).includes(apiKey), false);
+
+  await me.send('key', { provider: 'ollama', key: apiKey });
+  await toasted(/does not take an API key/);
+  await me.send('key', { provider: 'openai', key: 'has a space in it' });
+  await toasted(/does not look like an API key/);
+  assert.equal(config.providers.openai.apiKey, apiKey);
 });

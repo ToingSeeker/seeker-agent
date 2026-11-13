@@ -12,8 +12,9 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { HOME_DIR, saveConfig, saveProviderConfig } from './config.mjs';
+import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { receivedImages } from './images.mjs';
+import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
@@ -66,7 +67,13 @@ export class WebUI {
     this.count = 0;
     this.answer = null; // { id, pending } — the assistant message being streamed
     this.timer = null;
+    this.failed = false; // an error was shown since the turn began
     this.onStep = () => {};
+  }
+
+  /** What the agent is doing right now: `phase` is thinking | executing | responding. */
+  #activity(phase, text) {
+    this.emit({ t: 'activity', phase, text });
   }
 
   #item(item) {
@@ -81,6 +88,7 @@ export class WebUI {
   }
 
   turnStart() {
+    this.failed = false;
     this.#flushAnswer();
     this.answer = null;
     this.tool = null;
@@ -95,7 +103,10 @@ export class WebUI {
   answerStream() {
     return {
       push: (text) => {
-        if (!this.answer) this.answer = { id: this.#item({ kind: 'assistant', text: '' }).id, pending: '' };
+        if (!this.answer) {
+          this.answer = { id: this.#item({ kind: 'assistant', text: '' }).id, pending: '' };
+          this.#activity('responding', 'Writing the answer');
+        }
         this.answer.pending += text;
         // Tokens arrive many times a second; they are sent on in small batches.
         this.timer ??= setTimeout(() => this.#flushAnswer(), 250);
@@ -119,7 +130,7 @@ export class WebUI {
     if (this.tool && !this.tool.finished && this.tool.doing === doing && this.tool.summary === text) return;
     const item = this.#item({ kind: 'tool', state: 'running', doing, done, summary: text });
     this.tool = { id: item.id, doing, done, summary: text, open: false, finished: false, diff: null };
-    this.emit({ t: 'activity', text: `${doing} ${text}`.trim() });
+    this.#activity('executing', `${doing} ${text}`.trim());
   }
 
   toolOpen() {
@@ -164,18 +175,20 @@ export class WebUI {
   }
 
   error(text) {
+    this.failed = true;
     this.#item({ kind: 'notice', level: 'error', text: plain(text).trim() });
   }
 
   startSpinner(label) {
-    this.emit({ t: 'activity', text: plain(label) });
+    // The spinner runs while the model has been asked and nothing has come back yet.
+    this.#activity('thinking', plain(label));
   }
 
   // Parts of the terminal interface with no meaning here.
   stopSpinner() {}
   ensureNewline() {}
   thinkStart() {
-    this.emit({ t: 'activity', text: 'Thinking' });
+    this.#activity('thinking', 'Thinking');
   }
   thinkChunk() {}
   thinkEnd() {}
@@ -185,32 +198,47 @@ export class WebUI {
 
 const TITLES = { exec: 'Run this command?', write: 'Apply this change?', net: 'Open this address?', other: 'Use this tool?' };
 
-class Workspace {
-  constructor(daemon, cwd) {
+export class Workspace {
+  /**
+   * @param {object} daemon  the RemoteDaemon, or for a session running in a terminal the TerminalLink that leads to one
+   * @param {{ id?: string, terminal?: boolean }} [opts]  `terminal`: the conversation is typed in a terminal on this machine
+   */
+  constructor(daemon, cwd, { id = null, terminal = false } = {}) {
     this.daemon = daemon;
     this.cwd = cwd;
-    this.id = crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 10);
+    this.terminal = terminal;
+    this.id = id ?? crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 10);
     this.name = path.basename(cwd) || cwd;
     this.items = [];
     this.status = 'idle'; // idle | working | approval
     this.activity = '';
+    this.phase = null; // thinking | executing | responding, while working
+    this.outcome = null; // how the last turn ended: completed | failed | stopped
+    this.stopped = false;
+    this.tools = { total: 0, failed: 0 };
+    this.startedAt = null; // when the turn in progress began
+    this.lastAt = null; // when anything last happened here
     this.ui = new WebUI((event) => this.#report(event));
     this.ui.onStep = () => this.touch();
   }
 
   /** Keeps a copy of the transcript (so a snapshot can be sent at any time) and passes the event on. */
   #report(event) {
+    this.lastAt = Date.now();
     if (event.t === 'item') {
+      if (event.item.kind === 'tool') this.tools.total += 1;
       this.items.push(event.item);
       if (this.items.length > MAX_ITEMS) this.items.shift();
     } else if (event.t === 'patch') {
       const item = this.items.find((i) => i.id === event.id);
+      if (event.patch?.state === 'failed') this.tools.failed += 1;
       if (item) {
         Object.assign(item, event.patch ?? {});
         if (event.append) item.text = (item.text ?? '') + event.append;
       }
     } else if (event.t === 'activity') {
       this.activity = event.text;
+      this.phase = event.phase ?? null;
       return this.touch();
     }
     this.daemon.send({ ...event, ws: this.id });
@@ -235,7 +263,14 @@ class Workspace {
       path: tildify(this.cwd),
       branch: this.git?.branch ?? '',
       status: this.status,
+      phase: this.status === 'working' ? this.phase : null,
+      outcome: this.status === 'idle' ? this.outcome : null,
       activity: this.status === 'idle' ? '' : this.activity,
+      startedAt: this.status === 'idle' ? null : this.startedAt,
+      lastAt: this.lastAt,
+      tools: { ...this.tools, running: this.status === 'idle' || !this.ui.tool ? null : `${this.ui.tool.doing} ${this.ui.tool.summary}`.trim() },
+      // Counted by the provider; null until it has reported once.
+      tokens: agent.usage.known ? { input: agent.usage.input, output: agent.usage.output, totalInput: agent.usage.totalInput, totalOutput: agent.usage.totalOutput } : null,
       model: agent.model,
       provider: agent.provider.label,
       local: Boolean(agent.provider.local),
@@ -243,6 +278,7 @@ class Workspace {
       limit: agent.contextLimit(),
       vision: Boolean(agent.caps.vision || agent.provider.ownTools),
       progress: todos.length ? { done, total: todos.length, current } : null,
+      ...(this.terminal ? { terminal: true } : {}),
     };
   }
 
@@ -260,6 +296,7 @@ class Workspace {
       ws: this.id,
       wsName: this.name,
       kind,
+      tool: tool.name,
       title: TITLES[kind],
       doing: current?.doing ?? tool.name,
       summary: current?.summary ?? '',
@@ -298,31 +335,45 @@ class Workspace {
     return answer;
   }
 
-  /** @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message */
-  async run(text, images = []) {
+  /**
+   * @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message
+   * @param {{ references?: boolean }} [opts]  false for a prompt nobody typed (a loop, a goal step): its @ references stay text
+   */
+  async run(text, images = [], { references = true } = {}) {
     if (this.status !== 'idle') return;
     const started = Date.now();
     this.status = 'working';
     this.activity = 'Starting';
+    this.phase = 'thinking';
+    this.outcome = null;
+    this.stopped = false;
+    this.startedAt = started;
     // The transcript keeps the small previews only; the pictures themselves go to the model.
     this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
     this.touch();
     try {
-      await this.agent.runTurn(text, { images, references: true });
+      await this.agent.runTurn(text, { images, references });
       this.ui.answerStream().flush();
       this.session.save(this.agent.messages, this.agent.model);
     } finally {
       this.status = 'idle';
       this.activity = '';
+      this.phase = null;
+      this.outcome = this.stopped ? 'stopped' : this.ui.failed ? 'failed' : 'completed';
       this.touch();
     }
-    if (Date.now() - started >= this.daemon.notifyAfter) {
+    const url = `/#v=session:${this.id}`;
+    if (this.outcome === 'failed') {
+      const error = [...this.items].reverse().find((i) => i.kind === 'notice' && i.level === 'error');
+      this.daemon.notify({ title: `${this.name}: failed`, body: (error?.text ?? 'The task ended with an error.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'error');
+    } else if (this.outcome === 'completed' && Date.now() - started >= this.daemon.notifyAfter) {
       const last = [...this.items].reverse().find((i) => i.kind === 'assistant' && i.text);
-      this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url: `/#v=session:${this.id}`, tag: `done-${this.id}` });
+      this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'done');
     }
   }
 
   stop() {
+    if (this.status !== 'idle') this.stopped = true;
     this.agent.interrupt();
   }
 
@@ -330,12 +381,95 @@ class Workspace {
     this.agent.messages = [];
     this.agent.state.todos = [];
     this.agent.usedTokens = 0;
+    this.agent.usage = { input: 0, output: 0, totalInput: 0, totalOutput: 0, known: false };
     this.session.startNew();
     this.items = [];
+    this.tools = { total: 0, failed: 0 };
+    this.outcome = null;
   }
 }
 
+/**
+ * A session that runs in a terminal on this machine and joined over the local link.
+ * The daemon does not own its agent: it keeps a copy of what the terminal reports,
+ * so a snapshot can include it, and passes on what the phone sends.
+ */
+class LinkedWorkspace {
+  constructor(socket, ws) {
+    this.linked = true;
+    this.socket = socket;
+    this.id = ws.id;
+    this.items = Array.isArray(ws.items) ? ws.items.slice(-MAX_ITEMS) : [];
+    this.#keep(ws);
+  }
+
+  #keep({ items, ...meta }) {
+    this.last = { ...meta, id: this.id, terminal: true };
+    this.name = String(meta.name ?? 'terminal');
+  }
+
+  get status() {
+    return this.last.status;
+  }
+
+  meta() {
+    return this.last;
+  }
+
+  /** Applies an event the terminal sent to the copy kept here. */
+  track(event) {
+    if (event.t === 'ws' && event.ws) this.#keep(event.ws);
+    else if (event.t === 'item' && event.item) {
+      this.items.push(event.item);
+      if (this.items.length > MAX_ITEMS) this.items.shift();
+    } else if (event.t === 'patch') {
+      const item = this.items.find((i) => i.id === event.id);
+      if (!item) return;
+      Object.assign(item, event.patch ?? {});
+      if (event.append) item.text = (item.text ?? '') + event.append;
+    }
+  }
+
+  message(text, images) {
+    writeLine(this.socket, { t: 'message', text, images });
+  }
+
+  stop() {
+    writeLine(this.socket, { t: 'stop' });
+  }
+}
+
+/** Where a folder named on the phone is: `~` is the home folder, and a bare name is inside it. */
+const folderPath = (folder) => path.resolve(os.homedir(), folder === '~' || folder.startsWith('~/') ? path.join(os.homedir(), folder.slice(1)) : folder);
+
+/**
+ * Makes a folder for a new project, asked for from the phone. Only inside the
+ * home folder, and never in or as a hidden folder: a phone must not be able to
+ * write into ~/.ssh or anywhere outside what the user thinks of as their projects.
+ * @throws {Error} with a message fit to show as it is
+ */
+export function newProjectFolder(cwd, home = os.homedir()) {
+  const parts = path.relative(home, cwd).split(path.sep);
+  if (!parts[0] || parts[0] === '..' || path.isAbsolute(parts[0])) throw new Error('A new project folder has to be inside your home folder.');
+  if (parts.length > 4) throw new Error('That is too many folders deep for a new project.');
+  for (const part of parts) {
+    if (part.startsWith('.')) throw new Error('A new project folder cannot be hidden or inside a hidden folder.');
+    if (part.length > 100 || /[\u0000-\u001f\u007f\\:]/.test(part)) throw new Error(`"${part.slice(0, 40)}" cannot be used as a folder name.`);
+  }
+  // The part of the path that exists already may be a link leading somewhere else.
+  let existing = path.dirname(cwd);
+  while (!fs.existsSync(existing)) existing = path.dirname(existing);
+  const real = fs.realpathSync(existing);
+  const inside = path.relative(fs.realpathSync(home), real);
+  if (inside.startsWith('..') || path.isAbsolute(inside)) throw new Error('A new project folder has to be inside your home folder.');
+  if (!fs.statSync(real).isDirectory()) throw new Error(`${path.basename(existing)} is a file, not a folder.`);
+  fs.mkdirSync(cwd, { recursive: true });
+}
+
 // ── The daemon ─────────────────────────────────────────────────────────────
+
+/** Which kinds of notification a phone wants; everything is on unless it was switched off. */
+const pushPrefs = (prefs) => ({ done: prefs?.done !== false, approval: prefs?.approval !== false, error: prefs?.error !== false });
 
 /** Folders in the home directory that look like projects, to offer on the phone. */
 function projectFolders() {
@@ -361,7 +495,9 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {} }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null }) {
+    this.linkFile = link; // where sessions running in a terminal join; null = they cannot
+    this.linkServer = null;
     this.remember = remember; // false in tests, so they never touch the user's settings
     this.info = info; // what the current model can do; replaced when the model is switched from the phone
     this.notifyAfter = push.finishedAfter ?? NOTIFY_FINISHED_AFTER;
@@ -400,7 +536,7 @@ export class RemoteDaemon {
   snapshot() {
     return {
       t: 'snapshot',
-      device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model },
+      device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), version: VERSION, vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model, settings: this.#settings() },
       workspaces: [...this.workspaces.values()].map((w) => ({ ...w.meta(), items: w.items })),
       approvals: [...this.approvals.values()].map((a) => a.approval),
       folders: projectFolders(),
@@ -456,11 +592,15 @@ export class RemoteDaemon {
     } catch {}
   }
 
-  /** Sends a notification to every paired phone that asked for them. Returns how many were accepted. */
-  async notify(payload) {
-    if (!this.subscriptions.length) return 0;
+  /**
+   * Sends a notification to every paired phone that asked for this kind. Returns how many were accepted.
+   * @param {'approval' | 'done' | 'error' | null} [kind]  null reaches every phone (tests, greetings)
+   */
+  async notify(payload, kind = null) {
+    const wanted = this.subscriptions.filter((s) => !kind || s.prefs?.[kind] !== false);
+    if (!wanted.length) return 0;
     const results = await Promise.all(
-      this.subscriptions.map((subscription) => sendPush(subscription, payload, this.config.remote.vapid, { subject: this.url, anyHost: this.pushAnyHost }).then((result) => ({ subscription, ...result }))),
+      wanted.map((subscription) => sendPush(subscription, payload, this.config.remote.vapid, { subject: this.url, anyHost: this.pushAnyHost }).then((result) => ({ subscription, ...result }))),
     );
     // A phone that removed the app, or revoked the permission, is forgotten.
     const gone = results.filter((r) => r.gone).map((r) => r.subscription.endpoint);
@@ -481,13 +621,13 @@ export class RemoteDaemon {
       const question = approval.kind === 'question';
       const what = question ? approval.title : `${approval.doing} ${approval.summary}`;
       this.log(`${question ? 'question' : 'approval needed'} in ${approval.wsName}: ${what}`.slice(0, 110));
-      this.notify({ title: `${approval.wsName}: ${question ? 'Seeker has a question' : approval.title}`, body: what.replace(/\s+/g, ' ').slice(0, 160), url: `/#v=review:${approval.id}`, tag: approval.id });
+      this.notify({ title: `${approval.wsName}: ${question ? 'Seeker has a question' : approval.title}`, body: what.replace(/\s+/g, ' ').slice(0, 160), url: `/#v=review:${approval.id}`, tag: approval.id }, 'approval');
     });
   }
 
   /** Makes `model` on `providerId` the model of every open workspace, now and for the next start. */
   async #switchModel(providerId, model) {
-    const busy = [...this.workspaces.values()].find((w) => w.status !== 'idle');
+    const busy = [...this.workspaces.values()].find((w) => !w.linked && w.status !== 'idle');
     if (busy) throw new Error(`${busy.name} is still working. Stop it before switching model.`);
     const first = createProvider(providerId, this.config);
     const info = await first.describe(model); // fails here if the model or the provider is not usable
@@ -499,6 +639,7 @@ export class RemoteDaemon {
       saveProviderConfig(this.config, providerId, { model });
     }
     for (const workspace of this.workspaces.values()) {
+      if (workspace.linked) continue; // a terminal session chooses its own model, in the terminal
       // Each workspace gets its own provider object: some keep a session per conversation.
       workspace.agent.setModel(model, info, createProvider(providerId, this.config));
       workspace.agent.usedTokens = 0;
@@ -507,20 +648,94 @@ export class RemoteDaemon {
     return first.label;
   }
 
+  #activeDef() {
+    return providerDefs(this.config).find((d) => d.id === this.config.provider) ?? null;
+  }
+
+  /** What `/config` shows in the terminal, for the phone's settings screen. Never a key or a secret. */
+  #settings() {
+    const { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, numCtx } = this.config;
+    const def = this.#activeDef();
+    const ollama = def?.kind === 'ollama';
+    return { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, ollama, context: ollama ? numCtx : (this.config.providers?.[def?.id]?.contextWindow ?? null) };
+  }
+
+  /** Updates one provider's entry; on disk too unless this daemon was told not to remember. */
+  #saveProvider(id, patch) {
+    if (this.remember) return saveProviderConfig(this.config, id, patch);
+    this.config.providers = { ...(this.config.providers ?? {}), [id]: { ...(this.config.providers?.[id] ?? {}), ...patch } };
+  }
+
+  /** One setting from `/config`, sent from the phone: checked the same way, saved, and in force at once. */
+  #configure(key, raw) {
+    const setting = key === 'model' ? null : Object.hasOwn(SETTINGS, key) ? SETTINGS[key] : null;
+    if (!setting) throw new Error(`Unknown setting: ${String(key).slice(0, 40)}`);
+    const value = setting.parse(String(raw ?? '').trim().slice(0, 200));
+    if (value === undefined || value === '') throw new Error(`Not a valid value for ${key} (${setting.help}).`);
+    const def = this.#activeDef();
+    if (key === 'numCtx' && def && def.kind !== 'ollama') {
+      // As /ctx does: only Ollama takes its context size from numCtx; other providers have their own entry.
+      this.#saveProvider(def.id, { contextWindow: value });
+    } else {
+      this.config[key] = value;
+      if (this.remember) saveConfig({ [key]: value });
+    }
+    for (const workspace of this.workspaces.values()) {
+      if (workspace.linked) continue; // a terminal session keeps the settings it started with
+      if (key === 'permissionMode') workspace.agent.permissions.mode = value;
+      workspace.touch();
+    }
+    this.log(`setting ${key} = ${value} (from the phone)`);
+  }
+
+  /** Stores an API key typed on the phone. It is never sent back, and never written to the log. */
+  #setKey(providerId, raw) {
+    const def = providerDefs(this.config).find((d) => d.id === providerId);
+    if (!def || def.local || def.kind === 'claude-code') throw new Error('That provider does not take an API key.');
+    const key = typeof raw === 'string' ? raw.trim() : '';
+    if (key.length < 8 || key.length > 400 || /[^\x21-\x7e]/.test(key)) throw new Error('That does not look like an API key.');
+    const active = def.id === this.config.provider;
+    const busy = active && [...this.workspaces.values()].find((w) => !w.linked && w.status !== 'idle');
+    if (busy) throw new Error(`${busy.name} is still working. Stop it before changing the key it uses.`);
+    this.#saveProvider(def.id, { apiKey: key });
+    // A provider may hold on to the key it started with, so the open projects get a fresh one.
+    if (active) for (const workspace of this.workspaces.values()) if (!workspace.linked) workspace.agent.setModel(workspace.agent.model, workspace.agent.info, createProvider(def.id, this.config));
+    this.log(`API key for ${def.label} set from the phone`);
+    return def.label;
+  }
+
+  #providerList() {
+    return providerDefs(this.config).map((d) => ({
+      id: d.id,
+      label: d.label,
+      local: Boolean(d.local),
+      ready: !needsKey(d, this.config),
+      active: d.id === this.config.provider,
+      // null: takes no key. 'env': set in the Mac's environment, which wins over a saved one.
+      key: d.local || d.kind === 'claude-code' ? null : d.env && process.env[d.env] ? 'env' : this.config.providers?.[d.id]?.apiKey ? 'set' : 'none',
+    }));
+  }
+
   #settle(id, answer) {
     const entry = this.approvals.get(id);
-    if (!entry) return;
+    if (!entry) return false;
     this.approvals.delete(id);
     this.send({ t: 'approval_done', id });
     entry.resolve(answer);
+    return true;
+  }
+
+  /** An answer from the phone. One for a request that is gone (answered already, or the turn was stopped) is said so. */
+  #answer(id, answer) {
+    if (!this.#settle(id, answer)) this.send({ t: 'toast', text: 'That request was already answered.' });
   }
 
   // ── workspaces ──
-  async openWorkspace(folder) {
-    const expanded = folder === '~' || folder.startsWith('~/') ? path.join(os.homedir(), folder.slice(1)) : folder;
-    const cwd = path.resolve(os.homedir(), expanded);
+  async openWorkspace(folder, { create = false } = {}) {
+    const cwd = folderPath(folder);
+    if (create && !fs.existsSync(cwd)) newProjectFolder(cwd);
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error(`No such folder: ${folder}`);
-    const existing = [...this.workspaces.values()].find((w) => w.cwd === cwd);
+    const existing = [...this.workspaces.values()].find((w) => !w.linked && w.cwd === cwd);
     if (existing) return existing;
     const workspace = new Workspace(this, cwd);
     await workspace.open();
@@ -532,7 +747,7 @@ export class RemoteDaemon {
 
   #remember() {
     if (!this.remember) return;
-    this.config.remote = { ...this.config.remote, workspaces: [...this.workspaces.values()].map((w) => w.cwd) };
+    this.config.remote = { ...this.config.remote, workspaces: [...this.workspaces.values()].filter((w) => !w.linked).map((w) => w.cwd) };
     saveConfig({ remote: this.config.remote });
   }
 
@@ -557,6 +772,13 @@ export class RemoteDaemon {
         case 'message': {
           if (!workspace) return;
           const images = receivedImages(command.images);
+          if (workspace.linked) {
+            // The terminal decides what to do with it: it knows whether someone is typing there.
+            const said = typeof command.text === 'string' ? command.text.trim() : '';
+            if (!said && !images.length) return;
+            this.log(`${workspace.name} (terminal) ← ${said ? said.split('\n')[0].slice(0, 70) : `${images.length} image${images.length > 1 ? 's' : ''}`}`);
+            return workspace.message(said, images);
+          }
           const text = (typeof command.text === 'string' ? command.text.trim() : '') || (images.length ? `Look at ${images.length > 1 ? 'these images' : 'this image'}.` : '');
           if (!text) return;
           if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Stop it first.` });
@@ -572,15 +794,15 @@ export class RemoteDaemon {
           return;
         case 'approve': {
           const answer = command.decision === 'allow' ? 'y' : command.decision === 'always' ? 'a' : String(command.note ?? '').trim() || 'n';
-          return this.#settle(command.id_approval, answer);
+          return this.#answer(command.id_approval, answer);
         }
         case 'answer':
-          return this.#settle(command.id_approval, String(command.answer ?? '').trim() || null);
+          return this.#answer(command.id_approval, String(command.answer ?? '').trim() || null);
+        case 'ping':
+          // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
+          return this.send({ t: 'pong', id: command.id });
         case 'providers':
-          return this.send({
-            t: 'providers',
-            list: providerDefs(this.config).map((d) => ({ id: d.id, label: d.label, local: Boolean(d.local), ready: !needsKey(d, this.config), active: d.id === this.config.provider })),
-          });
+          return this.send({ t: 'providers', list: this.#providerList() });
         case 'models': {
           const provider = createProvider(String(command.provider), this.config);
           const models = await provider.listModels();
@@ -599,15 +821,31 @@ export class RemoteDaemon {
           this.send(this.snapshot(), { snapshot: true });
           return this.send({ t: 'toast', text: `Model: ${command.model} via ${label}` });
         }
+        case 'config': {
+          this.#configure(String(command.key), command.value);
+          this.send(this.snapshot(), { snapshot: true });
+          return this.send({ t: 'toast', text: 'Saved on your Mac.' });
+        }
+        case 'key': {
+          const label = this.#setKey(String(command.provider), command.key);
+          return this.send({ t: 'toast', text: `${label} key saved on your Mac.` });
+        }
         case 'push_subscribe': {
           const sub = command.subscription;
           if (typeof sub?.endpoint !== 'string' || typeof sub?.keys?.p256dh !== 'string' || typeof sub?.keys?.auth !== 'string') return;
-          this.subscriptions = [...this.subscriptions.filter((s) => s.endpoint !== sub.endpoint), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, added: Date.now() }].slice(-10);
+          this.subscriptions = [...this.subscriptions.filter((s) => s.endpoint !== sub.endpoint), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, prefs: pushPrefs(command.prefs), added: Date.now() }].slice(-10);
           this.#saveSubscriptions();
           this.log('a phone turned notifications on');
           const sent = await this.notify({ title: 'SEEKER', body: 'Notifications are on for this phone.', url: '/', tag: 'hello' });
           this.send(this.snapshot(), { snapshot: true });
           return this.send({ t: 'toast', text: sent ? 'Notifications are on. A test was sent.' : 'Saved, but the test notification was not accepted.' });
+        }
+        case 'push_prefs': {
+          const subscription = this.subscriptions.find((s) => s.endpoint === command.endpoint);
+          if (!subscription) return this.send({ t: 'toast', text: 'Notifications are not on for this phone.' });
+          subscription.prefs = pushPrefs(command.prefs);
+          this.#saveSubscriptions();
+          return this.send({ t: 'push_prefs', endpoint: subscription.endpoint, prefs: subscription.prefs });
         }
         case 'push_unsubscribe':
           this.subscriptions = this.subscriptions.filter((s) => s.endpoint !== command.endpoint);
@@ -618,15 +856,22 @@ export class RemoteDaemon {
           return this.send({ t: 'toast', text: sent ? `Sent to ${sent} phone(s).` : 'No phone accepted it. Turn notifications on first.' });
         }
         case 'new':
+          if (workspace?.linked) return this.send({ t: 'toast', text: 'This conversation runs in a terminal on your Mac. Start a new one there.' });
           if (!workspace || workspace.status !== 'idle') return;
           workspace.reset();
           return this.send(this.snapshot(), { snapshot: true });
         case 'open': {
-          const opened = await this.openWorkspace(String(command.path ?? ''));
-          this.log(`opened ${opened.cwd}`);
-          return this.send(this.snapshot(), { snapshot: true });
+          const before = new Set(this.workspaces.keys());
+          const create = command.create === true;
+          const made = create && !fs.existsSync(folderPath(String(command.path ?? '')));
+          const opened = await this.openWorkspace(String(command.path ?? ''), { create });
+          this.log(`${made ? 'created and opened' : 'opened'} ${opened.cwd}`);
+          await this.send(this.snapshot(), { snapshot: true });
+          // Lets the phone that asked go straight to it.
+          return this.send({ t: 'opened', id: opened.id, created: made, fresh: !before.has(opened.id) });
         }
         case 'close':
+          if (workspace?.linked) return this.send({ t: 'toast', text: 'This conversation runs in a terminal on your Mac. It leaves the list when that terminal is closed.' });
           if (!workspace || workspace.status !== 'idle') return;
           workspace.session.save(workspace.agent.messages, workspace.agent.model);
           this.workspaces.delete(workspace.id);
@@ -640,9 +885,63 @@ export class RemoteDaemon {
     }
   }
 
+  // ── sessions running in a terminal on this machine ──
+  async #serveLink() {
+    if (!this.linkFile) return;
+    try {
+      this.linkServer = await listenLink(this.linkFile, (socket) => this.#joined(socket));
+      if (!this.linkServer) this.log('another `seeker remote` is already taking terminal sessions; this one will not');
+    } catch (err) {
+      this.log(`terminal sessions cannot join (${err.code ?? err.message})`);
+    }
+  }
+
+  #joined(socket) {
+    let workspace = null;
+    socket.on('error', () => {});
+    readLines(socket, (message) => {
+      if (message.t === 'hello') {
+        const ws = message.ws;
+        if (!sameKey(message.key, this.linkServer?.key)) return socket.destroy();
+        if (workspace || typeof ws?.id !== 'string' || !/^[a-f0-9]{10}$/.test(ws.id) || this.workspaces.has(ws.id) || typeof ws.status !== 'string') return socket.destroy();
+        workspace = new LinkedWorkspace(socket, ws);
+        this.workspaces.set(workspace.id, workspace);
+        this.log(`terminal session joined: ${workspace.name}`);
+        return this.send(this.snapshot(), { snapshot: true });
+      }
+      if (!workspace) return socket.destroy();
+      if (message.t === 'send' && message.event && typeof message.event === 'object') {
+        const event = message.event;
+        // A terminal speaks for itself only.
+        if (event.t === 'toast') return this.send({ t: 'toast', text: String(event.text ?? '').slice(0, 300) });
+        if (event.t === 'ws') {
+          workspace.track(event);
+          return this.send({ t: 'ws', ws: workspace.meta() });
+        }
+        if (event.t !== 'item' && event.t !== 'patch') return;
+        workspace.track(event);
+        return this.send({ ...event, ws: workspace.id });
+      }
+      if (message.t === 'ask' && typeof message.approval?.id === 'string' && !this.approvals.has(message.approval.id)) {
+        const approval = { ...message.approval, ws: workspace.id, wsName: workspace.name };
+        return this.ask(approval).then((answer) => writeLine(socket, { t: 'answer', id: approval.id, answer }));
+      }
+      if (message.t === 'unask' && this.approvals.get(message.id)?.approval.ws === workspace.id) return this.#settle(message.id, null);
+      if (message.t === 'notify' && message.payload && typeof message.payload === 'object') return this.notify(message.payload, typeof message.kind === 'string' ? message.kind : undefined);
+    });
+    socket.once('close', () => {
+      if (!workspace) return;
+      for (const [id, entry] of this.approvals) if (entry.approval.ws === workspace.id) this.#settle(id, null);
+      this.workspaces.delete(workspace.id);
+      this.log(`terminal session left: ${workspace.name}`);
+      if (this.running) this.send(this.snapshot(), { snapshot: true });
+    });
+  }
+
   /** Runs until stop(): keeps the command stream to the relay open, reconnecting when it drops. */
   async start() {
     this.running = true;
+    await this.#serveLink();
     for (const folder of this.folders) {
       await this.openWorkspace(folder).catch((err) => this.log(`skipped ${folder}: ${err.message}`));
     }
@@ -683,9 +982,15 @@ export class RemoteDaemon {
   async stop() {
     if (!this.running) return;
     for (const workspace of this.workspaces.values()) {
+      if (workspace.linked) {
+        workspace.socket.destroy(); // the terminal carries on by itself
+        continue;
+      }
       workspace.stop();
       workspace.session.save(workspace.agent.messages, workspace.agent.model);
     }
+    this.linkServer?.close();
+    if (this.linkServer && this.linkFile) for (const file of [this.linkFile, `${this.linkFile}.key`]) fs.rmSync(file, { force: true });
     for (const id of [...this.approvals.keys()]) this.#settle(id, null);
     this.running = false;
     this.stream?.abort();

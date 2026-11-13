@@ -337,3 +337,16 @@ test('images: an oversized or non-file "image" is refused before it is read', as
   fs.mkdirSync(path.join(dir, 'folder.png'));
   assert.throws(() => loadImage(path.join(dir, 'folder.png')), /not a file/);
 });
+
+test('previews: overwriting a file and replacing every occurrence are stated, not hidden', () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-preview-'));
+  fs.writeFileSync(path.join(cwd, 'old.txt'), 'a\nb\nc\nx = 1\nx = 1\n');
+  const write = TOOL_BY_NAME.get('write_file');
+  assert.deepEqual(write.preview({ path: 'new.txt', content: 'one\ntwo' }, { cwd }), { added: ['one', 'two'], more: 0, line: 1, counts: { added: 2, removed: 0 }, overwrites: null });
+  const over = write.preview({ path: 'old.txt', content: 'gone' }, { cwd });
+  assert.deepEqual([over.overwrites, over.counts], [6, { added: 1, removed: 6 }], 'the existing lines count as removed');
+  const edit = TOOL_BY_NAME.get('edit_file');
+  const all = edit.preview({ path: 'old.txt', old_string: 'x = 1', new_string: 'x = 2', replace_all: true }, { cwd });
+  assert.deepEqual([all.line, all.times, all.counts], [4, 2, { added: 2, removed: 2 }]);
+  assert.equal(edit.preview({ path: 'old.txt', old_string: 'b', new_string: 'B' }, { cwd }).times, 1);
+});

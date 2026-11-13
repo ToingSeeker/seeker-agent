@@ -143,6 +143,41 @@ seeker remote ~/proyek-a ~/proyek-b    # beberapa proyek, masing-masing satu wor
 Biarkan berjalan; di HP komputermu akan tampil online. Komputernya harus tetap menyala, dan di macOS ia
 dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
+### Yang tampil di HP
+
+- **Home** — sesi yang paling butuh kamu (menunggu persetujuan, lalu yang sedang jalan, lalu yang terakhir),
+  komputer yang terhubung beserta waktu bolak-balik yang terukur, proyek yang terbuka, dan `/init` `/model` `/resume`.
+  Tombol **+** membuka folder di komputer, atau membuat folder baru untuk proyek baru. Folder baru hanya
+  bisa dibuat di dalam folder home, dan tidak pernah di folder tersembunyi.
+- **Sesi** — apa yang sedang dilakukan agen (berpikir, menjalankan tool, menulis jawaban, menunggumu,
+  selesai, gagal atau dihentikan), tiap langkah saat terjadi beserta keluarannya, serta konteks, token dan
+  jumlah tool seperti yang dilaporkan komputer. Stop, Review, Resume dan Retry hanya muncul saat berlaku.
+- **Approvals** — tiap perintah dan tiap perubahan file menunggu di sini. Perubahan ditampilkan sebagai
+  diff bernomor baris; perintah yang kena pola berbahaya diberi tanda. Satu permintaan = satu perintah atau satu file.
+- **Settings** — koneksi, model, dan notifikasi mana yang diterima HP ini: tugas selesai, persetujuan dan
+  pertanyaan, error. Di sini juga semua setelan `/config`: thinking, minta persetujuan atau tidak, context
+  window, jumlah langkah per pesan, lama model disimpan di memori, alamat Ollama, dan dua setelan tampilan
+  terminal. API key penyedia cloud bisa diisi dari sini; key disimpan di komputer dan tidak pernah dikirim balik.
+  Setelan langsung berlaku untuk proyek yang dibuka dari HP; `seeker` yang sudah jalan di terminal tetap
+  memakai setelan saat ia dimulai.
+
+Tidak ada angka yang dikira-kira di HP. Angka yang belum dilaporkan komputer tampil sebagai “—”.
+
+### Sesi yang sedang kamu ketik di terminal
+
+Selama `seeker remote` berjalan, `seeker` biasa yang dibuka di terminal pada komputer yang sama akan
+bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang perlu diatur; kalau
+`seeker remote` tidak jalan, terminal bekerja persis seperti sebelumnya.
+
+- **Gambar dari HP** — kirim screenshot tanpa teks, dan path-nya masuk ke pesan yang sedang kamu ketik di
+  terminal, seperti file yang di-drag ke sana. Selesaikan kalimatnya lalu tekan Enter.
+- **Pesan dari HP** — pesan yang berisi teks dijalankan sebagai giliran sendiri saat terminal sedang
+  bebas. Ketikan yang belum selesai kembali ke kotak sesudahnya. Isinya selalu pesan untuk model: baris
+  shell `!` dan `/perintah` tidak dijalankan dari HP.
+- **Persetujuan** — ditanyakan di dua tempat; jawaban pertama yang berlaku dan yang satunya tertutup.
+- **Tidak dari HP** — percakapan baru, ganti model, dan menutup sesi dilakukan di terminal. Sesi yang
+  dijalankan dengan `--yolo` tampil di HP tapi tidak menerima tugas dari sana.
+
 ### Setelah terpasang
 
 - **HP baru:** jalankan `seeker remote --setup` lagi dan buka link-nya di HP itu.
@@ -159,14 +194,14 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 - Mac hanya membuat koneksi keluar; tidak ada port yang dibuka.
 - Isi percakapan dan perintah dienkripsi antara HP dan Mac (AES-256-GCM). Relay hanya menyimpan hash token akses
   (`SEEKER_REMOTE_AUTH`) dan tidak bisa membaca atau memalsukan apa pun.
-- Edit dan perintah selalu minta persetujuan di HP; mode tanpa izin tidak tersedia lewat remote.
+- Edit dan perintah minta persetujuan di HP, kecuali setelan itu kamu matikan (di `/config` atau di Settings
+  HP). Saat mati pun, perintah berisiko dan file di luar folder proyek tetap ditanyakan.
 - Relay tidak menyimpan apa pun ke disk; setelah restart, Mac mengirim ulang keadaannya.
 - Token yang salah dikunci per alamat. Di Railway alamat pemanggil dibaca dari `x-forwarded-for`; di belakang
   proxy lain yang mengisi header itu sendiri, setel `SEEKER_TRUST_PROXY=1`. Tanpa proxy, biarkan kosong.
 - Notifikasi push (persetujuan, pertanyaan dari model, tugas selesai) dikirim langsung dari Mac ke layanan push HP
   dengan enkripsi Web Push (`src/webpush.mjs`); relay tidak terlibat. Nyalakan di Settings aplikasi HP.
   Di iPhone, aplikasinya harus dipasang dulu lewat Share → Add to Home Screen.
-- Dari HP juga bisa: ganti model (ketuk nama model), dan menjawab pertanyaan yang diajukan model.
 
 ## Gambar
 

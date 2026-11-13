@@ -79,6 +79,8 @@ export class Agent {
     this.controller = null;
     this.usedTokens = 0;
     this.lastStats = null;
+    // Tokens as the provider counted them: the last request, and everything since the conversation began.
+    this.usage = { input: 0, output: 0, totalInput: 0, totalOutput: 0, known: false };
     // Tools a provider is running itself, by call id: { about, row } where `row` is its line on screen.
     this.external = new Map();
     // Tools from outside SEEKER (MCP servers), added and removed while it runs.
@@ -247,7 +249,7 @@ export class Agent {
     const chain = fallbackChain(this.config).filter((f) => !(f.provider === primary.provider.id && f.model === primary.model));
     const tried = (this.turn.fallbacksTried ??= new Set());
     const candidates = chain.filter((f) => !tried.has(`${f.provider}/${f.model}`) && !(f.provider === this.provider.id && f.model === this.model));
-    const move = decide({ err, attempt, pool, hasFallback: candidates.length > 0 });
+    const move = decide({ err, attempt, pool, hasFallback: candidates.length > 0, local: Boolean(this.provider.local) });
     const why = reasonText(move.kind);
 
     if (move.action === 'retry') {
@@ -329,6 +331,11 @@ export class Agent {
         if (msg.blocks) blocks = msg.blocks;
         if (chunk.done) {
           this.usedTokens = (chunk.prompt_eval_count || 0) + (chunk.eval_count || 0);
+          if (chunk.prompt_eval_count || chunk.eval_count) {
+            const input = chunk.prompt_eval_count || 0;
+            const output = chunk.eval_count || 0;
+            this.usage = { input, output, totalInput: this.usage.totalInput + input, totalOutput: this.usage.totalOutput + output, known: true };
+          }
           this.lastStats = {
             tokensPerSecond: chunk.eval_duration ? (chunk.eval_count / chunk.eval_duration) * 1e9 : 0,
           };
