@@ -12,6 +12,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { renderSkill } from './skills.mjs';
 
+import { imageType, kilobytes, loadImage } from './images.mjs';
+
 export class ToolError extends Error {}
 
 /** The address as 16 bytes, or null if it is not an IPv6 address. */
@@ -264,7 +266,7 @@ export const TOOLS = [
     name: 'read_file',
     risk: 'read',
     description:
-      'Read a text file. Returns lines prefixed with their line number. Use offset/limit for large files. Always read a file before editing it.',
+      'Read a text file, or look at an image (PNG, JPEG, GIF, WebP). Text comes back as lines prefixed with their line number; use offset/limit for large files. Always read a file before editing it.',
     parameters: {
       type: 'object',
       properties: {
@@ -276,11 +278,26 @@ export const TOOLS = [
     },
     verbs: ['Reading', 'Read'],
     summary: (a) => pathArg(a),
-    async run(args, { cwd }) {
+    async run(args, { cwd, vision }) {
       const file = resolvePath(pathArg(args), cwd);
       const stat = await fsp.stat(file).catch(() => null);
       if (!stat) throw new ToolError(`File not found: ${file}`);
       if (stat.isDirectory()) throw new ToolError(`${file} is a directory — use list_dir`);
+      const handle = await fsp.open(file);
+      const start = Buffer.alloc(16);
+      const { bytesRead } = await handle.read(start, 0, 16, 0).finally(() => handle.close());
+      const mime = imageType(start.subarray(0, bytesRead));
+      if (mime) {
+        if (!vision) throw new ToolError(`${rel(file, cwd)} is an image, and the current model cannot see images. Tell the user; they can switch to a vision model with /model`);
+        let image;
+        try {
+          image = loadImage(file);
+        } catch (err) {
+          throw new ToolError(err.message);
+        }
+        const { bytes, ...attached } = image;
+        return { output: `${attached.name} is an image (${mime}, ${kilobytes(bytes)}). It is attached; look at it.`, note: `image · ${kilobytes(bytes)}`, images: [attached] };
+      }
       if (stat.size > 5_000_000) throw new ToolError(`File is ${stat.size} bytes — too large; use grep to find the part you need`);
       const buf = await fsp.readFile(file);
       if (buf.subarray(0, 8000).includes(0)) throw new ToolError('Binary file — cannot be read as text');

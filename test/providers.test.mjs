@@ -86,7 +86,7 @@ test('OpenAI-compatible provider: lists chat models and streams text, reasoning 
   const provider = createProvider('mine', config);
 
   assert.deepEqual(await provider.listModels(), [{ name: 'alpha-chat', context: null }, { name: 'zeta-chat', context: 64000 }]);
-  assert.deepEqual(await provider.describe('zeta-chat'), { tools: true, thinking: false, context: 64000 });
+  assert.deepEqual(await provider.describe('zeta-chat'), { tools: true, thinking: false, vision: true, context: 64000 });
 
   const chunks = await collect(provider.chat({ model: 'zeta-chat', system: 'SYS', messages: history, tools: toolSpecs() }));
   fake.close();
@@ -152,7 +152,7 @@ test('Claude provider: streams through the SDK, asks for summarised thinking and
   const config = { ...DEFAULTS, providers: { anthropic: { apiKey: 'sk-ant-test', baseUrl: fake.url } } };
   const provider = createProvider('anthropic', config);
 
-  assert.deepEqual(await provider.describe('claude-opus-5-5'), { tools: true, thinking: true, context: 1000000 });
+  assert.deepEqual(await provider.describe('claude-opus-5-5'), { tools: true, thinking: true, vision: true, context: 1000000 });
   const chunks = await collect(provider.chat({ model: 'claude-opus-5-5', system: 'SYS', messages: history, tools: toolSpecs() }));
   fake.close();
 

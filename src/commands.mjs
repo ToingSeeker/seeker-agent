@@ -1,4 +1,5 @@
 // Slash commands for the interactive prompt.
+import { saveClipboardImage } from './images.mjs';
 import { SETTINGS, saveConfig, saveProviderConfig } from './config.mjs';
 import { isConnectionRefused } from './http.mjs';
 import { serverFingerprint } from './mcp.mjs';
@@ -14,6 +15,7 @@ export const COMMANDS = [
   ['/model', 'Switch provider and model (local or cloud)'],
   ['/key', 'Set the API key for a cloud provider'],
   ['/resume', 'Continue a saved session'],
+  ['/paste', 'Send the image on the clipboard (a screenshot), with an optional message'],
   ['/config', 'Open settings'],
   ['/skills', 'List skills — run one with /<name>'],
   ['/mcp', 'Tool servers (browser, PDF, …): see them, switch one on or off'],
@@ -189,6 +191,7 @@ export async function runCommand(input, ctx) {
       ui.line(`  ${c.dim('model   ')} ${agent.model}`);
       ui.line(`  ${c.dim('context ')} ${kilo(used)} / ${contextSize(limit)} tokens (${Math.round((used / limit) * 100)}%)`);
       ui.line(`  ${c.dim('thinking')} ${config.think && agent.caps.thinking ? 'on' : 'off'}`);
+      ui.line(`  ${c.dim('images  ')} ${agent.provider.ownTools || agent.caps.vision ? 'yes' : 'no, this model cannot see images'}`);
       ui.line(`  ${c.dim('approval')} ${permissions.mode === 'auto' ? 'automatic (YOLO)' : 'ask first'}`);
       return;
     }
@@ -210,6 +213,16 @@ export async function runCommand(input, ctx) {
 
     case 'init':
       return { prompt: INIT_PROMPT, label: '/init' };
+
+    case 'paste': {
+      let file;
+      try {
+        file = saveClipboardImage();
+      } catch (err) {
+        return ui.warn(`  ${err.message}`);
+      }
+      return { prompt: `${arg || 'Look at this image.'} "${file}"` };
+    }
 
     case 'provider':
     case 'model': {

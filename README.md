@@ -25,10 +25,26 @@ seeker -p "explain the repo" # answer once and exit; can be piped
 seeker --yolo                # no permission prompts (dangerous commands are still asked about)
 ```
 
-Inside a session: `/init`, `/model`, `/key`, `/resume`, `/config`, `/skills`, `/mcp`, `/clear`, `/compact`,
+Inside a session: `/init`, `/model`, `/key`, `/resume`, `/paste`, `/config`, `/skills`, `/mcp`, `/clear`, `/compact`,
 `/status`, `/think`, `/yolo`, `/help`, `/exit`, and `!command`.
 Type `/` for command suggestions, Tab to complete, Alt+Enter for a new line, ↑↓ for message history.
 The robot in the header blinks and looks around; `/config` → `animation` turns that off.
+
+## Images
+
+Name an image file in your message and the model sees the image, not just its path:
+
+```
+› why does the header look wrong in ~/Desktop/shot.png
+› /paste what is this error?        # sends the image on the clipboard, e.g. a screenshot
+```
+
+Dragging a file into the terminal types its path, which works too. The model can also open an image
+itself with `read_file`. PNG, JPEG, GIF and WebP, up to 3.7 MB each.
+
+The model has to support vision; `/status` says whether the current one does. With Ollama that is read
+from the model itself. If it cannot see images, SEEKER says so instead of sending a path the model would
+have to guess about. Images are not accepted from the phone app yet.
 
 ## Install
 
@@ -215,6 +231,7 @@ plain Node.
 | `src/session.mjs`, `src/config.mjs` | saved conversations (`~/.seeker/sessions/`) and settings (`~/.seeker/config.json`) |
 | `src/commands.mjs`, `src/menu.mjs` | slash commands, the `/config` menu, the `/model` and `/resume` pickers |
 | `src/ui.mjs`, `src/markdown.mjs`, `src/text.mjs` | rendering: header, panels, tool-step tree, status bar; measuring and wrapping coloured text |
+| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard |
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
 

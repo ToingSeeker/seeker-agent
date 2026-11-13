@@ -10,6 +10,7 @@
 import { HttpError, errorText, lines, open, readAll, requestJson } from './http.mjs';
 import { claudeCodeProvider } from './claude-code.mjs';
 import * as ollama from './ollama.mjs';
+import { hoistToolImages } from './images.mjs';
 
 export const PROVIDERS = [
   { id: 'ollama', label: 'Ollama', kind: 'ollama', local: true },
@@ -59,7 +60,7 @@ export const needsKey = (def, config) => def.kind === 'openai' && !def.local && 
 
 export function toOpenAIMessages(system, messages) {
   const out = [{ role: 'system', content: system }];
-  for (const m of messages) {
+  for (const m of hoistToolImages(messages)) {
     if (m.role === 'tool') out.push({ role: 'tool', tool_call_id: m.tool_call_id, content: m.content });
     else if (m.role === 'assistant') {
       const msg = { role: 'assistant', content: m.content || null };
@@ -71,16 +72,27 @@ export function toOpenAIMessages(system, messages) {
         }));
       }
       out.push(msg);
+    } else if (m.images?.length) {
+      const pictures = m.images.map((i) => ({ type: 'image_url', image_url: { url: `data:${i.mime};base64,${i.data}` } }));
+      out.push({ role: 'user', content: [{ type: 'text', text: m.content }, ...pictures] });
     } else out.push({ role: 'user', content: m.content });
   }
   return out;
 }
+
+/** Ollama's own shape, with each image reduced to its base64 text and tool images moved to a user message. */
+export function toOllamaMessages(system, messages) {
+  return [{ role: 'system', content: system }, ...hoistToolImages(messages).map((m) => (m.images?.length ? { ...m, images: m.images.map((i) => i.data) } : m))];
+}
+
+const claudeImage = (i) => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: i.data } });
 
 export function toClaudeMessages(messages) {
   const out = [];
   for (const m of messages) {
     if (m.role === 'tool') {
       const result = { type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content };
+      if (m.images?.length) result.content = [{ type: 'text', text: m.content }, ...m.images.map(claudeImage)];
       if (m.content.startsWith('Error:')) result.is_error = true;
       // All results of one assistant turn belong in a single user message.
       const last = out.at(-1);
@@ -95,7 +107,8 @@ export function toClaudeMessages(messages) {
         for (const c of m.tool_calls ?? []) content.push({ type: 'tool_use', id: c.id, name: c.function.name, input: c.function.arguments ?? {} });
       }
       if (content.length) out.push({ role: 'assistant', content });
-    } else out.push({ role: 'user', content: m.content });
+    } else if (m.images?.length) out.push({ role: 'user', content: [...m.images.map(claudeImage), { type: 'text', text: m.content }] });
+    else out.push({ role: 'user', content: m.content });
   }
   return out;
 }
@@ -108,13 +121,13 @@ function ollamaProvider(def, config) {
     listModels: () => ollama.listModels(config.host),
     async describe(model) {
       const caps = await ollama.capabilities(config.host, model);
-      return { tools: caps.includes('tools'), thinking: caps.includes('thinking'), context: null };
+      return { tools: caps.includes('tools'), thinking: caps.includes('thinking'), vision: caps.includes('vision'), context: null };
     },
     chat: ({ model, system, messages, tools, think, signal }) =>
       ollama.chatStream({
         host: config.host,
         model,
-        messages: [{ role: 'system', content: system }, ...messages],
+        messages: toOllamaMessages(system, messages),
         tools,
         think,
         options: { num_ctx: config.numCtx },
@@ -209,15 +222,19 @@ function openaiProvider(def, config) {
         throw err instanceof HttpError ? fail(err.status, err.message) : err;
       }
       catalogue = (body.data ?? body.models ?? [])
-        .map((m) => ({ name: m.id ?? m.name, context: m.context_length ?? m.context_window ?? null }))
+        // OpenRouter says what a model takes in; most services do not.
+        .map((m) => {
+          const takes = m.architecture?.input_modalities;
+          return { name: m.id ?? m.name, context: m.context_length ?? m.context_window ?? null, ...(Array.isArray(takes) ? { vision: takes.includes('image') } : {}) };
+        })
         .filter((m) => m.name && !NOT_CHAT.test(m.name))
         .sort((a, b) => a.name.localeCompare(b.name));
       return catalogue;
     },
     async describe(model) {
-      // These APIs do not say whether a model can call tools, so it is assumed and the request decides.
+      // These APIs do not say whether a model can call tools or see images, so it is assumed and the request decides.
       const known = catalogue?.find((m) => m.name === model);
-      return { tools: true, thinking: false, context: known?.context ?? def.context ?? DEFAULT_CONTEXT };
+      return { tools: true, thinking: false, vision: known?.vision ?? true, context: known?.context ?? def.context ?? DEFAULT_CONTEXT };
     },
     chat,
   };
@@ -352,7 +369,7 @@ function anthropicProvider(def, config) {
     },
     async describe(model) {
       const meta = await info(model);
-      return { tools: true, thinking: Boolean(meta.capabilities?.thinking?.supported), context: meta.max_input_tokens ?? def.context };
+      return { tools: true, thinking: Boolean(meta.capabilities?.thinking?.supported), vision: meta.capabilities?.image_input?.supported ?? true, context: meta.max_input_tokens ?? def.context };
     },
     chat,
   };

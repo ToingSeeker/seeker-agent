@@ -24,7 +24,7 @@ seeker -p "jelaskan repo"    # sekali jawab, bisa di-pipe
 seeker --yolo                # tanpa tanya izin (perintah berbahaya tetap ditanyakan)
 ```
 
-Di dalam sesi: `/init`, `/model`, `/resume`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/help`, `/exit`, dan `!perintah`.
+Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/help`, `/exit`, dan `!perintah`.
 Ketik `/` untuk melihat saran perintah, Tab untuk melengkapi, Alt+Enter untuk baris baru, ↑↓ untuk riwayat pesan.
 Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya.
 
@@ -164,6 +164,22 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
   Di iPhone, aplikasinya harus dipasang dulu lewat Share → Add to Home Screen.
 - Dari HP juga bisa: ganti model (ketuk nama model), dan menjawab pertanyaan yang diajukan model.
 
+## Gambar
+
+Sebut file gambar di pesanmu, dan model melihat gambarnya, bukan hanya path-nya:
+
+```
+› kenapa header-nya aneh di ~/Desktop/shot.png
+› /paste error apa ini?        # mengirim gambar di clipboard, misalnya screenshot
+```
+
+Menyeret file ke terminal akan mengetikkan path-nya, dan itu juga bisa. Model juga dapat membuka gambar
+sendiri lewat `read_file`. PNG, JPEG, GIF dan WebP, masing-masing maksimal 3,7 MB.
+
+Modelnya harus mendukung vision; `/status` menunjukkan apakah model yang aktif bisa. Untuk Ollama, itu
+dibaca dari modelnya sendiri. Kalau model tidak bisa melihat gambar, SEEKER memberi tahu, bukan mengirim
+path yang hanya bisa ditebak model. Aplikasi HP belum bisa mengirim gambar.
+
 ## Pasang
 
 Butuh Node ≥ 22 dan Ollama dengan model yang mendukung tool calling.
@@ -192,6 +208,7 @@ ollama pull qwen3.5:27b
 | `src/ollama.mjs`, `src/http.mjs` | client streaming Ollama dan HTTP dasar |
 | `src/skills.mjs` | skill: `~/.seeker/skills/<nama>/SKILL.md`, `.seeker/skills/<nama>/SKILL.md`, dan skill plugin `~/.seeker/plugins/<plugin>/skills/…` yang dipanggil sebagai `/plugin:nama` |
 | `src/ui.mjs`, `src/markdown.mjs` | tampilan: header, panel, pohon langkah tool, status bar |
+| `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard |
 | `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
 | `src/screen.mjs` | tata letak layar penuh: header menempel di atas, kotak input di bawah, percakapan di tengah (baris lama masuk scrollback terminal) |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |

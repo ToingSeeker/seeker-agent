@@ -158,3 +158,34 @@ test('an empty summary still replaces the history instead of letting the context
   assert.equal(agent.messages.some((m) => m.content.length > 30_000), false, 'the oversized history is gone');
   assert.equal(agent.messages.at(-1).content, 'ok');
 });
+
+test('an image named in a message, or read by the model, reaches a vision model — and never a model without vision', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-agent-'));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  fs.writeFileSync(path.join(cwd, 'shot.png'), png);
+  fs.writeFileSync(path.join(cwd, 'other.png'), png);
+  const data = png.toString('base64');
+  const ollama = await fakeOllama([[call('read_file', { path: 'other.png' }), { done: true }], [done('Two screenshots.')], [done('I cannot see it.')]]);
+  const agent = makeAgent(ollama.host, cwd);
+  agent.setModel('vision-model', { tools: true, thinking: false, vision: true, context: null });
+  await agent.runTurn('what is in shot.png?');
+
+  const [first, second] = ollama.requests;
+  assert.deepEqual(first.messages[1].images, [data], 'the named file is attached to the user message');
+  assert.equal(first.messages[1].content, 'what is in shot.png?');
+  // The picture the tool read follows the tool result, in a user message.
+  assert.deepEqual(second.messages.slice(-2).map((m) => m.role), ['tool', 'user']);
+  assert.equal(second.messages.at(-2).images, undefined);
+  assert.deepEqual(second.messages.at(-1).images, [data]);
+  // A megabyte of base64 must not be mistaken for a full context.
+  assert.ok(agent.contextTokens() < 10_000);
+
+  // After switching to a model without vision the pictures stay behind, with a note in their place.
+  agent.setModel('text-model', { tools: true, thinking: false, vision: false, context: null });
+  await agent.runTurn('and other.png?');
+  ollama.close();
+  const third = ollama.requests[2];
+  assert.ok(third.messages.every((m) => !m.images), 'no image is sent');
+  assert.match(third.messages[1].content, /image shot\.png: not shown/);
+  assert.equal(third.messages.at(-1).content, 'and other.png?');
+});

@@ -265,3 +265,64 @@ test('MCP tools reach the model and run through the agent loop with approval by 
   const strict = new Permissions({ mode: 'ask', cwd, ask: null });
   assert.equal((await strict.check(agent.tools().find((t) => t.name === 'mcp__web__open'), {})).ok, false);
 });
+
+// ── Images ──────────────────────────────────────────────────────────────────
+
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+
+test('images: paths named in a message are found, however they are written', async () => {
+  const { imagePathsIn, imageType } = await import('../src/images.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-img-'));
+  fs.writeFileSync(path.join(dir, 'shot.png'), PNG);
+  fs.writeFileSync(path.join(dir, 'my shot.PNG'), PNG);
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+  const at = (name) => path.join(dir, name);
+  assert.deepEqual(imagePathsIn('what is in shot.png?', dir), [at('shot.png')]);
+  assert.deepEqual(imagePathsIn('see shot.png.', dir), [at('shot.png')]);
+  assert.deepEqual(imagePathsIn(`compare "${at('my shot.PNG')}" and shot.png`, dir), [at('my shot.PNG'), at('shot.png')]);
+  assert.deepEqual(imagePathsIn('look at my\\ shot.PNG', dir), [at('my shot.PNG')]);
+  assert.deepEqual(imagePathsIn('shot.png shot.png', dir), [at('shot.png')]);
+  // A name that is not a file here, and a file that is not an image, stay text.
+  assert.deepEqual(imagePathsIn('rename logo.png and read notes.txt', dir), []);
+  assert.equal(imageType(PNG), 'image/png');
+  assert.equal(imageType(Buffer.from('hello')), null);
+});
+
+test('images: each provider gets its own wire format', async () => {
+  const { toClaudeMessages, toOllamaMessages, toOpenAIMessages } = await import('../src/providers.mjs');
+  const image = { name: 'shot.png', mime: 'image/png', data: 'QUJD' };
+  const history = [
+    { role: 'user', content: 'what is this?', images: [image] },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'a', function: { name: 'read_file', arguments: { path: 'b.png' } } }, { id: 'b', function: { name: 'list_dir', arguments: {} } }] },
+    { role: 'tool', tool_call_id: 'a', content: 'b.png is an image', images: [image] },
+    { role: 'tool', tool_call_id: 'b', content: 'b.png' },
+  ];
+
+  const openai = toOpenAIMessages('sys', history);
+  assert.deepEqual(openai[1].content, [{ type: 'text', text: 'what is this?' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,QUJD' } }]);
+  // Tool results stay together and stay text; the picture follows in a user message.
+  assert.deepEqual(openai.slice(3).map((m) => m.role), ['tool', 'tool', 'user']);
+  assert.equal(openai[3].content, 'b.png is an image');
+  assert.equal(openai[5].content[1].type, 'image_url');
+
+  const local = toOllamaMessages('sys', history);
+  assert.deepEqual(local[1].images, ['QUJD']);
+  assert.equal(local[3].images, undefined);
+  assert.deepEqual(local.at(-1).images, ['QUJD']);
+
+  const claude = toClaudeMessages(history);
+  assert.deepEqual(claude[0].content[0], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'QUJD' } });
+  assert.equal(claude[2].content.length, 2);
+  assert.equal(claude[2].content[0].content[1].type, 'image');
+  assert.equal(claude[2].content[1].content, 'b.png');
+});
+
+test('images: read_file returns an image to a model that can see, and says so to one that cannot', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-img-'));
+  fs.writeFileSync(path.join(dir, 'shot.png'), PNG);
+  const read = TOOL_BY_NAME.get('read_file');
+  const seen = await read.run({ path: 'shot.png' }, { cwd: dir, vision: true });
+  assert.equal(seen.images[0].mime, 'image/png');
+  assert.equal(seen.images[0].data, PNG.toString('base64'));
+  await assert.rejects(() => read.run({ path: 'shot.png' }, { cwd: dir, vision: false }), /cannot see images/);
+});

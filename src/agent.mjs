@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { loadSkills } from './skills.mjs';
+import { imagePathsIn, kilobytes, loadImage, messageChars, withoutImages } from './images.mjs';
 
 const CHARS_PER_TOKEN = 3.5;
 const COMPACT_AT = 0.8;
@@ -72,7 +73,7 @@ export class Agent {
     this.model = model;
     this.provider = provider;
     this.info = info;
-    this.caps = { tools: Boolean(info.tools), thinking: Boolean(info.thinking) };
+    this.caps = { tools: Boolean(info.tools), thinking: Boolean(info.thinking), vision: Boolean(info.vision) };
     this.skills = loadSkills(this.cwd, this.config.skillDirs);
     const { prompt, instructionFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, provider, contextLimit: this.contextLimit() });
     this.system = prompt;
@@ -116,7 +117,7 @@ export class Agent {
       if (this.toolSize?.count !== list.length) this.toolSize = { count: list.length, chars: JSON.stringify(toolSpecs(list)).length };
       tools = this.toolSize.chars;
     }
-    const chars = this.system.length + tools + this.messages.reduce((n, m) => n + JSON.stringify(m).length, 0);
+    const chars = this.system.length + tools + this.messages.reduce((n, m) => n + messageChars(m), 0);
     return Math.ceil(chars / CHARS_PER_TOKEN);
   }
 
@@ -128,6 +129,8 @@ export class Agent {
   #fitForSummary(messages, promptChars) {
     const budget = Math.max(2000, this.contextLimit() * SUMMARY_FILL * CHARS_PER_TOKEN - this.system.length - promptChars);
     const size = (list) => list.reduce((n, m) => n + JSON.stringify(m).length, 0);
+    // A summary is text about text; the pictures themselves are not sent along.
+    messages = messages.map((m) => withoutImages(m, 'was shown here'));
     if (size(messages) <= budget) return messages;
     // Tool output is the bulk; each result keeps its start and end.
     const results = messages.filter((m) => m.role === 'tool').length || 1;
@@ -156,7 +159,8 @@ export class Agent {
     return this.provider.chat({
       model: this.model,
       system: this.system,
-      messages,
+      // Pictures already in the history are kept from a model that cannot take them (after a /model switch).
+      messages: this.caps.vision ? messages : messages.map((m) => withoutImages(m, 'not shown, the current model cannot see images')),
       // A provider that brings its own tools (Claude Code) is not offered SEEKER's as well.
       tools: tools && this.caps.tools && !this.provider.ownTools ? toolSpecs(this.tools()) : undefined,
       think: this.caps.thinking ? think : undefined,
@@ -320,6 +324,7 @@ export class Agent {
       signal,
       state: this.state,
       skills: this.skills,
+      vision: this.caps.vision,
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
       delegate: this.withheld.has('task') ? null : (prompt, label) => this.#delegate(prompt, label),
     };
@@ -340,7 +345,8 @@ export class Agent {
       const result = await tool.run(args, ctx);
       const maxChars = Math.min(24_000, Math.floor(this.contextLimit() * 0.25 * CHARS_PER_TOKEN));
       ui.toolDone(result.note, result.display, result.displayLines);
-      return clip(result.output, maxChars);
+      const output = clip(result.output, maxChars);
+      return result.images?.length ? { content: output, images: result.images } : output;
     } catch (err) {
       const message = err instanceof ToolError ? err.message : `${err.name}: ${err.message}`;
       ui.toolFail(message);
@@ -358,7 +364,7 @@ export class Agent {
     const room = this.contextLimit() * KEEP_RECENT * CHARS_PER_TOKEN;
     let cut = this.messages.length;
     let size = 0;
-    while (cut > 0 && size + JSON.stringify(this.messages[cut - 1]).length <= room) size += JSON.stringify(this.messages[--cut]).length;
+    while (cut > 0 && size + messageChars(this.messages[cut - 1]) <= room) size += messageChars(this.messages[--cut]);
     // A tool result cannot open the kept part: it belongs to the call just before it.
     while (cut < this.messages.length && this.messages[cut].role === 'tool') cut++;
     if (cut < 2) cut = this.messages.length; // nothing worth summarising would be left out — summarise it all
@@ -393,12 +399,39 @@ export class Agent {
     return true;
   }
 
+  /** The image files named in a user message, loaded so the model sees them and not just their paths. */
+  #attachImages(text) {
+    // Claude Code opens files with its own tools.
+    if (this.provider.ownTools) return [];
+    const files = imagePathsIn(text, this.cwd);
+    if (!files.length) return [];
+    const { ui } = this;
+    if (!this.caps.vision) {
+      ui.warn(`  ⚠ ${this.model} cannot see images, so ${files.length > 1 ? 'these files were' : path.basename(files[0]) + ' was'} not attached. Switch to a vision model with /model.`);
+      return [];
+    }
+    const images = [];
+    for (const file of files) {
+      try {
+        const { bytes, ...image } = loadImage(file);
+        images.push(image);
+        ui.notice(`  ▣ attached ${image.name} (${kilobytes(bytes)})`);
+      } catch (err) {
+        ui.warn(`  ⚠ ${err.message}.`);
+      }
+    }
+    return images;
+  }
+
   /** Runs one user message to completion. Never throws: failures are shown and the history stays valid. */
   async runTurn(userText) {
     const { ui } = this;
     this.controller = new AbortController();
     const { signal } = this.controller;
-    this.messages.push({ role: 'user', content: userText });
+    const message = { role: 'user', content: userText };
+    const images = this.#attachImages(userText);
+    if (images.length) message.images = images;
+    this.messages.push(message);
     ui.turnStart();
     let compactions = 0;
     try {
@@ -426,8 +459,9 @@ export class Agent {
           break;
         }
         for (const call of toolCalls) {
-          const output = signal.aborted ? 'Not run: the user interrupted.' : await this.#runTool(call, signal);
-          this.messages.push({ role: 'tool', tool_name: call.function?.name ?? '', tool_call_id: call.id, content: output });
+          const result = signal.aborted ? 'Not run: the user interrupted.' : await this.#runTool(call, signal);
+          const output = typeof result === 'string' ? { content: result } : result;
+          this.messages.push({ role: 'tool', tool_name: call.function?.name ?? '', tool_call_id: call.id, ...output });
         }
         if (signal.aborted) break;
       }
