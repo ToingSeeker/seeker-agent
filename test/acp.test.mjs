@@ -144,3 +144,20 @@ test('a rejected or cancelled permission leaves the file alone, and session/canc
   ollama.close();
   await ed.close();
 });
+
+test('the permission request carries the whole command and the raw input', async () => {
+  const cwd = project();
+  const command = `echo start ${'x'.repeat(400)}\nrm -rf build`;
+  const ollama = await fakeOllama([[call('bash', { command }), { done: true }], [done('Not run.')]]);
+  const ed = editor(ollama.host);
+  await ed.request('initialize', { protocolVersion: 1 });
+  const { sessionId } = (await ed.request('session/new', { cwd, mcpServers: [] })).result;
+  const turn = ed.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'bersihkan' }] });
+  const asked = await ed.find((m) => m.method === 'session/request_permission');
+  assert.equal(asked.params.toolCall.rawInput.command, command);
+  assert.ok(asked.params.toolCall.content[0].content.text.includes(command));
+  ed.send({ id: asked.id, result: { outcome: { outcome: 'selected', optionId: 'reject' } } });
+  await turn;
+  ollama.close();
+  await ed.close();
+});
