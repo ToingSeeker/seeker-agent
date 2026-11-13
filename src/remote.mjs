@@ -335,8 +335,11 @@ export class Workspace {
     return answer;
   }
 
-  /** @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message */
-  async run(text, images = []) {
+  /**
+   * @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message
+   * @param {{ references?: boolean }} [opts]  false for a prompt nobody typed (a loop, a goal step): its @ references stay text
+   */
+  async run(text, images = [], { references = true } = {}) {
     if (this.status !== 'idle') return;
     const started = Date.now();
     this.status = 'working';
@@ -349,7 +352,7 @@ export class Workspace {
     this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
     this.touch();
     try {
-      await this.agent.runTurn(text, { images });
+      await this.agent.runTurn(text, { images, references });
       this.ui.answerStream().flush();
       this.session.save(this.agent.messages, this.agent.model);
     } finally {

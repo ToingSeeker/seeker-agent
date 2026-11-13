@@ -3,7 +3,10 @@
 import { TOOLS, ToolError, clip, toolSpecs, validateArgs } from './tools.mjs';
 import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
+import { SubdirectoryHints } from './context-files.mjs';
+import { decide, fallbackChain, reasonText } from './failover.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
+import { createProvider, keyPool } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
 import { MAX_IMAGES_PER_MESSAGE, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
@@ -16,6 +19,25 @@ const KEEP_RECENT = 0.3;
 const SUMMARY_FILL = 0.7;
 // A turn that needs summarising this often is working on more than the context can hold.
 const MAX_COMPACTIONS_PER_TURN = 3;
+// Below this many tokens of context (and always on a local model), tools with a short description send that one.
+const COMPACT_TOOLS_BELOW = 64_000;
+
+// Helpers a single `task` call may run side by side.
+export const MAX_PARALLEL_HELPERS = 3;
+
+// The unattended review after a turn (see #review): how often, and what it may use.
+const MEMORY_REVIEW_EVERY_TURNS = 10;
+const SKILL_REVIEW_EVERY_STEPS = 10;
+const REVIEW_STEPS = 16;
+const REVIEW_TOOLS = new Set(['memory', 'skill_manage', 'skill', 'read_file', 'grep', 'glob']);
+// A message naming one of these has material to attach (see references.mjs).
+const HAS_REFERENCE = /(?<![\w/@])@(?:diff\b|staged\b|file:|folder:|git:|url:)/;
+
+const sleep = (ms, signal) =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => (clearTimeout(timer), resolve()), { once: true });
+  });
 
 const compactPrompt = (task) => `Summarise the conversation above so the work can continue without it. Everything above will be deleted: file contents and command output will no longer be visible, only what you write now.
 
@@ -68,6 +90,24 @@ export class Agent {
     // Set by the interface: askUser({ question, options }) → answer | null.
     this.hooks = {};
     this.helper = null;
+    // Helpers running side by side (see #delegateMany).
+    this.helpers = new Set();
+    // The conversation's file on disk, set by the interface; session_search leaves it out of its results.
+    this.session = null;
+    // Per-message scratch space for tools (a checkpoint taken, memory attempts that failed).
+    this.turn = {};
+    // Skills written during this session: named to the model with the next message, since the prompt is not rebuilt.
+    this.newSkills = [];
+    // The unattended review: counters towards the next one, the one running now, and whether this agent is one.
+    this.turnsSinceMemory = 0;
+    this.stepsSinceSkill = 0;
+    this.reviewer = null;
+    this.review = false;
+    this.allowReview = true;
+    // The user's shell hooks (hooks.mjs), set by the interface when any are configured.
+    this.shellHooks = null;
+    // While a backup model is standing in: { provider, model, info, until } of the one to go back to.
+    this.primary = null;
     this.setModel(config.model, info, provider);
   }
 
@@ -77,9 +117,17 @@ export class Agent {
     this.info = info;
     this.caps = { tools: Boolean(info.tools), thinking: Boolean(info.thinking), vision: Boolean(info.vision) };
     this.skills = loadSkills(this.cwd, this.config.skillDirs);
-    const { prompt, instructionFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, provider, contextLimit: this.contextLimit() });
+    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, provider, contextLimit: this.contextLimit() });
     this.system = prompt;
     this.instructionFiles = instructionFiles;
+    this.hints = new SubdirectoryHints(this.cwd, contextFiles);
+    this.toolSize = null;
+  }
+
+  /** The tool definitions as this model is sent them. */
+  #specs() {
+    // A local model reads its prompt at tens of tokens a second, so every definition it is sent costs time as well as room.
+    return toolSpecs(this.tools(), { compact: Boolean(this.provider.local) || this.contextLimit() < COMPACT_TOOLS_BELOW });
   }
 
   /** Re-reads skills and instruction files from disk. */
@@ -104,6 +152,8 @@ export class Agent {
 
   interrupt() {
     this.helper?.interrupt();
+    for (const helper of this.helpers) helper.interrupt();
+    this.interrupted = true;
     this.controller?.abort();
   }
 
@@ -116,7 +166,7 @@ export class Agent {
     let tools = 0;
     if (this.caps.tools && !this.provider.ownTools) {
       const list = this.tools();
-      if (this.toolSize?.count !== list.length) this.toolSize = { count: list.length, chars: JSON.stringify(toolSpecs(list)).length };
+      if (this.toolSize?.count !== list.length) this.toolSize = { count: list.length, chars: JSON.stringify(this.#specs()).length };
       tools = this.toolSize.chars;
     }
     const chars = this.system.length + tools + this.messages.reduce((n, m) => n + messageChars(m), 0);
@@ -164,7 +214,7 @@ export class Agent {
       // Pictures already in the history are kept from a model that cannot take them (after a /model switch).
       messages: this.caps.vision ? messages : messages.map((m) => withoutImages(m, 'not shown, the current model cannot see images')),
       // A provider that brings its own tools (Claude Code) is not offered SEEKER's as well.
-      tools: tools && this.caps.tools && !this.provider.ownTools ? toolSpecs(this.tools()) : undefined,
+      tools: tools && this.caps.tools && !this.provider.ownTools ? this.#specs() : undefined,
       think: this.caps.thinking ? think : undefined,
       signal,
       cwd: this.cwd,
@@ -172,7 +222,81 @@ export class Agent {
     });
   }
 
+  /**
+   * One model reply. A request that fails before any of the answer was shown is recovered
+   * where possible: another API key, a wait and retry, or a backup provider (see failover.mjs).
+   */
   async #streamOnce(signal) {
+    for (let attempt = 0; ; ) {
+      try {
+        return await this.#streamAttempt(signal);
+      } catch (err) {
+        // Text already on screen cannot be taken back, so that reply is not silently started over.
+        if (signal.aborted || err.partial) throw err;
+        const move = await this.#recover(err, attempt, signal);
+        if (!move || signal.aborted) throw err;
+        attempt = move === 'retry' ? attempt + 1 : 0;
+      }
+    }
+  }
+
+  /** @returns {Promise<'retry'|'rotate'|'fallback'|null>} what was done about a failed request, or null if nothing can be */
+  async #recover(err, attempt, signal) {
+    const { ui } = this;
+    const pooled = this.provider.kind === 'openai' || this.provider.kind === 'anthropic';
+    const pool = pooled ? keyPool(this.provider, this.config) : null;
+    const primary = this.primary ?? { provider: this.provider, model: this.model };
+    const chain = fallbackChain(this.config).filter((f) => !(f.provider === primary.provider.id && f.model === primary.model));
+    const tried = (this.turn.fallbacksTried ??= new Set());
+    const candidates = chain.filter((f) => !tried.has(`${f.provider}/${f.model}`) && !(f.provider === this.provider.id && f.model === this.model));
+    const move = decide({ err, attempt, pool, hasFallback: candidates.length > 0, local: Boolean(this.provider.local) });
+    const why = reasonText(move.kind);
+
+    if (move.action === 'retry') {
+      ui.notice(`  ⏳ ${this.provider.label} ${why} — retrying in ${Math.max(1, Math.round(move.delayMs / 1000))}s (attempt ${attempt + 1})`);
+      await sleep(move.delayMs, signal);
+      return 'retry';
+    }
+    if (move.action === 'rotate') {
+      ui.notice(`  ⚿ ${this.provider.label} ${why} for this API key — switching to the next one`);
+      return 'rotate';
+    }
+    if (move.action !== 'fallback') return null;
+
+    for (const next of candidates) {
+      tried.add(`${next.provider}/${next.model}`);
+      try {
+        const provider = createProvider(next.provider, this.config);
+        const info = await provider.describe(next.model);
+        const from = `${this.model} via ${this.provider.label}`;
+        if (!this.primary) {
+          // A throttled or empty account is left alone for a while; anything else is tried again next message.
+          const rest = move.kind === 'rate_limit' || move.kind === 'billing' ? Math.min(60_000 * 2 ** (this.primaryBackoffs = (this.primaryBackoffs ?? 0) + 1), 4 * 3_600_000) : 0;
+          this.primary = { provider: this.provider, model: this.model, info: this.info, until: Date.now() + rest };
+        }
+        this.setModel(next.model, info, provider);
+        this.usedTokens = 0;
+        ui.warn(`  ⚠ Model fallback: ${from} unavailable (${why}); using ${next.model} via ${provider.label}.`);
+        return 'fallback';
+      } catch (failure) {
+        ui.notice(`  (backup ${next.model} via ${next.provider} could not be used: ${failure.message})`);
+      }
+    }
+    return null;
+  }
+
+  /** At the start of a message: go back to the user's own model if a backup was standing in and its rest is over. */
+  #restorePrimary() {
+    if (!this.primary || Date.now() < this.primary.until) return;
+    const { provider, model, info } = this.primary;
+    const backup = `${this.model} via ${this.provider.label}`;
+    this.primary = null;
+    this.setModel(model, info, provider);
+    this.usedTokens = 0;
+    this.ui.notice(`  ✓ Primary model restored: ${model} via ${provider.label}; fallback ${backup} is no longer active.`);
+  }
+
+  async #streamAttempt(signal) {
     const { ui } = this;
     const answer = ui.answerStream();
     let content = '';
@@ -295,7 +419,11 @@ export class Agent {
     );
     const helper = new Agent({ config: { ...this.config, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: this.provider, info: this.info, cwd: this.cwd });
     helper.extraTools = this.extraTools;
-    helper.withheld = new Set(['task', 'ask_user']);
+    // A helper never gets a tool its parent was denied (API server, scheduled job), and does not write memory, skills or jobs.
+    helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
+    helper.parent = this;
+    helper.shellHooks = this.shellHooks;
+    helper.allowReview = false; // the conversation that learns is the user's, not a helper's
     this.helper = helper;
     try {
       await helper.runTurn(prompt);
@@ -306,6 +434,60 @@ export class Agent {
     // The helper's lines replaced this one as the current step; restore it so it can be closed.
     ui.toolStart('Delegating', 'Delegated', label);
     return report.trim();
+  }
+
+  /**
+   * Runs several helpers side by side, each on its own task with its own empty conversation.
+   * Their steps are not drawn as a tree (the lines would interleave); each reports one line when
+   * it does something that changes the machine and one when it is done. Approval questions are
+   * put one at a time.
+   * @param {{ description: string, prompt: string }[]} tasks
+   * @returns {Promise<{ description: string, status: 'completed'|'interrupted'|'failed', report: string }[]>}
+   */
+  async #delegateMany(tasks) {
+    const { ui } = this;
+    ui.toolOpen();
+    let queue = Promise.resolve();
+    const run = async (task, index) => {
+      const tag = `helper ${index + 1}`;
+      const quiet = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? ui.c : key === 'error' || key === 'warn' ? (text) => ui.toolLine(ui.c.dim(`${tag}: ${String(text).trim()}`)) : () => {}) });
+      // One question on screen at a time, and it says whose it is.
+      const permissions = {
+        mayLearn: () => false,
+        check: (tool, args) => {
+          if (tool.risk === 'read') return Promise.resolve({ ok: true });
+          const asked = queue.then(() => {
+            ui.toolLine(`${ui.c.dim(`${tag}:`)} ${tool.verbs?.[0] ?? tool.name} ${String(tool.summary?.(args) ?? '').slice(0, 120)}`);
+            return this.permissions.check(tool, args);
+          });
+          queue = asked.catch(() => {});
+          return asked;
+        },
+      };
+      const helper = new Agent({ config: { ...this.config, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: this.provider, info: this.info, cwd: this.cwd });
+      helper.extraTools = this.extraTools;
+      helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
+      helper.parent = this;
+      helper.shellHooks = this.shellHooks;
+      helper.allowReview = false;
+      this.helpers.add(helper);
+      const started = Date.now();
+      let status = 'completed';
+      try {
+        await helper.runTurn(task.prompt);
+        if (helper.interrupted) status = 'interrupted';
+      } catch {
+        status = 'failed';
+      } finally {
+        this.helpers.delete(helper);
+      }
+      const report = ([...helper.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '').trim();
+      ui.toolLine(`${status === 'completed' ? ui.c.green('✓') : ui.c.yellow('!')} ${tag} ${status} in ${Math.round((Date.now() - started) / 1000)}s — ${task.description}`);
+      return { description: task.description, status: report ? status : status === 'completed' ? 'failed' : status, report };
+    };
+    const results = await Promise.all(tasks.map(run));
+    ui.toolStart('Delegating', 'Delegated', `${tasks.length} tasks in parallel`);
+    return results;
   }
 
   async #runTool(call, signal) {
@@ -334,6 +516,13 @@ export class Agent {
       vision: this.caps.vision,
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
       delegate: this.withheld.has('task') ? null : (prompt, label) => this.#delegate(prompt, label),
+      delegateMany: this.withheld.has('task') ? null : (tasks) => this.#delegateMany(tasks),
+      turn: this.turn,
+      review: this.review,
+      cronRun: this.hooks.cronRun ?? null,
+      cronChanged: this.hooks.cronChanged ?? null,
+      sessionFile: (this.parent ?? this).session?.file ?? null,
+      skillsChanged: (created) => (this.parent ?? this).#skillsChanged(created),
     };
     ui.toolStart(tool.verbs[0], tool.verbs[1], tool.summary(args));
     const invalid = validateArgs(tool, args);
@@ -342,6 +531,15 @@ export class Agent {
       return `Error: ${invalid}. Call ${name} again with valid arguments.`;
     }
     try {
+      if (this.shellHooks) {
+        // The user's own hook sees the call first: it may veto it or adjust its arguments.
+        const hooked = await this.shellHooks.run('pre_tool_call', { toolName: name, toolInput: args, extra: { tool_call_id: call.id } });
+        if (hooked.block) {
+          ui.toolFail('blocked by a hook');
+          return `Blocked by the user's hook: ${hooked.block} Do not retry it unchanged.`;
+        }
+        if (hooked.args) args = hooked.args;
+      }
       if (tool.preview) ui.diff(tool.preview(args, ctx));
       const verdict = await this.permissions.check(tool, args);
       if (!verdict.ok) {
@@ -349,16 +547,100 @@ export class Agent {
         return verdict.reason;
       }
       ui.toolRunning();
+      await this.#checkpoint(tool, args);
       const result = await tool.run(args, ctx);
+      this.shellHooks?.run('post_tool_call', { toolName: name, toolInput: args, extra: { tool_call_id: call.id, result: String(result.output ?? '').slice(0, 4000) } }).catch(() => {});
+      if (name === 'memory') this.turnsSinceMemory = 0;
+      if (name === 'skill_manage') this.stepsSinceSkill = 0;
       const maxChars = Math.min(24_000, Math.floor(this.contextLimit() * 0.25 * CHARS_PER_TOKEN));
       ui.toolDone(result.note, result.display, result.displayLines);
-      const output = clip(result.output, maxChars);
+      // Instructions kept in the folder this call first worked in come along with its result.
+      const output = clip(result.output, maxChars) + this.hints.collect(name, args);
       return result.images?.length ? { content: output, images: result.images } : output;
     } catch (err) {
       const message = err instanceof ToolError ? err.message : `${err.name}: ${err.message}`;
       ui.toolFail(message);
       return `Error: ${message}`;
     }
+  }
+
+  /**
+   * Records the working folder before the first change of a message — a file written or edited,
+   * or a shell command that can destroy files — so /rollback can undo it.
+   */
+  async #checkpoint(tool, args) {
+    if (this.config.checkpoints === false || this.turn.checkpointed) return;
+    if (tool.risk !== 'write' && tool.name !== 'bash') return;
+    try {
+      const checkpoints = await import('./checkpoints.mjs');
+      if (tool.risk !== 'write' && !checkpoints.isDestructiveCommand(String(args.command ?? ''))) return;
+      this.turn.checkpointed = true;
+      await checkpoints.snapshot(this.cwd, `before ${tool.name}: ${String(tool.summary(args) ?? '').slice(0, 80)}`);
+    } catch {
+      // A snapshot that cannot be taken never stops the work.
+    }
+  }
+
+  /** After skill_manage changed something: the skill tool sees it at once; the model is told with the next message. */
+  #skillsChanged(created = []) {
+    this.skills = loadSkills(this.cwd, this.config.skillDirs);
+    this.newSkills.push(...created);
+    this.stepsSinceSkill = 0;
+  }
+
+  /**
+   * The unattended review: after a reply, a helper with the same conversation and only the memory
+   * and skill tools decides whether anything in it is worth keeping. It runs while the user reads
+   * the answer and is dropped the moment they send the next message.
+   */
+  async #reviewTurn() {
+    const memory = this.turnsSinceMemory >= (this.config.memoryReviewEvery ?? MEMORY_REVIEW_EVERY_TURNS);
+    const skills = this.stepsSinceSkill >= (this.config.skillReviewEvery ?? SKILL_REVIEW_EVERY_STEPS);
+    if (!memory && !skills) return;
+    if (!this.allowReview || this.review || this.config.review === false || !this.caps.tools || this.provider.ownTools) return;
+    // Nobody is watching this pass, so it may only save what the user has already agreed may be
+    // saved without asking (autoLearn, --yolo, or "always" for that tool in this session).
+    const mayLearn = (name) => Boolean(this.permissions.mayLearn?.(name));
+    if (!(memory && mayLearn('memory')) && !(skills && mayLearn('skill_manage'))) return;
+    const unattended = { check: async (tool) => (tool.risk === 'read' || mayLearn(tool.name) ? { ok: true } : { ok: false, reason: 'Not allowed in an unattended review.' }) };
+    const { reviewPrompt, reviewOutcome } = await import('./review.mjs');
+    const silent = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? this.ui.c : () => {}) });
+    const helper = new Agent({ config: { ...this.config, maxSteps: REVIEW_STEPS, checkpoints: false }, ui: silent, permissions: unattended, provider: this.provider, info: this.info, cwd: this.cwd });
+    helper.review = true;
+    helper.parent = this;
+    helper.system = this.system; // the same prompt, so a provider's cache of it is reused
+    helper.withheld = new Set(TOOLS.map((t) => t.name).filter((name) => !REVIEW_TOOLS.has(name) || (name === 'memory' && !(memory && mayLearn('memory'))) || (name === 'skill_manage' && !mayLearn('skill_manage'))));
+    // The conversation as it stands, without pictures; a long one is replayed from its recent part only.
+    let replay = this.messages.map(({ blocks, ...m }) => withoutImages(m, 'was shown here'));
+    const room = this.contextLimit() * 0.5 * CHARS_PER_TOKEN;
+    while (replay.length > 2 && replay.reduce((n, m) => n + messageChars(m), 0) > room) replay = replay.slice(1);
+    while (replay.length && replay[0].role !== 'user') replay = replay.slice(1);
+    if (!replay.length) return;
+    helper.messages = replay;
+    const before = replay.length;
+    this.reviewer = helper;
+    try {
+      await helper.runTurn(reviewPrompt({ memory: memory && mayLearn('memory'), skills: skills && mayLearn('skill_manage') }));
+    } finally {
+      if (this.reviewer === helper) this.reviewer = null;
+    }
+    if (helper.interrupted) return; // the counters stay as they are; the next reply tries again
+    if (memory) this.turnsSinceMemory = 0;
+    if (skills) this.stepsSinceSkill = 0;
+    const learned = reviewOutcome(helper.messages.slice(before));
+    if (learned) this.ui.notice(`  ✎ ${learned}`);
+  }
+
+  /**
+   * One reply from the model to a question of SEEKER's own (a judge's verdict, a title), outside the
+   * conversation: no history, no tools, no thinking.
+   * @returns {Promise<string>}
+   */
+  async ask(system, user, { signal } = {}) {
+    let text = '';
+    const stream = this.provider.chat({ model: this.model, system, messages: [{ role: 'user', content: user }], tools: undefined, think: this.caps.thinking ? false : undefined, signal, cwd: this.cwd, hooks: {} });
+    for await (const chunk of stream) text += chunk.message?.content || '';
+    return text;
   }
 
   /** Replaces the history with a model-written summary. Returns false if there was nothing to do. */
@@ -446,15 +728,38 @@ export class Agent {
   /**
    * Runs one user message to completion. Never throws: failures are shown and the history stays valid.
    * @param {string} userText
-   * @param {{ images?: { name: string, mime: string, data: string }[] }} [extra]  images sent along with the text
+   * @param {{ images?: { name: string, mime: string, data: string }[], references?: boolean }} [extra]  images sent along with the text;
+   *   `references` expands @file:/@url:… and is only for text the user typed — a prompt written by a model, a job or an API client
+   *   must not be able to read files or fetch pages without the usual approval.
    */
-  async runTurn(userText, { images: sent = [] } = {}) {
+  async runTurn(userText, { images: sent = [], references = false } = {}) {
     const { ui } = this;
+    // The model is the user's again: a review still running from the last reply is dropped.
+    this.reviewer?.interrupt();
     this.controller = new AbortController();
+    this.interrupted = false;
     const { signal } = this.controller;
+    this.turn = {};
+    this.#restorePrimary();
     const message = { role: 'user', content: userText };
+    if (this.shellHooks && !this.review && !this.parent) {
+      const hooked = await this.shellHooks.run('pre_llm_call', { extra: { user_message: userText } });
+      if (hooked.block) {
+        this.controller = null;
+        ui.warn(`  ⚠ Not sent — blocked by your hook: ${hooked.block}`);
+        return;
+      }
+      if (hooked.context) message.content += `\n\n${hooked.context}`;
+    }
+    if (references && HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
     this.#attachImages(message, sent);
+    if (this.newSkills.length && !this.provider.ownTools) {
+      const fresh = this.skills.filter((s) => this.newSkills.includes(s.name));
+      if (fresh.length) message.content += `\n\n[Skills added since this session started, not yet in your skill list — load one with the skill tool when it fits: ${fresh.map((s) => `${s.name} (${s.description})`).join('; ')}]`;
+      this.newSkills = [];
+    }
     this.messages.push(message);
+    if (!this.review) this.turnsSinceMemory++;
     ui.turnStart();
     let compactions = 0;
     try {
@@ -472,6 +777,7 @@ export class Agent {
         }
 
         const { content, toolCalls, blocks } = await this.#streamOnce(signal);
+        this.stepsSinceSkill++;
         const message = { role: 'assistant', content };
         if (toolCalls.length) message.tool_calls = toolCalls;
         if (blocks) message.blocks = blocks;
@@ -499,6 +805,24 @@ export class Agent {
     } finally {
       this.controller = null;
       ui.ensureNewline();
+    }
+    if (this.shellHooks && !this.review && !this.parent && !signal.aborted) this.shellHooks.run('post_llm_call', { extra: { response: this.messages.at(-1)?.content ?? '' } }).catch(() => {});
+    // Not awaited: the user has their answer and can type; the review works behind it.
+    if (!signal.aborted) this.reviewing = this.#reviewTurn().catch(() => {});
+  }
+
+  /** Attaches what the `@file:` / `@diff` / `@url:` words in a message point to. */
+  async #attachReferences(message, signal) {
+    const { ui } = this;
+    try {
+      const { expandReferences } = await import('./references.mjs');
+      const { fetchPage } = await import('./tools.mjs');
+      const result = await expandReferences(message.content, { cwd: this.cwd, contextLimit: this.contextLimit(), fetchPage, signal });
+      message.content = result.text;
+      if (result.attached.length) ui.notice(`  ▣ attached ${result.attached.join(' ')}`);
+      for (const warning of result.warnings) ui.warn(`  ⚠ ${warning}`);
+    } catch (err) {
+      ui.warn(`  ⚠ The @ references could not be attached: ${err.message}`);
     }
   }
 }

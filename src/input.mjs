@@ -125,6 +125,17 @@ export class Terminal {
     });
   }
 
+  /**
+   * Ends a waiting readInput so something scheduled can run — but only while the box is empty:
+   * a message being typed is never taken away. Returns whether the prompt was woken.
+   */
+  wake() {
+    if (!this.reading || this.reading.text()) return false;
+    this.woken = true;
+    this.cancelWait();
+    return true;
+  }
+
   /** Unblocks a pending read as if input had ended. */
   cancelWait() {
     this.endCapture?.();
@@ -252,7 +263,7 @@ export class Terminal {
    * @param {string} opts.placeholder
    * @param {(text: string) => string[]} [opts.suggest]   rows shown under the box
    * @param {(text: string) => string|null} [opts.complete]
-   * @returns {Promise<string|object|null>} null = the user wants to leave; an object = what inject() was given
+   * @returns {Promise<string|object|null>} null = the user wants to leave; '' = nothing typed (or woken by wake()); an object = what inject() was given
    */
   async readInput({ placeholder, suggest, complete }) {
     let exitArmedAt = 0;
@@ -260,6 +271,7 @@ export class Terminal {
     const draw = (state) => {
       this.screen.setFooter({ input: { ...state, placeholder }, suggestions: suggest?.(state.text) ?? [], exitArmed: armed() });
     };
+    this.woken = false;
     const text = await this.#edit({
       draw,
       width: () => Math.max(10, this.screen.width - 6),
@@ -287,6 +299,8 @@ export class Terminal {
       return value;
     }
     if (text !== null) this.#remember(text);
+    // Woken by a schedule rather than ended by the user: an empty message, which the caller reads as "look for due work".
+    if (text === null && this.woken && !this.closed) return '';
     return text;
   }
 
