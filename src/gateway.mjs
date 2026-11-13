@@ -22,6 +22,7 @@ import { Session } from './session.mjs';
 const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
 const TYPING_EVERY_MS = 4500;
 const MAX_STEPS_SHOWN = 12;
+const MAX_DIFF_LINES = 40;
 
 const PLATFORMS = {
   telegram: { module: './platforms/telegram.mjs', env: { token: 'TELEGRAM_BOT_TOKEN' }, needs: ['token'] },
@@ -84,8 +85,9 @@ function chatUi() {
       state.diff = '';
     },
     diff: ({ removed = [], added = [], more = 0 }) => {
-      const lines = [...removed.map((l) => `- ${l}`), ...added.map((l) => `+ ${l}`)].slice(0, 16);
-      state.diff = `${lines.join('\n')}${more ? `\n… ${more} more lines` : ''}`;
+      const lines = [...removed.map((l) => `- ${l}`), ...added.map((l) => `+ ${l}`)];
+      const hidden = Math.max(0, lines.length - MAX_DIFF_LINES) + more;
+      state.diff = `${lines.slice(0, MAX_DIFF_LINES).join('\n')}${hidden ? `\n… ${hidden} more changed lines not shown` : ''}`;
     },
     toolDone: () => state.steps.push(`✓ ${state.current}`),
     toolFail: (why) => state.steps.push(`✖ ${state.current} — ${clean(why).slice(0, 160)}`),
@@ -152,8 +154,10 @@ export class Gateway {
         };
         say(text).catch(() => chat.waiting?.(null));
       });
-    const ask = async ({ warning, always }) => {
-      const what = [state.current, state.diff, warning ? `⚠ ${warning}` : ''].filter(Boolean).join('\n');
+    const ask = async ({ tool, args, warning, always }) => {
+      // The whole of what would run, uncut and with its line breaks: an approval must not be given to a command whose end is out of sight.
+      const action = tool?.summary ? `${tool.verbs?.[0] ?? tool.name} ${tool.summary(args ?? {})}`.trim() : state.current;
+      const what = [action, state.diff, warning ? `⚠ ${warning}` : ''].filter(Boolean).join('\n');
       const reply = await question(`${what}\n\nAllow?  y = yes${always ? ` · a = ${always}` : ''} · n = no · or say what to do instead`);
       return reply === null ? null : answerOf(reply);
     };
