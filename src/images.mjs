@@ -11,7 +11,7 @@ import path from 'node:path';
 
 // The strictest provider limit is 5 MB of base64 per image, which is 3.75 MB of file.
 export const MAX_IMAGE_BYTES = 3_750_000;
-const MAX_IMAGES_PER_MESSAGE = 8;
+export const MAX_IMAGES_PER_MESSAGE = 8;
 // What one image is counted as when estimating how full the context is.
 const IMAGE_TOKENS = 1500;
 const CHARS_PER_TOKEN = 3.5;
@@ -44,6 +44,44 @@ export function loadImage(file) {
   const mime = imageType(buf);
   if (!mime) throw new Error(`${name} is not a PNG, JPEG, GIF or WebP image`);
   return { name, mime, data: buf.toString('base64'), bytes: buf.length };
+}
+
+const base64Bytes = (text) => Math.floor((text.length * 3) / 4);
+const MAX_THUMB_CHARS = 40_000;
+
+/**
+ * Checks images that arrived from another device (the phone app) instead of from a file here.
+ * What they are is decided by their bytes, never by what the sender says.
+ * @param {unknown} list  [{ name, data, thumb? }], `data` and `thumb` base64
+ * @returns {{ name: string, mime: string, data: string, thumb: { mime: string, data: string } | null }[]}
+ * @throws {Error} with a message fit to show as it is
+ */
+export function receivedImages(list, max = 4) {
+  if (list == null) return [];
+  if (!Array.isArray(list) || list.length > max) throw new Error(`A message can carry at most ${max} images.`);
+  return list.map((entry, i) => {
+    const data = typeof entry?.data === 'string' ? entry.data : '';
+    const label = path.basename(String(entry?.name ?? '')).replace(/[^\w .()-]/g, '').trim().slice(0, 80) || `image-${i + 1}`;
+    if (!data || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new Error(`${label} did not arrive as an image.`);
+    if (base64Bytes(data) > MAX_IMAGE_BYTES) throw new Error(`${label} is too large; images can be at most ${kilobytes(MAX_IMAGE_BYTES)}.`);
+    const mime = imageType(Buffer.from(data.slice(0, 24), 'base64'));
+    if (!mime) throw new Error(`${label} is not a PNG, JPEG, GIF or WebP image.`);
+    // The small preview shown in the transcript is optional: one that does not check out is just left out.
+    const small = typeof entry.thumb === 'string' && entry.thumb.length <= MAX_THUMB_CHARS && /^[A-Za-z0-9+/]+={0,2}$/.test(entry.thumb) ? entry.thumb : '';
+    const smallMime = small ? imageType(Buffer.from(small.slice(0, 24), 'base64')) : null;
+    return { name: label, mime, data, thumb: smallMime ? { mime: smallMime, data: small } : null };
+  });
+}
+
+/** Writes images to a folder only this user can open, for a provider that reads files itself. */
+export function saveImages(images, dir = os.tmpdir()) {
+  const folder = fs.mkdtempSync(path.join(dir, 'seeker-image-'));
+  return images.map((image, i) => {
+    const ext = image.mime.split('/')[1].replace('jpeg', 'jpg');
+    const file = path.join(folder, `${i + 1}-${path.basename(image.name).replace(/\.[^.]*$/, '') || 'image'}.${ext}`);
+    fs.writeFileSync(file, Buffer.from(image.data, 'base64'), { flag: 'wx', mode: 0o600 });
+    return file;
+  });
 }
 
 /**

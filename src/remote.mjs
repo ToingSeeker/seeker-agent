@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HOME_DIR, saveConfig, saveProviderConfig } from './config.mjs';
+import { receivedImages } from './images.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
@@ -74,8 +75,9 @@ export class WebUI {
     return full;
   }
 
-  user(text) {
-    this.#item({ kind: 'user', text });
+  /** `images` are the pictures sent with the message: their names, and a small preview where there is one. */
+  user(text, images = []) {
+    this.#item(images.length ? { kind: 'user', text, images } : { kind: 'user', text });
   }
 
   turnStart() {
@@ -239,6 +241,7 @@ class Workspace {
       local: Boolean(agent.provider.local),
       used: agent.contextTokens(),
       limit: agent.contextLimit(),
+      vision: Boolean(agent.caps.vision || agent.provider.ownTools),
       progress: todos.length ? { done, total: todos.length, current } : null,
     };
   }
@@ -295,15 +298,17 @@ class Workspace {
     return answer;
   }
 
-  async run(text) {
+  /** @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message */
+  async run(text, images = []) {
     if (this.status !== 'idle') return;
     const started = Date.now();
     this.status = 'working';
     this.activity = 'Starting';
-    this.ui.user(text);
+    // The transcript keeps the small previews only; the pictures themselves go to the model.
+    this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
     this.touch();
     try {
-      await this.agent.runTurn(text);
+      await this.agent.runTurn(text, { images });
       this.ui.answerStream().flush();
       this.session.save(this.agent.messages, this.agent.model);
     } finally {
@@ -549,12 +554,16 @@ export class RemoteDaemon {
       switch (command.type) {
         case 'sync':
           return this.send(this.snapshot(), { snapshot: true });
-        case 'message':
-          if (!workspace || typeof command.text !== 'string' || !command.text.trim()) return;
+        case 'message': {
+          if (!workspace) return;
+          const images = receivedImages(command.images);
+          const text = (typeof command.text === 'string' ? command.text.trim() : '') || (images.length ? `Look at ${images.length > 1 ? 'these images' : 'this image'}.` : '');
+          if (!text) return;
           if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Stop it first.` });
-          this.log(`${workspace.name} ← ${command.text.split('\n')[0].slice(0, 70)}`);
-          workspace.run(command.text.trim()).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
+          this.log(`${workspace.name} ← ${text.split('\n')[0].slice(0, 70)}${images.length ? ` (+${images.length} image${images.length > 1 ? 's' : ''})` : ''}`);
+          workspace.run(text, images).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
           return;
+        }
         case 'stop':
           if (!workspace) return;
           workspace.stop();

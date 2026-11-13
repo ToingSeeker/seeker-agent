@@ -178,7 +178,11 @@ sendiri lewat `read_file`. PNG, JPEG, GIF dan WebP, masing-masing maksimal 3,7 M
 
 Modelnya harus mendukung vision; `/status` menunjukkan apakah model yang aktif bisa. Untuk Ollama, itu
 dibaca dari modelnya sendiri. Kalau model tidak bisa melihat gambar, SEEKER memberi tahu, bukan mengirim
-path yang hanya bisa ditebak model. Aplikasi HP belum bisa mengirim gambar.
+path yang hanya bisa ditebak model.
+
+Dari aplikasi HP, tombol gambar di samping kotak pesan melampirkan sampai empat foto atau screenshot.
+Gambarnya dikecilkan di HP, lalu dienkripsi seperti semua yang dikirimnya. (Relay yang sudah ada perlu
+di-deploy ulang sekali supaya mendapat aplikasi yang baru.)
 
 ## Pasang
 

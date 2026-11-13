@@ -44,7 +44,11 @@ itself with `read_file`. PNG, JPEG, GIF and WebP, up to 3.7 MB each.
 
 The model has to support vision; `/status` says whether the current one does. With Ollama that is read
 from the model itself. If it cannot see images, SEEKER says so instead of sending a path the model would
-have to guess about. Images are not accepted from the phone app yet.
+have to guess about.
+
+From the phone app, the picture button next to the message box attaches up to four photos or screenshots.
+They are made smaller on the phone, then encrypted like everything else it sends. (An existing relay has
+to be deployed again once to get the updated app.)
 
 ## Install
 

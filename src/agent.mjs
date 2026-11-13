@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { loadSkills } from './skills.mjs';
-import { imagePathsIn, kilobytes, loadImage, messageChars, withoutImages } from './images.mjs';
+import { MAX_IMAGES_PER_MESSAGE, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
 const CHARS_PER_TOKEN = 3.5;
 const COMPACT_AT = 0.8;
@@ -399,18 +399,31 @@ export class Agent {
     return true;
   }
 
-  /** The image files named in a user message, loaded so the model sees them and not just their paths. */
-  #attachImages(text) {
-    // Claude Code opens files with its own tools.
-    if (this.provider.ownTools) return [];
-    const files = imagePathsIn(text, this.cwd);
-    if (!files.length) return [];
+  /**
+   * The images of a user message, added to it so the model sees them: the image files the text
+   * names, and those that came with it from another device (`sent`).
+   */
+  #attachImages(message, sent) {
     const { ui } = this;
-    if (!this.caps.vision) {
-      ui.warn(`  ⚠ ${this.model} cannot see images, so ${files.length > 1 ? 'these files were' : path.basename(files[0]) + ' was'} not attached. Switch to a vision model with /model.`);
-      return [];
+    if (this.provider.ownTools) {
+      // Claude Code opens files with its own tools, so it is handed files.
+      if (!sent.length) return;
+      try {
+        const files = saveImages(sent);
+        message.content += `\n\nAttached image${files.length > 1 ? 's' : ''}, to be read with your own tools:\n${files.join('\n')}`;
+      } catch (err) {
+        ui.warn(`  ⚠ The attached image${sent.length > 1 ? 's' : ''} could not be saved: ${err.message}.`);
+      }
+      return;
     }
-    const images = [];
+    const files = imagePathsIn(message.content, this.cwd);
+    if (!files.length && !sent.length) return;
+    if (!this.caps.vision) {
+      const what = files.length + sent.length > 1 ? 'the images were' : `${sent[0]?.name ?? path.basename(files[0])} was`;
+      ui.warn(`  ⚠ ${this.model} cannot see images, so ${what} not attached. Switch to a vision model with /model.`);
+      return;
+    }
+    const images = sent.map(({ name, mime, data }) => ({ name, mime, data }));
     for (const file of files) {
       try {
         const { bytes, ...image } = loadImage(file);
@@ -420,17 +433,20 @@ export class Agent {
         ui.warn(`  ⚠ ${err.message}.`);
       }
     }
-    return images;
+    if (images.length) message.images = images.slice(0, MAX_IMAGES_PER_MESSAGE);
   }
 
-  /** Runs one user message to completion. Never throws: failures are shown and the history stays valid. */
-  async runTurn(userText) {
+  /**
+   * Runs one user message to completion. Never throws: failures are shown and the history stays valid.
+   * @param {string} userText
+   * @param {{ images?: { name: string, mime: string, data: string }[] }} [extra]  images sent along with the text
+   */
+  async runTurn(userText, { images: sent = [] } = {}) {
     const { ui } = this;
     this.controller = new AbortController();
     const { signal } = this.controller;
     const message = { role: 'user', content: userText };
-    const images = this.#attachImages(userText);
-    if (images.length) message.images = images;
+    this.#attachImages(message, sent);
     this.messages.push(message);
     ui.turnStart();
     let compactions = 0;

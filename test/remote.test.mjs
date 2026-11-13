@@ -454,3 +454,68 @@ test('remote: questions from the model, switching model, and notifications reach
   await daemon.stop();
   await running;
 });
+
+test('remote control: pictures sent from the phone reach the model, and what is not a picture is refused', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const secret = 'test-secret-that-is-long-enough-123456';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const asked = [];
+  const model = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk)).on('end', () => {
+      if (req.url === '/api/chat') asked.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(JSON.stringify(done('A red square.')));
+    });
+  });
+  const host = await listen(model);
+  const config = { ...DEFAULTS, host, remote: { url, secret } };
+  const agents = [];
+  const build = async (folder, ui, asker) => {
+    const agent = new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info: { tools: true, thinking: false, vision: true, context: null }, cwd: folder });
+    agents.push(agent);
+    return { agent, session: { save() {}, startNew() {} } };
+  };
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  await until(() => me.state.online && me.state.workspaces.size === 1);
+  const [ws] = [...me.state.workspaces.values()];
+  assert.equal(ws.vision, true, 'the phone is told whether the model can see images');
+
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]).toString('base64');
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20, 3)]).toString('base64');
+  // No text at all: the picture is the message. The name is whatever the phone says, so it is cleaned.
+  await me.send('message', { ws: ws.id, text: '', images: [{ name: '../../<b>shot</b>.png', data: png, thumb: jpeg }] });
+  await until(() => me.state.workspaces.get(ws.id).items.some((i) => i.kind === 'assistant' && i.text === 'A red square.'));
+  const sent = asked[0].messages.at(-1);
+  assert.equal(sent.content, 'Look at this image.');
+  assert.deepEqual(sent.images, [png], 'the model gets the picture itself');
+  const shown = me.state.workspaces.get(ws.id).items[0];
+  assert.deepEqual(shown.images, [{ name: 'b.png', mime: 'image/jpeg', thumb: jpeg }], 'the transcript keeps the small preview, not the picture');
+  await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+
+  // Text dressed up as a picture, and more pictures than allowed, never reach the model.
+  await me.send('message', { ws: ws.id, text: 'see', images: [{ name: 'x.png', data: Buffer.from('<script>alert(1)</script>').toString('base64') }] });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /x\.png is not a PNG, JPEG, GIF or WebP image/.test(r.text)));
+  await me.send('message', { ws: ws.id, text: 'see', images: Array.from({ length: 5 }, () => ({ name: 'a.png', data: png })) });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /at most 4 images/.test(r.text)));
+  assert.equal(asked.length, 1);
+
+  // A model without vision is not handed the picture; the user is told why.
+  agents[0].caps.vision = false;
+  await me.send('message', { ws: ws.id, text: 'and this?', images: [{ name: 'two.png', data: png }] });
+  await until(() => asked.length === 2);
+  assert.equal(asked[1].messages.at(-1).images, undefined);
+  await until(() => me.state.workspaces.get(ws.id).items.some((i) => i.kind === 'notice' && /cannot see images, so two\.png was not attached/.test(i.text)));
+  await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+
+  me.close();
+  await daemon.stop();
+  await running;
+  relay.close();
+  relay.closeAllConnections();
+  model.close();
+  model.closeAllConnections();
+});

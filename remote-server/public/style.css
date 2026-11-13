@@ -740,3 +740,80 @@ button.pill {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── images: waiting in the composer, and in a sent message ── */
+.attach {
+  flex: none;
+  width: 34px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0.8;
+}
+
+.attach svg {
+  width: 24px;
+  height: 24px;
+}
+
+.attachments {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  overflow-x: auto;
+  padding-top: 8px;
+}
+
+/* The Stop button is a flex box, which would otherwise show it even when it is hidden. */
+.attachments[hidden],
+.btn-stop[hidden] {
+  display: none;
+}
+
+.shot {
+  position: relative;
+  flex: none;
+}
+
+.shot img,
+.shots img {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border-medium, var(--line));
+}
+
+.shot button {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-elevated, var(--raised));
+  border: 1px solid var(--border-strong, var(--line));
+  font-size: 16px;
+  line-height: 1;
+}
+
+.said {
+  flex: 1;
+  min-width: 0;
+}
+
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.shots .file {
+  border: 1px solid var(--border-medium, var(--line));
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+}

@@ -36,6 +36,7 @@ const ICONS = {
   terminal: svg('<path d="M5 8l4 4-4 4M12 16h7"/>'),
   shield: svg('<path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.9 2.9l-.1-.1a1.7 1.7 0 00-2.8 1.2V21a2 2 0 11-4 0v-.1A1.7 1.7 0 007 19.4a1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.9-2.9l.1-.1A1.7 1.7 0 003 14H3a2 2 0 110-4h.1A1.7 1.7 0 004.6 7a1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.9-2.9l.1.1A1.7 1.7 0 0010 3.1V3a2 2 0 114 0v.1a1.7 1.7 0 002.9 1.2l.1-.1a2 2 0 112.9 2.9l-.1.1A1.7 1.7 0 0020.9 10H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/>'),
+  image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>'),
   send: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
 
@@ -459,8 +460,92 @@ function home() {
 
 const INIT = 'Explore this project (list the root, read the README and the main manifest/config files, look at the folder structure) and then write a SEEKER.md file in the working directory describing what the project is, the tech stack, how to install / run / test / build it, the folder layout, and conventions visible in the code. Keep it under 80 lines and include only what you verified.';
 
-function sendText(wsId, text) {
-  return command('message', { ws: wsId, text });
+function sendText(wsId, text, images = []) {
+  return command('message', images.length ? { ws: wsId, text, images } : { ws: wsId, text });
+}
+
+// ── images ─────────────────────────────────────────────────────────────────
+// A picture is made small enough to travel before it is encrypted and sent: the
+// relay takes 4 MB per message, and encryption plus base64 nearly doubles the size.
+const MAX_ATTACHMENTS = 4;
+const IMAGE_CHARS = 500_000; // base64 characters per picture, about 375 KB
+const KEEP_AS_IS = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+let attachments = []; // { name, data, thumb } waiting to go with the next message
+
+const readDataUrl = (blob) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
+const loadPicture = (url) =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('not an image this browser can open'));
+    img.src = url;
+  });
+
+/** The picture redrawn so its longer side is at most `side`, as base64 JPEG. */
+function shrink(img, side, quality) {
+  const scale = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; // JPEG has no transparency
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', quality).split(',')[1];
+}
+
+async function prepare(file) {
+  const url = await readDataUrl(file);
+  const img = await loadPicture(url);
+  const original = url.split(',')[1];
+  let data = KEEP_AS_IS.includes(file.type) && original.length <= IMAGE_CHARS ? original : null;
+  // 1568 px is as much as vision models look at; smaller and rougher only if that is still too big.
+  for (const [side, quality] of [[1568, 0.82], [1568, 0.6], [1024, 0.6], [768, 0.5]]) {
+    if (data) break;
+    const made = shrink(img, side, quality);
+    if (made.length <= IMAGE_CHARS) data = made;
+  }
+  if (!data) throw new Error('too large even when made smaller');
+  return { name: file.name || 'image', data, thumb: shrink(img, 240, 0.6) };
+}
+
+async function addImages(files) {
+  const ws = state.workspaces.get(state.view.ws);
+  if (ws && ws.meta.vision === false) return toast(`${ws.meta.model} cannot see images. Change the model first.`);
+  for (const file of files) {
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      toast(`At most ${MAX_ATTACHMENTS} images per message.`);
+      break;
+    }
+    try {
+      attachments.push(await prepare(file));
+    } catch (err) {
+      toast(`${file.name || 'That file'}: ${err.message}.`);
+    }
+    showAttachments();
+  }
+}
+
+function showAttachments() {
+  const row = $('attachments');
+  row.hidden = attachments.length === 0;
+  row.replaceChildren(
+    ...attachments.map((a) =>
+      h(
+        'div',
+        { class: 'shot' },
+        h('img', { src: `data:image/jpeg;base64,${a.thumb}`, alt: a.name }),
+        h('button', { type: 'button', 'aria-label': `Remove ${a.name}`, onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments()) }, '×'),
+      ),
+    ),
+  );
 }
 
 function stepRow(item) {
@@ -479,7 +564,11 @@ function transcript(items) {
       continue;
     }
     steps = null;
-    if (item.kind === 'user') out.push(h('div', { class: 'user' }, item.text));
+    if (item.kind === 'user') {
+      // A preview is shown only as an image of a type the Mac recognised; anything else is just named.
+      const shots = (item.images ?? []).map((i) => (i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name }) : h('span', { class: 'file' }, i.name)));
+      out.push(h('div', { class: 'user' }, shots.length ? h('div', { class: 'said' }, item.text, h('div', { class: 'shots' }, shots)) : item.text));
+    }
     else if (item.kind === 'assistant') {
       if (item.text) out.push(h('div', { class: 'assistant' }, h('span', { class: 'who' }, h('span', { icon: 'logo' }), 'SEEKER'), h('span', { class: 'muted' }, '| '), ...prose(item.text)));
     } else out.push(h('div', { class: `notice ${item.level}` }, item.text));
@@ -673,7 +762,7 @@ function draw() {
   if (inSession) {
     const busy = ws.meta.status !== 'idle';
     $('stop').hidden = !busy;
-    $('send').disabled = busy || !state.online;
+    $('send').disabled = busy || sending || !state.online;
     $('context').textContent = `Context  ${Math.round((ws.meta.used / ws.meta.limit) * 100)}%`;
     $('tokens').textContent = `${kilo(ws.meta.used)} / ${sizeOf(ws.meta.limit)} tokens`;
     $('input').placeholder = busy ? 'Seeker is working…' : 'Ask Seeker…';
@@ -692,6 +781,8 @@ function draw() {
 // ── composer (kept outside the redrawn area so typing is never interrupted) ──
 const input = $('input');
 $('send').innerHTML = ICONS.send;
+$('attach').innerHTML = ICONS.image;
+let sending = false;
 input.addEventListener('input', () => {
   input.style.height = 'auto';
   input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
@@ -699,11 +790,34 @@ input.addEventListener('input', () => {
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = input.value.trim();
-  if (!text || !state.view.ws) return;
-  if (await sendText(state.view.ws, text)) {
-    input.value = '';
-    input.style.height = 'auto';
+  if ((!text && !attachments.length) || !state.view.ws || sending) return;
+  // A message with pictures takes a moment to upload; a second tap must not send it twice.
+  sending = true;
+  draw();
+  try {
+    if (await sendText(state.view.ws, text, attachments)) {
+      input.value = '';
+      input.style.height = 'auto';
+      attachments = [];
+      showAttachments();
+    }
+  } finally {
+    sending = false;
+    render();
   }
+});
+$('attach').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = ''; // so the same picture can be chosen again
+  await addImages(files);
+});
+// A picture pasted into the text box is attached too.
+input.addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+  if (!files.length) return;
+  e.preventDefault();
+  addImages(files);
 });
 $('stop').addEventListener('click', () => command('stop', { ws: state.view.ws }));
 $('commands').addEventListener('click', () => {
