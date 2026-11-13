@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { HOME_DIR, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
+import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
@@ -533,7 +533,7 @@ export class RemoteDaemon {
   snapshot() {
     return {
       t: 'snapshot',
-      device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), version: VERSION, vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model },
+      device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), version: VERSION, vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model, settings: this.#settings() },
       workspaces: [...this.workspaces.values()].map((w) => ({ ...w.meta(), items: w.items })),
       approvals: [...this.approvals.values()].map((a) => a.approval),
       folders: projectFolders(),
@@ -645,6 +645,74 @@ export class RemoteDaemon {
     return first.label;
   }
 
+  #activeDef() {
+    return providerDefs(this.config).find((d) => d.id === this.config.provider) ?? null;
+  }
+
+  /** What `/config` shows in the terminal, for the phone's settings screen. Never a key or a secret. */
+  #settings() {
+    const { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, numCtx } = this.config;
+    const def = this.#activeDef();
+    const ollama = def?.kind === 'ollama';
+    return { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, ollama, context: ollama ? numCtx : (this.config.providers?.[def?.id]?.contextWindow ?? null) };
+  }
+
+  /** Updates one provider's entry; on disk too unless this daemon was told not to remember. */
+  #saveProvider(id, patch) {
+    if (this.remember) return saveProviderConfig(this.config, id, patch);
+    this.config.providers = { ...(this.config.providers ?? {}), [id]: { ...(this.config.providers?.[id] ?? {}), ...patch } };
+  }
+
+  /** One setting from `/config`, sent from the phone: checked the same way, saved, and in force at once. */
+  #configure(key, raw) {
+    const setting = key === 'model' ? null : Object.hasOwn(SETTINGS, key) ? SETTINGS[key] : null;
+    if (!setting) throw new Error(`Unknown setting: ${String(key).slice(0, 40)}`);
+    const value = setting.parse(String(raw ?? '').trim().slice(0, 200));
+    if (value === undefined || value === '') throw new Error(`Not a valid value for ${key} (${setting.help}).`);
+    const def = this.#activeDef();
+    if (key === 'numCtx' && def && def.kind !== 'ollama') {
+      // As /ctx does: only Ollama takes its context size from numCtx; other providers have their own entry.
+      this.#saveProvider(def.id, { contextWindow: value });
+    } else {
+      this.config[key] = value;
+      if (this.remember) saveConfig({ [key]: value });
+    }
+    for (const workspace of this.workspaces.values()) {
+      if (workspace.linked) continue; // a terminal session keeps the settings it started with
+      if (key === 'permissionMode') workspace.agent.permissions.mode = value;
+      workspace.touch();
+    }
+    this.log(`setting ${key} = ${value} (from the phone)`);
+  }
+
+  /** Stores an API key typed on the phone. It is never sent back, and never written to the log. */
+  #setKey(providerId, raw) {
+    const def = providerDefs(this.config).find((d) => d.id === providerId);
+    if (!def || def.local || def.kind === 'claude-code') throw new Error('That provider does not take an API key.');
+    const key = typeof raw === 'string' ? raw.trim() : '';
+    if (key.length < 8 || key.length > 400 || /[^\x21-\x7e]/.test(key)) throw new Error('That does not look like an API key.');
+    const active = def.id === this.config.provider;
+    const busy = active && [...this.workspaces.values()].find((w) => !w.linked && w.status !== 'idle');
+    if (busy) throw new Error(`${busy.name} is still working. Stop it before changing the key it uses.`);
+    this.#saveProvider(def.id, { apiKey: key });
+    // A provider may hold on to the key it started with, so the open projects get a fresh one.
+    if (active) for (const workspace of this.workspaces.values()) if (!workspace.linked) workspace.agent.setModel(workspace.agent.model, workspace.agent.info, createProvider(def.id, this.config));
+    this.log(`API key for ${def.label} set from the phone`);
+    return def.label;
+  }
+
+  #providerList() {
+    return providerDefs(this.config).map((d) => ({
+      id: d.id,
+      label: d.label,
+      local: Boolean(d.local),
+      ready: !needsKey(d, this.config),
+      active: d.id === this.config.provider,
+      // null: takes no key. 'env': set in the Mac's environment, which wins over a saved one.
+      key: d.local || d.kind === 'claude-code' ? null : d.env && process.env[d.env] ? 'env' : this.config.providers?.[d.id]?.apiKey ? 'set' : 'none',
+    }));
+  }
+
   #settle(id, answer) {
     const entry = this.approvals.get(id);
     if (!entry) return false;
@@ -731,10 +799,7 @@ export class RemoteDaemon {
           // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
           return this.send({ t: 'pong', id: command.id });
         case 'providers':
-          return this.send({
-            t: 'providers',
-            list: providerDefs(this.config).map((d) => ({ id: d.id, label: d.label, local: Boolean(d.local), ready: !needsKey(d, this.config), active: d.id === this.config.provider })),
-          });
+          return this.send({ t: 'providers', list: this.#providerList() });
         case 'models': {
           const provider = createProvider(String(command.provider), this.config);
           const models = await provider.listModels();
@@ -752,6 +817,15 @@ export class RemoteDaemon {
           this.log(`model switched to ${command.model} via ${label}`);
           this.send(this.snapshot(), { snapshot: true });
           return this.send({ t: 'toast', text: `Model: ${command.model} via ${label}` });
+        }
+        case 'config': {
+          this.#configure(String(command.key), command.value);
+          this.send(this.snapshot(), { snapshot: true });
+          return this.send({ t: 'toast', text: 'Saved on your Mac.' });
+        }
+        case 'key': {
+          const label = this.#setKey(String(command.provider), command.key);
+          return this.send({ t: 'toast', text: `${label} key saved on your Mac.` });
         }
         case 'push_subscribe': {
           const sub = command.subscription;

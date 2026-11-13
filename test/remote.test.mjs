@@ -436,7 +436,7 @@ test('remote: questions from the model, switching model, and notifications reach
 
   await me.send('providers');
   const providers = (await until(() => me.state.replies.find((r) => r.t === 'providers'))).list;
-  assert.deepEqual(providers.find((p) => p.id === 'ollama'), { id: 'ollama', label: 'Ollama', local: true, ready: true, active: true });
+  assert.deepEqual(providers.find((p) => p.id === 'ollama'), { id: 'ollama', label: 'Ollama', local: true, ready: true, active: true, key: null });
   assert.equal(providers.find((p) => p.id === 'openai').ready, Boolean(process.env.OPENAI_API_KEY), 'a provider without a key cannot be picked from the phone');
   await me.send('models', { provider: 'ollama' });
   const models = await until(() => me.state.replies.find((r) => r.t === 'models'));
@@ -782,4 +782,91 @@ test('remote: a session running in a terminal joins the daemon, shows on the pho
   await until(() => me.state.replies.some((r) => r.t === 'toast' && /runs in a terminal/.test(r.text)));
   port.close();
   await until(() => !me.state.workspaces.has(mirror.id));
+});
+
+test('remote: the phone changes the settings /config holds, they take effect at once, and an API key is stored but never sent back', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-config-'));
+  const secret = 'a-seventh-long-secret-for-the-settings-test';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([
+    [call('write_file', { path: 'a.txt', content: 'one' }), { done: true }],
+    [done('Written.')],
+    [call('write_file', { path: 'b.txt', content: 'two' }), { done: true }],
+    [done('Also written.')],
+  ]);
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+  await until(() => me.state.device?.settings);
+  const toasted = (pattern) => until(() => me.state.replies.some((r) => r.t === 'toast' && pattern.test(r.text)));
+  const [ws] = [...me.state.workspaces.keys()];
+  assert.deepEqual(me.state.device.settings, { think: true, showThinking: true, animation: true, permissionMode: 'ask', maxSteps: 60, keepAlive: '30m', host: ollama.host, ollama: true, context: 32768 });
+
+  // Plain settings: parsed as /config parses them, and reported back.
+  await me.send('config', { key: 'think', value: 'false' });
+  await me.send('config', { key: 'numCtx', value: '8192' });
+  await me.send('config', { key: 'maxSteps', value: '12' });
+  await until(() => me.state.device.settings.maxSteps === 12);
+  assert.equal(config.think, false);
+  assert.equal(config.numCtx, 8192);
+  assert.equal(me.state.device.settings.context, 8192);
+  assert.equal(me.state.workspaces.get(ws).limit, 8192);
+
+  // What is not a setting, or not a valid value, changes nothing.
+  await me.send('config', { key: 'numCtx', value: '12' });
+  await toasted(/Not a valid value for numCtx/);
+  for (const key of ['remote', 'providers', 'model', '__proto__', 'constructor']) await me.send('config', { key, value: 'x' });
+  await until(() => me.state.replies.filter((r) => r.t === 'toast' && /Unknown setting/.test(r.text)).length === 5);
+  assert.equal(config.numCtx, 8192);
+  assert.equal(config.remote.secret, secret);
+  assert.equal(config.model, DEFAULTS.model);
+
+  // Asking first: the edit waits for the phone.
+  await me.send('message', { ws, text: 'write a' });
+  await until(() => me.state.approvals.length === 1);
+  assert.equal(fs.existsSync(path.join(cwd, 'a.txt')), false);
+  await me.send('approve', { id_approval: me.state.approvals[0].id, decision: 'allow' });
+  await until(() => me.state.workspaces.get(ws).status === 'idle' && fs.existsSync(path.join(cwd, 'a.txt')));
+
+  // Switched to automatic from the phone: the next edit runs without a request.
+  await me.send('config', { key: 'permissionMode', value: 'auto' });
+  await until(() => me.state.device.settings.permissionMode === 'auto');
+  await me.send('message', { ws, text: 'write b' });
+  await until(() => fs.existsSync(path.join(cwd, 'b.txt')) && me.state.workspaces.get(ws).status === 'idle');
+  assert.equal(me.state.approvals.length, 0);
+
+  // An API key: kept on the Mac, its presence reported, its text never sent anywhere.
+  const apiKey = 'sk-test-0123456789abcdefghijklmnop';
+  await me.send('key', { provider: 'openai', key: apiKey });
+  await toasted(/OpenAI key saved/);
+  assert.equal(config.providers.openai.apiKey, apiKey);
+  await me.send('providers');
+  await until(() => me.state.replies.some((r) => r.t === 'providers'));
+  const list = me.state.replies.findLast((r) => r.t === 'providers').list;
+  assert.equal(list.find((p) => p.id === 'openai').key, process.env.OPENAI_API_KEY ? 'env' : 'set');
+  assert.equal(list.find((p) => p.id === 'ollama').key, null);
+  await me.send('sync');
+  await until(() => me.state.events.filter((e) => e.t === 'snapshot').length >= 2);
+  assert.equal(JSON.stringify(me.state.events).includes(apiKey), false);
+
+  await me.send('key', { provider: 'ollama', key: apiKey });
+  await toasted(/does not take an API key/);
+  await me.send('key', { provider: 'openai', key: 'has a space in it' });
+  await toasted(/does not look like an API key/);
+  assert.equal(config.providers.openai.apiKey, apiKey);
 });

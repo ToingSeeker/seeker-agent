@@ -200,7 +200,11 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 - **Approvals** — each command and each file change waits here. A change is shown as a diff with line
   numbers; a command the safety patterns flag is marked dangerous. One request is one command or one file.
 - **Settings** — connection, model, and which notifications this phone gets: finished tasks, approvals
-  and questions, errors.
+  and questions, errors. Everything `/config` holds is here too: thinking, whether to ask for approval,
+  context window, steps per message, how long a model stays in memory, the Ollama address, and the two
+  terminal display settings. A cloud provider's API key can be entered here; it is stored on the computer
+  and never sent back. A setting takes effect at once for projects opened from the phone; a `seeker`
+  already running in a terminal keeps what it started with.
 
 Nothing on these screens is estimated on the phone. A number the computer has not reported shows as “—”.
 
@@ -235,7 +239,8 @@ running, the terminal works exactly as before.
 - The computer only makes outbound connections; no port is opened.
 - Conversation and commands are encrypted between phone and computer (AES-256-GCM). The relay holds only
   a hash of the access token (`SEEKER_REMOTE_AUTH`) and can neither read nor forge anything.
-- Edits and commands always need approval on the phone; there is no permission-free mode over remote.
+- Edits and commands need approval on the phone unless you switch that off (in `/config`, or in the phone's
+  Settings). Even then, risky commands and files outside the project folder are still asked about.
 - The relay stores nothing on disk; after a restart the computer sends its state again.
 - Wrong tokens are locked out per address. On Railway the caller's address is read from `x-forwarded-for`;
   behind another proxy that sets that header itself, set `SEEKER_TRUST_PROXY=1`. Without a proxy leave it unset.

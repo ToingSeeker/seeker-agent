@@ -151,7 +151,11 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 - **Approvals** — tiap perintah dan tiap perubahan file menunggu di sini. Perubahan ditampilkan sebagai
   diff bernomor baris; perintah yang kena pola berbahaya diberi tanda. Satu permintaan = satu perintah atau satu file.
 - **Settings** — koneksi, model, dan notifikasi mana yang diterima HP ini: tugas selesai, persetujuan dan
-  pertanyaan, error.
+  pertanyaan, error. Di sini juga semua setelan `/config`: thinking, minta persetujuan atau tidak, context
+  window, jumlah langkah per pesan, lama model disimpan di memori, alamat Ollama, dan dua setelan tampilan
+  terminal. API key penyedia cloud bisa diisi dari sini; key disimpan di komputer dan tidak pernah dikirim balik.
+  Setelan langsung berlaku untuk proyek yang dibuka dari HP; `seeker` yang sudah jalan di terminal tetap
+  memakai setelan saat ia dimulai.
 
 Tidak ada angka yang dikira-kira di HP. Angka yang belum dilaporkan komputer tampil sebagai “—”.
 
@@ -186,7 +190,8 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
 - Mac hanya membuat koneksi keluar; tidak ada port yang dibuka.
 - Isi percakapan dan perintah dienkripsi antara HP dan Mac (AES-256-GCM). Relay hanya menyimpan hash token akses
   (`SEEKER_REMOTE_AUTH`) dan tidak bisa membaca atau memalsukan apa pun.
-- Edit dan perintah selalu minta persetujuan di HP; mode tanpa izin tidak tersedia lewat remote.
+- Edit dan perintah minta persetujuan di HP, kecuali setelan itu kamu matikan (di `/config` atau di Settings
+  HP). Saat mati pun, perintah berisiko dan file di luar folder proyek tetap ditanyakan.
 - Relay tidak menyimpan apa pun ke disk; setelah restart, Mac mengirim ulang keadaannya.
 - Token yang salah dikunci per alamat. Di Railway alamat pemanggil dibaca dari `x-forwarded-for`; di belakang
   proxy lain yang mengisi header itu sendiri, setel `SEEKER_TRUST_PROXY=1`. Tanpa proxy, biarkan kosong.

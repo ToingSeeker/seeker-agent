@@ -187,7 +187,8 @@ function apply(event) {
       if (state.view.name === 'review' && state.view.id === event.id) state.view = state.view.from ?? { name: 'approvals' };
       break;
     case 'providers':
-      if (state.picking) showProviders(event.list);
+      if (state.picking === 'keys') showKeys(event.list);
+      else if (state.picking) showProviders(event.list);
       break;
     case 'models':
       if (state.picking) showModels(event);
@@ -410,14 +411,15 @@ function showProviders(list) {
         'button',
         {
           class: 'row-btn',
-          disabled: !p.ready,
+          disabled: !p.ready && !p.key,
           onclick: () => {
+            if (!p.ready) return enterKey(p);
             sheet(p.label, h('div', { class: 'muted' }, 'Loading its models…'));
             command('models', { provider: p.id });
           },
         },
         h('div', {}, p.label, p.active && h('span', { class: 'accent' }, '  • active')),
-        h('div', { class: 'muted small' }, p.local ? 'local' : 'cloud', p.ready ? '' : ' · needs an API key — set it on the Mac with /key'),
+        h('div', { class: 'muted small' }, p.local ? 'local' : 'cloud', p.ready ? '' : p.key ? ' · needs an API key — tap to enter it' : ' · needs an API key — set it on the Mac with /key'),
       ),
     ),
   );
@@ -451,6 +453,53 @@ function showModels({ provider, label, models, active }) {
   const filter = h('input', { class: 'field', placeholder: `Filter ${models.length} models`, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', oninput: (e) => fill(e.target.value) });
   fill('');
   sheet(label, models.length > 8 ? filter : null, list);
+}
+
+// ── settings kept on the Mac ──
+const setConfig = (key, value) => command('config', { key, value: String(value) });
+
+/** A sheet with one field, for a setting that is a number or a short text. */
+function editSetting(key, title, current, { hint = null, numeric = false } = {}) {
+  const input = h('input', { class: 'field', value: current ?? '', inputmode: numeric ? 'numeric' : null, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+  const save = (e) => {
+    e.preventDefault();
+    const value = input.value.trim();
+    if (!value) return input.focus();
+    closeSheet();
+    setConfig(key, value);
+  };
+  sheet(title, h('form', { onsubmit: save }, input, h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save'))), hint && h('div', { class: 'muted small pad' }, hint));
+}
+
+async function chooseKey() {
+  state.picking = 'keys';
+  sheet('API keys', h('div', { class: 'muted' }, 'Asking your Mac…'));
+  if (!(await command('providers'))) closeSheet();
+}
+
+function showKeys(list) {
+  const about = { env: 'set in the Mac’s environment', set: 'key set — tap to replace', none: 'no key yet' };
+  sheet(
+    'API keys',
+    h('div', { class: 'muted small pad' }, 'A key travels to your Mac encrypted and is stored there. It is never shown again, here or anywhere.'),
+    ...list.filter((p) => p.key).map((p) => h('button', { class: 'row-btn', onclick: () => enterKey(p) }, h('div', {}, p.label, p.active && h('span', { class: 'accent' }, '  • active')), h('div', { class: 'muted small' }, about[p.key] ?? ''))),
+  );
+}
+
+function enterKey(p) {
+  const input = h('input', { class: 'field', type: 'password', placeholder: `${p.label} API key`, autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+  const save = (e) => {
+    e.preventDefault();
+    const key = input.value.trim();
+    if (!key) return input.focus();
+    closeSheet();
+    command('key', { provider: p.id, key });
+  };
+  sheet(
+    `${p.label} API key`,
+    h('form', { onsubmit: save }, input, h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save on the Mac'))),
+    p.key === 'env' && h('div', { class: 'muted small pad' }, 'Your Mac already has a key for this in its environment, and that one is used first.'),
+  );
 }
 
 // ── notifications ──
@@ -1068,6 +1117,7 @@ function settings() {
     ),
     section('MODEL'),
     h('div', { class: 'group' }, row('cube', first?.model ?? state.device?.model ?? '—', null, { sub: first ? `${first.provider} · ${sizeOf(first.limit)} context${first.vision === false ? ' · no images' : first.vision ? ' · sees images' : ''}` : (state.device?.provider ?? 'No project open'), onclick: up ? chooseModel : null })),
+    ...agentSettings(up, toggle),
     section('NOTIFICATIONS'),
     h(
       'div',
@@ -1096,6 +1146,41 @@ function settings() {
       row('list', 'Open projects', String(state.workspaces.size)),
     ),
     h('div', { class: 'actions stack' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect'), h('button', { class: 'btn quiet red', onclick: () => confirm('Remove the pairing from this phone?') && signOut() }, 'Unpair this phone')),
+  ];
+}
+
+/** Everything `/config` holds in the terminal. Absent when the Mac runs a SEEKER from before this screen. */
+function agentSettings(up, toggle) {
+  const cfg = state.device?.settings;
+  if (!cfg) return [];
+  const flip = (icon, label, sub, on, action) => h('div', { class: 'row' }, h('span', { class: 'ico', icon }), h('span', { class: 'grow' }, h('span', { class: 'label' }, label), h('span', { class: 'sub' }, sub)), toggle(on, action, label, !up));
+  const edit = (icon, label, value, key, current, opts) => row(icon, label, value, { onclick: up ? () => editSetting(key, label, current, opts) : null });
+  const asks = cfg.permissionMode !== 'auto';
+  const setApproval = () => {
+    if (asks && !confirm('Run edits and commands without asking?\n\nProjects opened from this app will stop asking for approval. Risky commands and files outside the project are still asked about.')) return;
+    setConfig('permissionMode', asks ? 'auto' : 'ask');
+  };
+  return [
+    section('AGENT'),
+    h(
+      'div',
+      { class: 'group' },
+      flip('pulse', 'Thinking', 'The model reasons before it answers, when it can', cfg.think, () => setConfig('think', !cfg.think)),
+      flip('shield', 'Ask before edits and commands', asks ? 'Each one waits for your approval' : 'Off: they run without asking. Risky ones still ask.', asks, setApproval),
+      edit('layers', 'Context window', cfg.context ? `${sizeOf(cfg.context)} tokens` : 'Model default', 'numCtx', cfg.context ?? '', { numeric: true, hint: 'In tokens, at least 2048. A larger window remembers more and needs more memory.' }),
+      edit('list', 'Steps per message', String(cfg.maxSteps), 'maxSteps', cfg.maxSteps, { numeric: true, hint: 'How many tool steps the agent may take before it stops and waits for you.' }),
+      edit('cube', 'Keep the model in memory', cfg.keepAlive, 'keepAlive', cfg.keepAlive, { hint: 'For Ollama: how long a model stays loaded after its last answer, such as 30m or 2h.' }),
+      edit('wifi', 'Ollama address', cfg.host, 'host', cfg.host, { hint: 'Where Ollama listens, as your Mac reaches it.' }),
+      row('lock', 'API keys', null, { sub: 'For cloud providers', onclick: up ? chooseKey : null }),
+    ),
+    section('IN THE TERMINAL'),
+    h(
+      'div',
+      { class: 'group' },
+      flip('terminal', 'Show reasoning', 'Print the model’s thinking as it works', cfg.showThinking, () => setConfig('showThinking', !cfg.showThinking)),
+      flip('logo', 'Animate the robot', 'The robot in the header blinks', cfg.animation, () => setConfig('animation', !cfg.animation)),
+    ),
+    h('div', { class: 'muted small pad' }, 'Saved on your Mac. Projects opened from this app change at once; a seeker already running in a terminal keeps what it started with.'),
   ];
 }
 

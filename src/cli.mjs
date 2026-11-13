@@ -281,10 +281,10 @@ export async function main(argv) {
     const log = (line) => console.error(`${new Date().toTimeString().slice(0, 8)}  ${line}`);
     const hub = new McpHub({ servers: readServers(config, cwd) });
     await hub.connectAll();
-    // One agent per project folder. Approval is always asked for here: a phone may be lost or
-    // borrowed, so "run without asking" is never available remotely.
+    // One agent per project folder. Approval follows the setting, which the phone can change too;
+    // risky commands and files outside the folder are asked about either way.
     const build = async (folder, remoteUi, asker, current) => {
-      const agent = new Agent({ config, ui: remoteUi, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider(config.provider, config), info: current, cwd: folder });
+      const agent = new Agent({ config, ui: remoteUi, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker }), provider: createProvider(config.provider, config), info: current, cwd: folder });
       agent.setExtraTools(hub.tools());
       return { agent, session: new Session(folder) };
     };
