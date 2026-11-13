@@ -1414,22 +1414,32 @@ $('commands').addEventListener('click', () => {
   );
 });
 
-// With the on-screen keyboard open, iOS keeps the page its full height and slides it under the
-// keys. Sizing the app to what is actually visible keeps the message box above them.
+// With the on-screen keyboard open the app is sized to what is actually visible, which keeps the
+// message box above the keys. Whether the keyboard is up is judged against the tallest the visible
+// area has been, not against window.innerHeight: some iOS versions shrink that along with the
+// keyboard, and then the two never differ.
 if (window.visualViewport) {
   const typing = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+  let full = 0;
+  let width = 0;
   const fit = () => {
+    if (window.innerWidth !== width) [width, full] = [window.innerWidth, 0]; // turned on its side
+    full = Math.max(full, visualViewport.height, window.innerHeight);
     // Only while a field has the keyboard. As it closes, iOS reports the height in steps; following
     // those would walk the page down slowly, so the full height comes back the moment typing ends.
-    const keyboard = typing() && window.innerHeight - visualViewport.height > 120;
+    const keyboard = typing() && full - visualViewport.height > 120;
     $('app').style.height = keyboard ? `${visualViewport.height}px` : '';
     document.documentElement.classList.toggle('keyboard', keyboard);
     if (keyboard || window.scrollY) window.scrollTo(0, 0);
   };
+  fit();
   visualViewport.addEventListener('resize', fit);
   visualViewport.addEventListener('scroll', fit);
+  window.addEventListener('resize', fit);
   // After the tick, so moving from one field to another does not count as leaving.
   document.addEventListener('focusout', () => setTimeout(fit, 0));
+  // The keyboard takes a moment to come up, and not every iOS version reports it when it has.
+  document.addEventListener('focusin', () => [50, 300, 600].forEach((ms) => setTimeout(fit, ms)));
 }
 
 // ── start ──────────────────────────────────────────────────────────────────
