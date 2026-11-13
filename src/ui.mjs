@@ -311,12 +311,15 @@ export class UI {
   }
 
   /** What a write is about to do: removed lines in red, added in green. */
-  diff({ removed = [], added = [], more = 0 }) {
+  diff({ removed = [], added = [], more = 0, overwrites = null, times = 1 }) {
     this.toolOpen();
     const width = this.cols() - 12;
     for (const l of removed) this.line(`${this.#stem()}${this.c.red(`- ${truncate(l, width)}`)}`);
     for (const l of added) this.line(`${this.#stem()}${this.c.green(`+ ${truncate(l, width)}`)}`);
     if (more) this.line(`${this.#stem()}${this.c.dim(`… +${more} lines`)}`);
+    // What the shown lines do not say by themselves.
+    if (Number.isInteger(overwrites)) this.line(`${this.#stem()}${this.c.yellow(`⚠ replaces the whole file (${overwrites} existing line${overwrites === 1 ? '' : 's'})`)}`);
+    if (times > 1) this.line(`${this.#stem()}${this.c.yellow(`⚠ applied in ${times} places`)}`);
   }
 
   /** A line under the open step, e.g. the permission question. */

@@ -773,6 +773,9 @@ function diffView(diff, file) {
     { class: 'diff' },
     h('div', { class: 'file' }, h('span', { class: 'mono line grow' }, file), h('span', { class: 'emerald' }, `+${counts.added}`), h('span', { class: 'red' }, `−${counts.removed}`)),
     h('div', { class: `sides${diff.removed?.length && diff.added?.length ? ' both' : ''}` }, diff.removed?.length ? side(diff.removed, 'del') : null, diff.added?.length ? side(diff.added, 'add') : null),
+    // What the lines above do not show by themselves is said in words.
+    Number.isInteger(diff.overwrites) ? h('div', { class: 'more amber' }, `⚠ Replaces the whole file: its ${diff.overwrites} existing line${diff.overwrites === 1 ? '' : 's'} are removed.`) : null,
+    diff.times > 1 ? h('div', { class: 'more amber' }, `⚠ Applied in ${diff.times} places: every occurrence in the file is changed.`) : null,
     diff.more ? h('div', { class: 'more' }, `… ${diff.more} more line${diff.more > 1 ? 's' : ''} not shown`) : null,
   );
 }

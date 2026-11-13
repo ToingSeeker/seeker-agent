@@ -332,10 +332,17 @@ export const TOOLS = [
     summary: (a) => pathArg(a),
     targetPath: (a, cwd) => resolvePath(pathArg(a), cwd),
     preview(args, { cwd }) {
-      resolvePath(pathArg(args), cwd);
+      const file = resolvePath(pathArg(args), cwd);
       if (typeof args.content !== 'string') throw new ToolError('"content" is required');
       const lines = args.content.split('\n');
-      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: 0 } };
+      // Writing over a file that exists removes all of it: the reviewer must see that, not just what is added.
+      let replaced = null;
+      try {
+        if (fs.statSync(file).isFile()) replaced = fs.readFileSync(file, 'utf8').split('\n').length;
+      } catch {
+        // No such file yet: this creates it.
+      }
+      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: replaced ?? 0 }, overwrites: replaced };
     },
     async run(args, { cwd }) {
       const file = resolvePath(pathArg(args), cwd);
@@ -385,7 +392,9 @@ export const TOOLS = [
         more: Math.max(0, removed.length - 12) + Math.max(0, added.length - 12),
         // Where the change starts and how large it really is, for a reviewer who sees only the first lines.
         line: pieces[0].split('\n').length,
-        counts: { added: added.length, removed: removed.length },
+        // With replace_all the same change lands in every place the text occurs.
+        times: args.replace_all ? count : 1,
+        counts: { added: added.length * (args.replace_all ? count : 1), removed: removed.length * (args.replace_all ? count : 1) },
       };
     },
     async run(args, ctx) {
