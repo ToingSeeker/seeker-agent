@@ -1417,14 +1417,19 @@ $('commands').addEventListener('click', () => {
 // With the on-screen keyboard open, iOS keeps the page its full height and slides it under the
 // keys. Sizing the app to what is actually visible keeps the message box above them.
 if (window.visualViewport) {
+  const typing = () => ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
   const fit = () => {
-    const keyboard = window.innerHeight - visualViewport.height > 120;
+    // Only while a field has the keyboard. As it closes, iOS reports the height in steps; following
+    // those would walk the page down slowly, so the full height comes back the moment typing ends.
+    const keyboard = typing() && window.innerHeight - visualViewport.height > 120;
     $('app').style.height = keyboard ? `${visualViewport.height}px` : '';
     document.documentElement.classList.toggle('keyboard', keyboard);
-    if (keyboard) window.scrollTo(0, 0);
+    if (keyboard || window.scrollY) window.scrollTo(0, 0);
   };
   visualViewport.addEventListener('resize', fit);
   visualViewport.addEventListener('scroll', fit);
+  // After the tick, so moving from one field to another does not count as leaving.
+  document.addEventListener('focusout', () => setTimeout(fit, 0));
 }
 
 // ── start ──────────────────────────────────────────────────────────────────
