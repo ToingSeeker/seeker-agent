@@ -247,3 +247,17 @@ test('slack: acknowledges every event, answers direct messages and mentions only
   adapter.stop();
   await running;
 });
+
+test('the approval question carries the whole command, however long, with its line breaks', async () => {
+  const cwd = project();
+  const command = `echo start ${'x'.repeat(400)}\nrm -rf build`;
+  const ollama = await fakeOllama([[call('bash', { command }), { done: true }], [done('Not run.')]]);
+  const platform = fakePlatform();
+  const gateway = makeGateway(ollama.host, cwd, platform);
+  const turn = gateway.receive(platform, { chat: 'c1', user: '7', text: 'bersihkan' });
+  const question = await until(() => platform.sent.find((m) => /Allow\?/.test(m.text)));
+  assert.ok(question.text.includes(command), 'nothing of the command is cut or flattened');
+  await gateway.receive(platform, { chat: 'c1', user: '7', text: 'n' });
+  await turn;
+  ollama.close();
+});

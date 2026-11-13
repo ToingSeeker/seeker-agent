@@ -205,7 +205,7 @@ export class Permissions {
       return { ok: false, reason: 'Permission denied: this session is non-interactive. The user must rerun with --yolo to allow this action.' };
     }
 
-    const answer = await this.ask({ tool, warning, always: always?.label ?? null });
+    const answer = await this.ask({ tool, args, warning, always: always?.label ?? null });
     if (answer === null) return { ok: false, reason: 'The user interrupted before answering.' };
     if (answer === 'y') return { ok: true };
     if (answer === 'a' && always) {
