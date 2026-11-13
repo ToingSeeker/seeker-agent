@@ -86,7 +86,7 @@ test('@ references are attached to the message, and folder instructions to the f
   const ollama = await fakeOllama([[call('read_file', { path: 'api/server.js' }), { done: true }], [done('ok')]]);
   const agent = makeAgent(ollama.host, cwd);
   said.length = 0;
-  await agent.runTurn('ringkas @file:notes.txt:2 dan @file:missing.txt');
+  await agent.runTurn('ringkas @file:notes.txt:2 dan @file:missing.txt', { references: true });
   ollama.close();
   const sent = ollama.requests[0].messages[1].content;
   assert.match(sent, /^ringkas @file:notes\.txt:2 dan @file:missing\.txt\n\n--- Context Warnings ---\n- @file:missing\.txt: file not found\n\n--- Attached Context ---\n\n📄 @file:notes\.txt:2 [^\n]*\n```txt\nline two\n```$/);
@@ -226,4 +226,25 @@ test('several helpers run side by side and each report comes back', async () => 
 
   const tooMany = await TOOL_BY_NAME.get('task').run({ tasks: [1, 2, 3, 4].map((n) => ({ prompt: `job ${n}` })) }, { delegateMany: async () => [] }).catch((e) => e.message);
   assert.match(tooMany, /At most 3 helpers/);
+});
+
+test('@ references are expanded only when the caller says the user typed the text', async () => {
+  const cwd = project();
+  fs.writeFileSync(path.join(cwd, 'notes.txt'), 'private line\n');
+  const ollama = await fakeOllama([[done('ok')]]);
+  await makeAgent(ollama.host, cwd).runTurn('read @file:notes.txt');
+  ollama.close();
+  assert.equal(ollama.requests[0].messages[1].content, 'read @file:notes.txt');
+});
+
+test('a helper never gets a tool its parent was denied', async () => {
+  const cwd = project();
+  const ollama = await fakeOllama([[call('task', { prompt: 'look around', description: 'look' }), { done: true }], [done('nothing')], [done('ok')]]);
+  const agent = makeAgent(ollama.host, cwd);
+  agent.withheld = new Set(['bash', 'write_file']);
+  await agent.runTurn('go');
+  ollama.close();
+  const offered = ollama.requests[1].tools.map((t) => t.function.name);
+  for (const name of ['bash', 'write_file', 'task', 'memory', 'skill_manage', 'cronjob_manage']) assert.ok(!offered.includes(name), name);
+  assert.ok(offered.includes('read_file'));
 });

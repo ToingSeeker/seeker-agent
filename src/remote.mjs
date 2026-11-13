@@ -308,7 +308,7 @@ class Workspace {
     this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
     this.touch();
     try {
-      await this.agent.runTurn(text, { images });
+      await this.agent.runTurn(text, { images, references: true });
       this.ui.answerStream().flush();
       this.session.save(this.agent.messages, this.agent.model);
     } finally {

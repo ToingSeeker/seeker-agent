@@ -184,7 +184,12 @@ export class Permissions {
       if (tool.name === 'cronjob_manage' && args?.action === 'list') return { ok: true };
       // A job that may change files runs later with nobody watching: that is agreed to each time,
       // whatever was answered "always" before.
-      const unattendedWrites = tool.name === 'cronjob_manage' && (args?.allow_changes === true || args?.allow_changes === 'true');
+      let unattendedWrites = tool.name === 'cronjob_manage' && (args?.allow_changes === true || args?.allow_changes === 'true');
+      // Changing, resuming or running a job that already may change files is the same decision.
+      if (tool.name === 'cronjob_manage' && !unattendedWrites && ['update', 'resume', 'run'].includes(String(args?.action ?? '').toLowerCase())) {
+        const { readJobs } = await import('./cron.mjs');
+        unattendedWrites = readJobs().some((j) => j.id === args?.job_id && j.allow_changes);
+      }
       if (unattendedWrites) warning = 'This scheduled job will be able to change files and run commands with nobody watching.';
       else if (this.mayLearn(tool.name)) return { ok: true };
       else always = { label: `always allow ${tool.name} this session`, apply: () => this.toolNames.add(tool.name) };

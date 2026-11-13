@@ -178,3 +178,16 @@ test('a job that may change files is agreed to every time, and the question show
   assert.equal(tool.summary({ action: 'create', schedule: '1h', prompt: 'x', allow_changes: false }), 'create · schedule: 1h · (read-only) · prompt: x');
   assert.match(tool.summary({ action: 'create', schedule: '1h', prompt: 'p'.repeat(900) }), /p{600}… \[300 more characters\]$/);
 });
+
+test('touching a stored job that may change files is asked about, whatever the call itself says', async () => {
+  const { TOOL_BY_NAME } = await import('../src/tools.mjs');
+  const tool = TOOL_BY_NAME.get('cronjob_manage');
+  const made = manageJobs({ action: 'create', schedule: 'every 1h', prompt: 'tidy the repo', allow_changes: true }, { cwd, now: new Date() });
+  const asked = [];
+  const permissions = new Permissions({ mode: 'ask', cwd, ask: async (q) => (asked.push(q), 'y'), autoLearn: true });
+  for (const action of ['update', 'resume', 'run']) await permissions.check(tool, { action, job_id: made.job.job_id, prompt: 'something else' });
+  assert.equal(asked.length, 3);
+  assert.match(asked[0].warning, /nobody watching/);
+  await permissions.check(tool, { action: 'pause', job_id: made.job.job_id });
+  assert.equal(asked.length, 3, 'pausing it changes nothing that runs');
+});

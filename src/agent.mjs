@@ -412,7 +412,8 @@ export class Agent {
     );
     const helper = new Agent({ config: { ...this.config, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: this.provider, info: this.info, cwd: this.cwd });
     helper.extraTools = this.extraTools;
-    helper.withheld = new Set(['task', 'ask_user']);
+    // A helper never gets a tool its parent was denied (API server, scheduled job), and does not write memory, skills or jobs.
+    helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
     helper.parent = this;
     helper.shellHooks = this.shellHooks;
     helper.allowReview = false; // the conversation that learns is the user's, not a helper's
@@ -458,7 +459,7 @@ export class Agent {
       };
       const helper = new Agent({ config: { ...this.config, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: this.provider, info: this.info, cwd: this.cwd });
       helper.extraTools = this.extraTools;
-      helper.withheld = new Set(['task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
+      helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
       helper.parent = this;
       helper.shellHooks = this.shellHooks;
       helper.allowReview = false;
@@ -720,9 +721,11 @@ export class Agent {
   /**
    * Runs one user message to completion. Never throws: failures are shown and the history stays valid.
    * @param {string} userText
-   * @param {{ images?: { name: string, mime: string, data: string }[] }} [extra]  images sent along with the text
+   * @param {{ images?: { name: string, mime: string, data: string }[], references?: boolean }} [extra]  images sent along with the text;
+   *   `references` expands @file:/@url:… and is only for text the user typed — a prompt written by a model, a job or an API client
+   *   must not be able to read files or fetch pages without the usual approval.
    */
-  async runTurn(userText, { images: sent = [] } = {}) {
+  async runTurn(userText, { images: sent = [], references = false } = {}) {
     const { ui } = this;
     // The model is the user's again: a review still running from the last reply is dropped.
     this.reviewer?.interrupt();
@@ -741,7 +744,7 @@ export class Agent {
       }
       if (hooked.context) message.content += `\n\n${hooked.context}`;
     }
-    if (HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
+    if (references && HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
     this.#attachImages(message, sent);
     if (this.newSkills.length && !this.provider.ownTools) {
       const fresh = this.skills.filter((s) => this.newSkills.includes(s.name));

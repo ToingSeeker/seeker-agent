@@ -104,6 +104,12 @@ function checkSkillFile(content, name, previous = null) {
   return meta;
 }
 
+/** A skill's support files are read by the agent as well, so they get the same scan as SKILL.md. */
+function checkSupportFile(content) {
+  const threat = scanThreats(content);
+  if (threat && !['hardcoded_secret', 'agent_config_mod', 'ssh_backdoor', 'read_secrets'].includes(threat)) throw new Refused(`Blocked: content matches threat pattern '${threat}'. A skill's files are read as instructions and must not carry injection payloads.`);
+}
+
 const realPath = (file) => {
   try {
     return fs.realpathSync(file);
@@ -244,7 +250,10 @@ export function manageSkills(args, { skills = [], review = false } = {}) {
           } else throw new Refused("'patch' needs old_string + new_string (a targeted fix — preferred), or content (replaces the whole SKILL.md).");
           if (next === current) throw new Refused('the patch changes nothing.');
           if (target === file) checkSkillFile(next, name, current ? parseSkillFile(current).meta.description : null);
-          else if (Buffer.byteLength(next) > MAX_FILE_BYTES) throw new Refused('a support file may be at most 1 MiB.');
+          else {
+            if (Buffer.byteLength(next) > MAX_FILE_BYTES) throw new Refused('a support file may be at most 1 MiB.');
+            checkSupportFile(next);
+          }
           backup(existing);
           fs.writeFileSync(target, next);
           recordWrite(usage, name);
@@ -257,6 +266,7 @@ export function manageSkills(args, { skills = [], review = false } = {}) {
           const target = supportPath(existing, op.file_path);
           if (typeof op.file_content !== 'string') throw new Refused("'write_file' needs file_content.");
           if (Buffer.byteLength(op.file_content) > MAX_FILE_BYTES) throw new Refused('a support file may be at most 1 MiB.');
+          checkSupportFile(op.file_content);
           backup(existing);
           fs.mkdirSync(path.dirname(target), { recursive: true });
           fs.writeFileSync(target, op.file_content);

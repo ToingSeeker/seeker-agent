@@ -400,7 +400,7 @@ export async function main(argv) {
       await hub.connectAll();
       for (const s of hub.status()) if (s.status === 'failed') ui.warn(`MCP · ${s.name} could not start: ${s.error}`);
     }
-    await agent.runTurn(prompt);
+    await agent.runTurn(prompt, { references: true });
     session.save(agent.messages, agent.model);
     stopAllProcesses();
     await hub.closeAll();
@@ -503,8 +503,9 @@ export async function main(argv) {
     if (agent.busy) agent.interrupt();
   };
 
-  const turn = async (text) => {
-    await agent.runTurn(text);
+  // `typed` is set for what the user typed themself: only that text has its @ references expanded.
+  const turn = async (text, typed = false) => {
+    await agent.runTurn(text, { references: typed });
     session.save(agent.messages, agent.model);
   };
 
@@ -568,7 +569,7 @@ export async function main(argv) {
 
   if (prompt) {
     ui.userEcho(prompt);
-    await turn(prompt);
+    await turn(prompt, true);
   }
 
 
@@ -602,7 +603,7 @@ export async function main(argv) {
       watchSchedule();
       continue;
     }
-    await turn(text);
+    await turn(text, true);
     await pursueGoal();
   }
   exit();
