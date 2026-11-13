@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { HOME_DIR, saveConfig, saveProviderConfig } from './config.mjs';
+import { HOME_DIR, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { receivedImages } from './images.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
@@ -66,7 +66,13 @@ export class WebUI {
     this.count = 0;
     this.answer = null; // { id, pending } — the assistant message being streamed
     this.timer = null;
+    this.failed = false; // an error was shown since the turn began
     this.onStep = () => {};
+  }
+
+  /** What the agent is doing right now: `phase` is thinking | executing | responding. */
+  #activity(phase, text) {
+    this.emit({ t: 'activity', phase, text });
   }
 
   #item(item) {
@@ -81,6 +87,7 @@ export class WebUI {
   }
 
   turnStart() {
+    this.failed = false;
     this.#flushAnswer();
     this.answer = null;
     this.tool = null;
@@ -95,7 +102,10 @@ export class WebUI {
   answerStream() {
     return {
       push: (text) => {
-        if (!this.answer) this.answer = { id: this.#item({ kind: 'assistant', text: '' }).id, pending: '' };
+        if (!this.answer) {
+          this.answer = { id: this.#item({ kind: 'assistant', text: '' }).id, pending: '' };
+          this.#activity('responding', 'Writing the answer');
+        }
         this.answer.pending += text;
         // Tokens arrive many times a second; they are sent on in small batches.
         this.timer ??= setTimeout(() => this.#flushAnswer(), 250);
@@ -119,7 +129,7 @@ export class WebUI {
     if (this.tool && !this.tool.finished && this.tool.doing === doing && this.tool.summary === text) return;
     const item = this.#item({ kind: 'tool', state: 'running', doing, done, summary: text });
     this.tool = { id: item.id, doing, done, summary: text, open: false, finished: false, diff: null };
-    this.emit({ t: 'activity', text: `${doing} ${text}`.trim() });
+    this.#activity('executing', `${doing} ${text}`.trim());
   }
 
   toolOpen() {
@@ -164,18 +174,20 @@ export class WebUI {
   }
 
   error(text) {
+    this.failed = true;
     this.#item({ kind: 'notice', level: 'error', text: plain(text).trim() });
   }
 
   startSpinner(label) {
-    this.emit({ t: 'activity', text: plain(label) });
+    // The spinner runs while the model has been asked and nothing has come back yet.
+    this.#activity('thinking', plain(label));
   }
 
   // Parts of the terminal interface with no meaning here.
   stopSpinner() {}
   ensureNewline() {}
   thinkStart() {
-    this.emit({ t: 'activity', text: 'Thinking' });
+    this.#activity('thinking', 'Thinking');
   }
   thinkChunk() {}
   thinkEnd() {}
@@ -194,23 +206,33 @@ class Workspace {
     this.items = [];
     this.status = 'idle'; // idle | working | approval
     this.activity = '';
+    this.phase = null; // thinking | executing | responding, while working
+    this.outcome = null; // how the last turn ended: completed | failed | stopped
+    this.stopped = false;
+    this.tools = { total: 0, failed: 0 };
+    this.startedAt = null; // when the turn in progress began
+    this.lastAt = null; // when anything last happened here
     this.ui = new WebUI((event) => this.#report(event));
     this.ui.onStep = () => this.touch();
   }
 
   /** Keeps a copy of the transcript (so a snapshot can be sent at any time) and passes the event on. */
   #report(event) {
+    this.lastAt = Date.now();
     if (event.t === 'item') {
+      if (event.item.kind === 'tool') this.tools.total += 1;
       this.items.push(event.item);
       if (this.items.length > MAX_ITEMS) this.items.shift();
     } else if (event.t === 'patch') {
       const item = this.items.find((i) => i.id === event.id);
+      if (event.patch?.state === 'failed') this.tools.failed += 1;
       if (item) {
         Object.assign(item, event.patch ?? {});
         if (event.append) item.text = (item.text ?? '') + event.append;
       }
     } else if (event.t === 'activity') {
       this.activity = event.text;
+      this.phase = event.phase ?? null;
       return this.touch();
     }
     this.daemon.send({ ...event, ws: this.id });
@@ -235,7 +257,14 @@ class Workspace {
       path: tildify(this.cwd),
       branch: this.git?.branch ?? '',
       status: this.status,
+      phase: this.status === 'working' ? this.phase : null,
+      outcome: this.status === 'idle' ? this.outcome : null,
       activity: this.status === 'idle' ? '' : this.activity,
+      startedAt: this.status === 'idle' ? null : this.startedAt,
+      lastAt: this.lastAt,
+      tools: { ...this.tools, running: this.status === 'idle' || !this.ui.tool ? null : `${this.ui.tool.doing} ${this.ui.tool.summary}`.trim() },
+      // Counted by the provider; null until it has reported once.
+      tokens: agent.usage.known ? { input: agent.usage.input, output: agent.usage.output, totalInput: agent.usage.totalInput, totalOutput: agent.usage.totalOutput } : null,
       model: agent.model,
       provider: agent.provider.label,
       local: Boolean(agent.provider.local),
@@ -260,6 +289,7 @@ class Workspace {
       ws: this.id,
       wsName: this.name,
       kind,
+      tool: tool.name,
       title: TITLES[kind],
       doing: current?.doing ?? tool.name,
       summary: current?.summary ?? '',
@@ -304,6 +334,10 @@ class Workspace {
     const started = Date.now();
     this.status = 'working';
     this.activity = 'Starting';
+    this.phase = 'thinking';
+    this.outcome = null;
+    this.stopped = false;
+    this.startedAt = started;
     // The transcript keeps the small previews only; the pictures themselves go to the model.
     this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
     this.touch();
@@ -314,15 +348,22 @@ class Workspace {
     } finally {
       this.status = 'idle';
       this.activity = '';
+      this.phase = null;
+      this.outcome = this.stopped ? 'stopped' : this.ui.failed ? 'failed' : 'completed';
       this.touch();
     }
-    if (Date.now() - started >= this.daemon.notifyAfter) {
+    const url = `/#v=session:${this.id}`;
+    if (this.outcome === 'failed') {
+      const error = [...this.items].reverse().find((i) => i.kind === 'notice' && i.level === 'error');
+      this.daemon.notify({ title: `${this.name}: failed`, body: (error?.text ?? 'The task ended with an error.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'error');
+    } else if (this.outcome === 'completed' && Date.now() - started >= this.daemon.notifyAfter) {
       const last = [...this.items].reverse().find((i) => i.kind === 'assistant' && i.text);
-      this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url: `/#v=session:${this.id}`, tag: `done-${this.id}` });
+      this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'done');
     }
   }
 
   stop() {
+    if (this.status !== 'idle') this.stopped = true;
     this.agent.interrupt();
   }
 
@@ -330,12 +371,18 @@ class Workspace {
     this.agent.messages = [];
     this.agent.state.todos = [];
     this.agent.usedTokens = 0;
+    this.agent.usage = { input: 0, output: 0, totalInput: 0, totalOutput: 0, known: false };
     this.session.startNew();
     this.items = [];
+    this.tools = { total: 0, failed: 0 };
+    this.outcome = null;
   }
 }
 
 // ── The daemon ─────────────────────────────────────────────────────────────
+
+/** Which kinds of notification a phone wants; everything is on unless it was switched off. */
+const pushPrefs = (prefs) => ({ done: prefs?.done !== false, approval: prefs?.approval !== false, error: prefs?.error !== false });
 
 /** Folders in the home directory that look like projects, to offer on the phone. */
 function projectFolders() {
@@ -400,7 +447,7 @@ export class RemoteDaemon {
   snapshot() {
     return {
       t: 'snapshot',
-      device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model },
+      device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), version: VERSION, vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model },
       workspaces: [...this.workspaces.values()].map((w) => ({ ...w.meta(), items: w.items })),
       approvals: [...this.approvals.values()].map((a) => a.approval),
       folders: projectFolders(),
@@ -456,11 +503,15 @@ export class RemoteDaemon {
     } catch {}
   }
 
-  /** Sends a notification to every paired phone that asked for them. Returns how many were accepted. */
-  async notify(payload) {
-    if (!this.subscriptions.length) return 0;
+  /**
+   * Sends a notification to every paired phone that asked for this kind. Returns how many were accepted.
+   * @param {'approval' | 'done' | 'error' | null} [kind]  null reaches every phone (tests, greetings)
+   */
+  async notify(payload, kind = null) {
+    const wanted = this.subscriptions.filter((s) => !kind || s.prefs?.[kind] !== false);
+    if (!wanted.length) return 0;
     const results = await Promise.all(
-      this.subscriptions.map((subscription) => sendPush(subscription, payload, this.config.remote.vapid, { subject: this.url, anyHost: this.pushAnyHost }).then((result) => ({ subscription, ...result }))),
+      wanted.map((subscription) => sendPush(subscription, payload, this.config.remote.vapid, { subject: this.url, anyHost: this.pushAnyHost }).then((result) => ({ subscription, ...result }))),
     );
     // A phone that removed the app, or revoked the permission, is forgotten.
     const gone = results.filter((r) => r.gone).map((r) => r.subscription.endpoint);
@@ -481,7 +532,7 @@ export class RemoteDaemon {
       const question = approval.kind === 'question';
       const what = question ? approval.title : `${approval.doing} ${approval.summary}`;
       this.log(`${question ? 'question' : 'approval needed'} in ${approval.wsName}: ${what}`.slice(0, 110));
-      this.notify({ title: `${approval.wsName}: ${question ? 'Seeker has a question' : approval.title}`, body: what.replace(/\s+/g, ' ').slice(0, 160), url: `/#v=review:${approval.id}`, tag: approval.id });
+      this.notify({ title: `${approval.wsName}: ${question ? 'Seeker has a question' : approval.title}`, body: what.replace(/\s+/g, ' ').slice(0, 160), url: `/#v=review:${approval.id}`, tag: approval.id }, 'approval');
     });
   }
 
@@ -509,10 +560,16 @@ export class RemoteDaemon {
 
   #settle(id, answer) {
     const entry = this.approvals.get(id);
-    if (!entry) return;
+    if (!entry) return false;
     this.approvals.delete(id);
     this.send({ t: 'approval_done', id });
     entry.resolve(answer);
+    return true;
+  }
+
+  /** An answer from the phone. One for a request that is gone (answered already, or the turn was stopped) is said so. */
+  #answer(id, answer) {
+    if (!this.#settle(id, answer)) this.send({ t: 'toast', text: 'That request was already answered.' });
   }
 
   // ── workspaces ──
@@ -572,10 +629,13 @@ export class RemoteDaemon {
           return;
         case 'approve': {
           const answer = command.decision === 'allow' ? 'y' : command.decision === 'always' ? 'a' : String(command.note ?? '').trim() || 'n';
-          return this.#settle(command.id_approval, answer);
+          return this.#answer(command.id_approval, answer);
         }
         case 'answer':
-          return this.#settle(command.id_approval, String(command.answer ?? '').trim() || null);
+          return this.#answer(command.id_approval, String(command.answer ?? '').trim() || null);
+        case 'ping':
+          // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
+          return this.send({ t: 'pong', id: command.id });
         case 'providers':
           return this.send({
             t: 'providers',
@@ -602,12 +662,19 @@ export class RemoteDaemon {
         case 'push_subscribe': {
           const sub = command.subscription;
           if (typeof sub?.endpoint !== 'string' || typeof sub?.keys?.p256dh !== 'string' || typeof sub?.keys?.auth !== 'string') return;
-          this.subscriptions = [...this.subscriptions.filter((s) => s.endpoint !== sub.endpoint), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, added: Date.now() }].slice(-10);
+          this.subscriptions = [...this.subscriptions.filter((s) => s.endpoint !== sub.endpoint), { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }, prefs: pushPrefs(command.prefs), added: Date.now() }].slice(-10);
           this.#saveSubscriptions();
           this.log('a phone turned notifications on');
           const sent = await this.notify({ title: 'SEEKER', body: 'Notifications are on for this phone.', url: '/', tag: 'hello' });
           this.send(this.snapshot(), { snapshot: true });
           return this.send({ t: 'toast', text: sent ? 'Notifications are on. A test was sent.' : 'Saved, but the test notification was not accepted.' });
+        }
+        case 'push_prefs': {
+          const subscription = this.subscriptions.find((s) => s.endpoint === command.endpoint);
+          if (!subscription) return this.send({ t: 'toast', text: 'Notifications are not on for this phone.' });
+          subscription.prefs = pushPrefs(command.prefs);
+          this.#saveSubscriptions();
+          return this.send({ t: 'push_prefs', endpoint: subscription.endpoint, prefs: subscription.prefs });
         }
         case 'push_unsubscribe':
           this.subscriptions = this.subscriptions.filter((s) => s.endpoint !== command.endpoint);

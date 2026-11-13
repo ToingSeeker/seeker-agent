@@ -8,7 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { createRelay } from '../remote-server/server.mjs';
 import { Agent } from '../src/agent.mjs';
-import { DEFAULTS } from '../src/config.mjs';
+import { DEFAULTS, VERSION } from '../src/config.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
@@ -518,4 +518,111 @@ test('remote control: pictures sent from the phone reach the model, and what is 
   relay.closeAllConnections();
   model.close();
   model.closeAllConnections();
+});
+
+test('remote: the phone is told what the agent is doing, how the turn ended, and what it cost', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const secret = 'a-fourth-long-secret-for-the-status-test-1';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  // The model: asks for a file, answers, breaks, then never answers at all.
+  const script = [[call('write_file', { path: 'notes.txt', content: 'one\ntwo' }), { done: true }], [done('Written.')], 'broken', 'silent'];
+  const model = http.createServer((req, res) => {
+    req.resume().on('end', () => {
+      const next = script.shift();
+      if (next === 'silent') return;
+      if (next === 'broken') return res.writeHead(500).end(JSON.stringify({ error: 'the model fell over' }));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(next.map((c) => JSON.stringify(c)).join('\n'));
+    });
+  });
+  const pushes = [];
+  const pushService = http.createServer((req, res) => {
+    req.resume().on('end', () => {
+      pushes.push(req.url);
+      res.writeHead(201).end();
+    });
+  });
+  const config = { ...DEFAULTS, host: await listen(model), remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false, push: { anyHost: true, finishedAfter: 0 } });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    for (const server of [relay, model, pushService]) {
+      server.close();
+      server.closeAllConnections();
+    }
+  });
+  await until(() => me.state.online && me.state.device && me.state.workspaces.size === 1);
+  const [{ id }] = [...me.state.workspaces.values()];
+  const meta = () => me.state.workspaces.get(id);
+  const seen = (check) => me.state.events.some((e) => e.t === 'ws' && check(e.ws));
+  assert.equal(me.state.device.version, VERSION);
+  assert.deepEqual([meta().phase, meta().outcome, meta().tokens, meta().tools], [null, null, null, { total: 0, failed: 0, running: null }], 'before anything ran, nothing is claimed');
+
+  // This phone wants approvals and errors, but not "finished".
+  const browser = crypto.createECDH('prime256v1');
+  browser.generateKeys();
+  const subscription = { endpoint: `${await listen(pushService)}/phone`, keys: { p256dh: browser.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') } };
+  await me.send('push_subscribe', { subscription, prefs: { done: false } });
+  await until(() => pushes.length === 1);
+  assert.deepEqual(daemon.subscriptions[0].prefs, { done: false, approval: true, error: true });
+
+  // ── a turn that needs approval and then finishes ──
+  await me.send('message', { ws: id, text: 'write notes' });
+  const approval = await until(() => me.state.approvals[0]);
+  assert.ok(seen((w) => w.status === 'working' && w.phase === 'thinking'), 'waiting for the model is reported as thinking');
+  assert.ok(seen((w) => w.phase === 'executing' && w.tools.running === 'Writing notes.txt'), 'a tool in progress is reported as executing, and named');
+  assert.deepEqual([meta().status, approval.kind, approval.tool], ['approval', 'write', 'write_file']);
+  assert.deepEqual([approval.diff.line, approval.diff.counts], [1, { added: 2, removed: 0 }], 'the reviewer is told where the change starts and how big it is');
+  await until(() => pushes.length === 2);
+
+  // The round trip can be timed: a ping comes straight back with the same id.
+  await me.send('ping');
+  const pong = await until(() => me.state.events.find((e) => e.t === 'pong'));
+  assert.match(pong.id, /^c\d+$/);
+
+  await me.send('approve', { id_approval: approval.id, decision: 'allow' });
+  await until(() => meta().status === 'idle');
+  assert.ok(seen((w) => w.phase === 'responding'), 'the answer being written is reported too');
+  assert.equal(meta().outcome, 'completed');
+  assert.deepEqual(meta().tools, { total: 1, failed: 0, running: null });
+  assert.deepEqual(meta().tokens, { input: 10, output: 5, totalInput: 10, totalOutput: 5 }, 'tokens are the provider’s own count');
+  assert.equal(pushes.length, 2, 'no "finished" notification for a phone that switched those off');
+
+  // An answer for a request that is gone is refused out loud, not dropped.
+  await me.send('approve', { id_approval: approval.id, decision: 'allow' });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && r.text === 'That request was already answered.'));
+
+  // ── a turn that fails ──
+  await me.send('message', { ws: id, text: 'and again' });
+  await until(() => meta().status === 'idle' && meta().outcome === 'failed');
+  assert.match(meta().items.at(-1).text, /the model fell over/);
+  await until(() => pushes.length === 3);
+
+  // Switching a kind off takes effect on the Mac, which is what sends them.
+  await me.send('push_prefs', { endpoint: subscription.endpoint, prefs: { done: false, error: false } });
+  await until(() => me.state.events.some((e) => e.t === 'push_prefs' && e.prefs.error === false));
+  await me.send('push_prefs', { endpoint: 'https://example.invalid/nobody', prefs: {} });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /not on for this phone/.test(r.text)));
+
+  // ── a turn that is stopped ──
+  await me.send('message', { ws: id, text: 'take your time' });
+  await until(() => meta().status === 'working');
+  await me.send('stop', { ws: id });
+  await until(() => meta().status === 'idle');
+  assert.equal(meta().outcome, 'stopped');
+  assert.equal(pushes.length, 3, 'a stopped turn notifies nobody');
+
+  // A new conversation starts the counts again.
+  await me.send('new', { ws: id });
+  await until(() => meta().tools.total === 0 && meta().tokens === null && meta().outcome === null);
+  await daemon.stop();
+  await running;
 });

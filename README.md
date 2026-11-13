@@ -188,6 +188,20 @@ seeker remote ~/project-a ~/project-b  # several projects, one workspace each
 Leave it running; the phone shows the computer as online. The computer has to stay on, and on macOS it is
 kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
+### What the phone shows
+
+- **Home** — the session that needs you first (waiting for approval, then running, then the latest), the
+  connected computer with the measured round trip to it, your open projects, and `/init` `/model` `/resume`.
+- **A session** — what the agent is doing right now (thinking, running a tool, writing, waiting for you,
+  finished, failed or stopped), every step as it happens with its output, and context, tokens and tool
+  counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply.
+- **Approvals** — each command and each file change waits here. A change is shown as a diff with line
+  numbers; a command the safety patterns flag is marked dangerous. One request is one command or one file.
+- **Settings** — connection, model, and which notifications this phone gets: finished tasks, approvals
+  and questions, errors.
+
+Nothing on these screens is estimated on the phone. A number the computer has not reported shows as “—”.
+
 ### Later
 
 - **New phone:** run `seeker remote --setup` again and open the link on it.
@@ -212,7 +226,6 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   computer to the phone's push service with Web Push encryption (`src/webpush.mjs`); the relay is not
   involved. Turn them on in the app's Settings. On iPhone the app must first be added with
   Share → Add to Home Screen.
-- From the phone you can also switch model and answer questions the model asks.
 
 Developed on macOS. The pairing-link copy and the keep-awake helper are macOS-only; everything else is
 plain Node.

@@ -139,6 +139,20 @@ seeker remote ~/proyek-a ~/proyek-b    # beberapa proyek, masing-masing satu wor
 Biarkan berjalan; di HP komputermu akan tampil online. Komputernya harus tetap menyala, dan di macOS ia
 dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
+### Yang tampil di HP
+
+- **Home** — sesi yang paling butuh kamu (menunggu persetujuan, lalu yang sedang jalan, lalu yang terakhir),
+  komputer yang terhubung beserta waktu bolak-balik yang terukur, proyek yang terbuka, dan `/init` `/model` `/resume`.
+- **Sesi** — apa yang sedang dilakukan agen (berpikir, menjalankan tool, menulis jawaban, menunggumu,
+  selesai, gagal atau dihentikan), tiap langkah saat terjadi beserta keluarannya, serta konteks, token dan
+  jumlah tool seperti yang dilaporkan komputer. Stop, Review, Resume dan Retry hanya muncul saat berlaku.
+- **Approvals** — tiap perintah dan tiap perubahan file menunggu di sini. Perubahan ditampilkan sebagai
+  diff bernomor baris; perintah yang kena pola berbahaya diberi tanda. Satu permintaan = satu perintah atau satu file.
+- **Settings** — koneksi, model, dan notifikasi mana yang diterima HP ini: tugas selesai, persetujuan dan
+  pertanyaan, error.
+
+Tidak ada angka yang dikira-kira di HP. Angka yang belum dilaporkan komputer tampil sebagai “—”.
+
 ### Setelah terpasang
 
 - **HP baru:** jalankan `seeker remote --setup` lagi dan buka link-nya di HP itu.
@@ -162,7 +176,6 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 - Notifikasi push (persetujuan, pertanyaan dari model, tugas selesai) dikirim langsung dari Mac ke layanan push HP
   dengan enkripsi Web Push (`src/webpush.mjs`); relay tidak terlibat. Nyalakan di Settings aplikasi HP.
   Di iPhone, aplikasinya harus dipasang dulu lewat Share → Add to Home Screen.
-- Dari HP juga bisa: ganti model (ketuk nama model), dan menjawab pertanyaan yang diajukan model.
 
 ## Gambar
 
