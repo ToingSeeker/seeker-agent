@@ -8,6 +8,8 @@
 // Nothing on these screens is made up here: statuses, counts and timings come
 // from the Mac's events, and a value the Mac has not reported is shown as "—".
 
+import { SORTS, STATUSES, filters, since, view as sessionsView } from './sessions.js';
+
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -58,6 +60,8 @@ const ICONS = {
   play: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>`,
   brain: svg('<path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V7a3 3 0 00-3-3zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/>'),
   at: svg('<circle cx="12" cy="12" r="3.6"/><path d="M15.6 8.4v4.8a2.6 2.6 0 005.2 0V12a8.8 8.8 0 10-3.6 7.1"/>'),
+  search: svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'),
+  sliders: svg('<path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h8M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="17" r="2"/>'),
   stop: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
@@ -86,7 +90,24 @@ const state = {
   shown: new Map(), // workspace id → how many entries are drawn
   deciding: new Set(), // approvals whose answer is on its way
   drawn: new Set(), // timeline entries already on screen once, so only new ones animate in
+  loaded: false, // the Mac's list of projects has arrived at least once
+  list: { query: '', searching: false, filter: 'all', sort: stored('seeker.sessions.sort', 'recent') }, // the Sessions screen
+  lastSession: stored('seeker.sessions.last', null), // the session opened last, marked in the list
 };
+/** A convenience kept on this phone only. Private windows may refuse storage; the app works without it. */
+function stored(key, fallback) {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function store(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {}
+}
+
 let streamAbort = null;
 let reconnecting = false;
 const pings = new Map(); // command id → when it was sent
@@ -182,6 +203,7 @@ function apply(event) {
       state.device = event.device;
       state.folders = event.folders ?? [];
       state.approvals = event.approvals ?? [];
+      state.loaded = true;
       state.workspaces = new Map(event.workspaces.map(({ items, queue, ...meta }) => [meta.id, { meta, items: items ?? [], queue: queue ?? NO_QUEUE }]));
       break;
     case 'ws': {
@@ -597,6 +619,7 @@ function route(link) {
 const go = (view) => {
   // Another conversation opens on its activity; coming back to the same one keeps the tab.
   if (view.name === 'session' && view.ws !== state.view.ws && view.ws !== state.view.from?.ws) state.sessionTab = 'activity';
+  if (view.name === 'session' && view.ws) store('seeker.sessions.last', (state.lastSession = view.ws));
   state.view = view;
   render(true);
 };
@@ -1161,25 +1184,99 @@ function review(approval) {
 }
 
 // ── sessions ───────────────────────────────────────────────────────────────
-function sessions() {
-  const when = (w) => w.meta.lastAt ?? w.items.at(-1)?.at ?? 0;
-  const list = [...state.workspaces.values()].sort((a, b) => when(b) - when(a));
-  return [
-    header(),
-    section('SESSIONS'),
-    list.length
-      ? list.map((w) => {
-          const last = [...w.items].reverse().find((i) => i.kind === 'user');
-          const st = agentState(w.meta);
-          return h(
-            'button',
-            { class: `card session-card ${st.tone}`, onclick: () => go({ name: 'session', ws: w.meta.id }) },
-            h('span', { class: 'grow' }, h('span', { class: 'meta' }, chip(st), h('span', { class: 'grow' }), h('time', { class: 'sub' }, when(w) ? ago(when(w)) : 'not used yet')), h('span', { class: 'title line' }, w.meta.name), h('span', { class: 'sub line' }, last ? `› ${last.text}` : 'No message yet'), h('span', { class: 'sub mono line' }, w.meta.model, ' · ', `${w.meta.tools?.total ?? w.items.filter((i) => i.kind === 'tool').length} tool runs`)),
-            h('span', { class: 'chev', icon: 'chevron' }),
-          );
-        })
-      : h('div', { class: 'empty' }, 'No session yet. Open a project from Home.'),
-  ];
+// One session per open project. The rows, the counts on the filters and the order all come from
+// sessions.js, which reads only what the Mac reported.
+const pill = (key) => h('span', { class: `pill ${STATUSES[key].tone}` }, h('i', { class: STATUSES[key].live ? 'live' : '' }), STATUSES[key].label);
+const clearList = () => Object.assign(state.list, { query: '', filter: 'all', searching: false });
+
+function chooseSort() {
+  const pick = (id) => {
+    store('seeker.sessions.sort', (state.list.sort = id));
+    closeSheet();
+    render(true);
+  };
+  sheet('Sort sessions', ...SORTS.map(([id, label]) => h('button', { class: `row-btn pick${state.list.sort === id ? ' on' : ''}`, 'aria-pressed': String(state.list.sort === id), onclick: () => pick(id) }, label, state.list.sort === id && h('span', { class: 'tick', icon: 'check' }))));
+}
+
+/** Arrow keys move between rows; Tab and Enter work as on any button. */
+function rowKeys(event) {
+  const step = event.key === 'ArrowDown' ? 'nextElementSibling' : event.key === 'ArrowUp' ? 'previousElementSibling' : null;
+  const next = step && event.target.closest('.s-row')?.[step];
+  if (!next) return;
+  event.preventDefault();
+  next.focus();
+}
+
+function sessionRow(row) {
+  const when = since(row.at);
+  return h(
+    'button',
+    { class: `s-row${row.id === state.lastSession ? ' selected' : ''}`, 'data-ws': row.id, 'aria-current': row.id === state.lastSession ? 'true' : null, onclick: () => go({ name: 'session', ws: row.id }) },
+    h('span', { class: 'ico', icon: 'folder' }),
+    h(
+      'span',
+      { class: 'grow' },
+      h('span', { class: 'top' }, h('span', { class: 'name line' }, row.name), pill(row.status)),
+      h('span', { class: `task line${row.task ? '' : ' none'}` }, row.task ? `› ${row.task}` : 'No messages yet'),
+      h('span', { class: 'meta mono line' }, [row.model, row.tools != null && `${row.tools} tool run${row.tools === 1 ? '' : 's'}`].filter(Boolean).join(' · '), when && h('time', { datetime: new Date(row.at).toISOString(), title: new Date(row.at).toLocaleString() }, (row.model || row.tools != null ? ' · ' : '') + when)),
+    ),
+    h('span', { class: 'chev', icon: 'chevron' }),
+  );
+}
+
+/** What the Sessions screen shows now, and a signature of it: the screen is redrawn only when that changes. */
+function sessionsNow() {
+  const model = sessionsView([...state.workspaces.values()], state.list);
+  const labels = model.rows.map((r) => [r.id, r.name, r.status, r.task, r.model, r.tools, since(r.at)]);
+  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, state.list, state.lastSession, model.count, labels]);
+  return { ...model, signature };
+}
+
+/** Drawn at once, inside the tap, so the phone brings its keyboard up for the field. */
+function toggleSearch() {
+  const { list } = state;
+  list.searching = !list.searching;
+  if (!list.searching) list.query = '';
+  draw();
+  if (list.searching) $('view').querySelector('.field.search')?.focus();
+}
+
+function sessions({ rows, count, total }) {
+  const { list } = state;
+  const up = state.linked && state.online;
+  const head = h(
+    'div',
+    { class: 'page-head' },
+    h('h1', { class: 'grow' }, 'Sessions'),
+    h('button', { class: `icon-btn${list.searching ? ' on' : ''}`, 'aria-label': 'Search sessions', 'aria-expanded': String(list.searching), icon: 'search', onclick: toggleSearch }),
+    h('button', { class: `icon-btn${list.sort !== 'recent' ? ' on' : ''}`, 'aria-label': `Sort sessions — ${SORTS.find(([id]) => id === list.sort)?.[1] ?? ''}`, icon: 'sliders', onclick: chooseSort }),
+  );
+  const search = list.searching && h('input', { class: 'field search', type: 'search', value: list.query, placeholder: 'Project, instruction or model…', 'aria-label': 'Search sessions', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'search', oninput: (e) => ((list.query = e.target.value), render()) });
+
+  let body;
+  if (!state.loaded) {
+    // Nothing has arrived from the Mac yet: say so with the shape of the list, never with an empty one.
+    body = [
+      h('div', { class: 's-list', 'aria-busy': 'true', 'aria-label': 'Loading sessions' }, [0, 1, 2].map(() => h('div', { class: 's-row skeleton' }, h('span', { class: 'ico' }), h('span', { class: 'grow' }, h('i'), h('i'), h('i'))))),
+      !state.linked && h('button', { class: 'btn', onclick: reconnect }, 'Retry'),
+    ];
+  } else if (!total) {
+    body = h('div', { class: 'empty' }, h('b', {}, 'No sessions yet'), 'Start a task in a workspace to create your first session.', h('button', { class: 'btn small', disabled: !up, onclick: addWorkspace }, 'Open a project'));
+  } else {
+    const chips = h(
+      'div',
+      { class: 'filters', role: 'group', 'aria-label': 'Filter by status' },
+      filters(count, list.filter).map(([key, label, n]) => h('button', { class: list.filter === key ? 'on' : '', 'aria-pressed': String(list.filter === key), onclick: () => ((list.filter = key), render(true)) }, label, h('span', { class: 'n' }, n))),
+    );
+    body = [
+      chips,
+      !up && h('p', { class: 'stale', role: 'status' }, 'Not connected: these statuses may be out of date.'),
+      rows.length
+        ? h('div', { class: 's-list', onkeydown: rowKeys }, rows.map(sessionRow))
+        : h('div', { class: 'empty' }, h('b', {}, 'No sessions found'), h('button', { class: 'btn small', onclick: () => (clearList(), render(true)) }, 'Clear filters')),
+    ];
+  }
+  return [header(), head, h('p', { class: 'page-sub' }, 'Kelola dan lanjutkan session pekerjaan Seeker.'), search, body];
 }
 
 // ── settings ───────────────────────────────────────────────────────────────
@@ -1321,22 +1418,33 @@ function draw() {
   const ws = state.workspaces.get(state.view.ws);
   // Stay at the bottom of a growing conversation, unless the reader has scrolled up.
   const pinned = name === 'session' && view.scrollHeight - view.scrollTop - view.clientHeight < 80;
-  const content = !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : name === 'sessions' ? sessions() : name === 'settings' ? settings() : home();
+  const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab : ''}`;
+  // The Sessions list is left alone while nothing it shows has changed: a token streaming in another
+  // project does not rebuild it, so a finger or the keyboard focus stays on the row it was on.
+  const listed = paired && name === 'sessions' ? sessionsNow() : null;
+  const unchanged = listed && view.dataset.screen === screen && view.dataset.listed === listed.signature;
+  view.dataset.listed = listed?.signature ?? '';
+  const content = unchanged ? null : !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : listed ? sessions(listed) : name === 'settings' ? settings() : home();
   const scroll = view.scrollTop;
   const grownFrom = view.scrollHeight;
-  const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab : ''}`;
+  const focusedRow = view.contains(document.activeElement) ? document.activeElement.dataset.ws : null;
   // A field being typed in (an answer, a note) keeps its text and the cursor across a redraw.
   const typing = view.contains(document.activeElement) && document.activeElement.matches('input.field') && view.dataset.screen === screen ? document.activeElement : null;
   // The screen is rebuilt on every event. Starting each looping animation "this long ago" keeps
   // spinners and pulses in step across rebuilds instead of restarting them.
   view.style.setProperty('--t', `-${Math.round(performance.now())}ms`);
-  view.replaceChildren(...[linkBanner(), content].flat(3).filter(Boolean));
-  if (typing) {
+  if (!unchanged) view.replaceChildren(...[linkBanner(), content].flat(3).filter(Boolean));
+  if (typing && !unchanged) {
     const fresh = view.querySelector('input.field');
     if (fresh && !fresh.disabled) {
       fresh.value = typing.value;
       fresh.focus();
+      try {
+        fresh.setSelectionRange(typing.selectionStart, typing.selectionEnd);
+      } catch {}
     }
+  } else if (focusedRow && !unchanged) {
+    [...view.querySelectorAll('[data-ws]')].find((el) => el.dataset.ws === focusedRow)?.focus({ preventScroll: true });
   }
   view.className = `screen-${paired ? name : 'login'}`;
   const sameScreen = view.dataset.screen === screen;
