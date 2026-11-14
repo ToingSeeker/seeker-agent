@@ -115,6 +115,10 @@ svg {
   padding: 14px 16px 24px;
   -webkit-overflow-scrolling: touch;
 }
+/* Room under the last item, so the floating back / latest buttons never cover it. */
+#view.screen-session {
+  padding-bottom: 76px;
+}
 
 .mono {
   font-family: var(--mono);
@@ -1132,6 +1136,7 @@ pre {
 
 /* ── composer ── */
 #composer {
+  position: relative;
   padding: 8px 16px calc(8px + var(--safe-b));
   border-top: 1px solid var(--line-soft);
   background: var(--bg);
@@ -1249,6 +1254,45 @@ pre {
   color: var(--cyan-ink);
   padding: 9px 11px;
   transition: opacity var(--fast);
+}
+/* Floating over the bottom of a long conversation, within thumb reach: back to the projects on
+   the left, down to the newest message on the right. Each shows only when it would help. */
+.fabs {
+  position: absolute;
+  bottom: 100%;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  pointer-events: none;
+}
+.fab {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+#fab-latest {
+  margin-left: auto;
+  color: var(--cyan);
+}
+#fab-latest.unseen::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--raised);
 }
 .composer-foot {
   display: flex;
