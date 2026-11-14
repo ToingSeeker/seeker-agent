@@ -8,7 +8,8 @@
 // Nothing on these screens is made up here: statuses, counts and timings come
 // from the Mac's events, and a value the Mac has not reported is shown as "—".
 
-import { SORTS, STATUSES, filters, since, view as sessionsView } from './sessions.js';
+import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, summary, workspaces as explorerRows } from './home.js';
+import { SORTS, STATUSES, filters, since, statusOf, view as sessionsView } from './sessions.js';
 
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
@@ -62,6 +63,8 @@ const ICONS = {
   at: svg('<circle cx="12" cy="12" r="3.6"/><path d="M15.6 8.4v4.8a2.6 2.6 0 005.2 0V12a8.8 8.8 0 10-3.6 7.1"/>'),
   search: svg('<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>'),
   sliders: svg('<path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h8M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="17" r="2"/>'),
+  sort: svg('<path d="M8 5v14M8 19l-3.5-3.5M8 19l3.5-3.5M16 19V5M16 5l-3.5 3.5M16 5l3.5 3.5"/>'),
+  funnel: svg('<path d="M4 5h16l-6.2 7.4V18l-3.6 2v-7.6z"/>'),
   stop: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
@@ -92,6 +95,8 @@ const state = {
   drawn: new Set(), // timeline entries already on screen once, so only new ones animate in
   loaded: false, // the Mac's list of projects has arrived at least once
   list: { query: '', searching: false, filter: 'all', sort: stored('seeker.sessions.sort', 'recent') }, // the Sessions screen
+  everLinked: false, // the relay has answered at least once since the app opened
+  explorer: { query: '', sort: stored('seeker.workspaces.sort', 'recent'), source: 'all', local: false, localQuery: '' }, // Home → Projects
   lastSession: stored('seeker.sessions.last', null), // the session opened last, marked in the list
 };
 /** A convenience kept on this phone only. Private windows may refuse storage; the app works without it. */
@@ -280,6 +285,7 @@ async function listen() {
       if (res.status === 429) return signOut('Too many wrong attempts. Try again in 15 minutes.');
       if (!res.ok) throw new Error(String(res.status));
       state.linked = true;
+      state.everLinked = true;
       wait = 1000;
       render();
       const reader = res.body.getReader();
@@ -387,8 +393,6 @@ function agentState(meta) {
   if (meta.outcome === 'stopped') return { key: 'stopped', label: 'STOPPED', tone: 'muted', busy: false };
   return { key: 'idle', label: 'IDLE', tone: 'muted', busy: false };
 }
-
-const chip = (st) => h('span', { class: `chip-state ${st.tone}` }, h('i', { class: st.busy ? 'live' : '' }), st.label);
 
 /** Model text → safe DOM: paragraphs, fenced code, `code`, **bold**, headings. */
 function prose(text) {
@@ -657,28 +661,8 @@ function linkBanner() {
   return null;
 }
 
-function deviceLine() {
-  if (!state.linked) return ['off', 'Connecting to the relay…'];
-  if (!state.online) return ['off', 'Offline'];
-  const first = [...state.workspaces.values()][0]?.meta;
-  return ['on', first ? `${first.provider} • Online` : 'Online'];
-}
-
 // ── home ───────────────────────────────────────────────────────────────────
 const INIT = 'Explore this project (list the root, read the README and the main manifest/config files, look at the folder structure) and then write a SEEKER.md file in the working directory describing what the project is, the tech stack, how to install / run / test / build it, the folder layout, and conventions visible in the code. Keep it under 80 lines and include only what you verified.';
-
-function workspaceRow(ws) {
-  const { meta } = ws;
-  const st = agentState(meta);
-  return h(
-    'button',
-    { class: `row ws${meta.status === 'approval' ? ' attention' : ''}`, onclick: () => go({ name: 'session', ws: meta.id }) },
-    h('span', { class: 'ico', icon: 'folder' }),
-    h('span', { class: 'grow' }, h('span', { class: 'label line' }, meta.name), h('span', { class: 'sub mono line' }, meta.path, meta.branch ? ` · ${meta.branch}` : ''), h('span', { class: 'sub line' }, meta.terminal ? 'Terminal session · ' : '', meta.lastAt ? `Last activity ${ago(meta.lastAt)}` : 'No activity yet')),
-    st.key !== 'idle' && chip(st),
-    h('span', { class: 'chev', icon: 'chevron' }),
-  );
-}
 
 function addWorkspace() {
   const input = h('input', { class: 'field', placeholder: '~/project-folder', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
@@ -702,89 +686,176 @@ function addWorkspace() {
   );
 }
 
-/** The session to put up front: one that needs the user, else one that is running, else the latest. */
-function activeSession(list) {
-  const rank = (w) => (w.meta.status === 'approval' ? 3 : w.meta.status === 'working' ? 2 : w.items.length ? 1 : 0);
-  return [...list].sort((a, b) => rank(b) - rank(a) || (b.meta.lastAt ?? 0) - (a.meta.lastAt ?? 0))[0] ?? null;
-}
-
-function activeCard(ws) {
-  if (!ws) return h('div', { class: 'empty' }, state.linked && state.online ? 'No project open yet. Tap + under Workspaces to open one.' : 'Waiting for your Mac…');
-  const { meta, items } = ws;
-  const st = agentState(meta);
-  const lastAnswer = [...items].reverse().find((i) => i.kind === 'assistant' && i.text);
-  const summary = meta.activity ? `${meta.activity}…` : lastAnswer ? lastAnswer.text.replace(/\s+/g, ' ').slice(0, 120) : 'Nothing has run here yet.';
+/** A search field with its icon and, once something is typed, a button that empties it. */
+function searchBox(name, value, placeholder, onchange) {
   return h(
-    'button',
-    { class: 'card session-card active', onclick: () => go({ name: 'session', ws: meta.id }) },
-    h('span', { class: 'ico big', icon: 'folder' }),
-    h('span', { class: 'grow' }, h('span', { class: 'title line' }, meta.name), h('span', { class: 'sub mono line' }, meta.branch || 'no git', ' • ', meta.path), h('span', { class: 'sub line' }, meta.model, ' · ', meta.provider), h('span', { class: `summary ${st.busy ? st.tone : ''}` }, summary)),
-    h('span', { class: 'chev', icon: 'chevron' }),
+    'div',
+    { class: 'search-box' },
+    h('span', { class: 'ico', icon: 'search' }),
+    h('input', { class: 'field', 'data-field': name, type: 'text', inputmode: 'search', enterkeyhint: 'search', value, placeholder, 'aria-label': placeholder.replace(/…$/, ''), autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', oninput: (e) => (onchange(e.target.value), render()) }),
+    value && h('button', { class: 'clear', 'aria-label': 'Clear the search', icon: 'cross', onclick: () => (onchange(''), render(true)) }),
   );
 }
 
-function home() {
-  const [tone, text] = deviceLine();
+/** A sheet of choices with the one in force ticked. */
+function choose(title, options, selected, pick) {
+  sheet(title, ...options.map(([id, label]) => h('button', { class: `row-btn pick${selected === id ? ' on' : ''}`, 'aria-pressed': String(selected === id), onclick: () => (closeSheet(), pick(id), render(true)) }, label, selected === id && h('span', { class: 'tick', icon: 'check' }))));
+}
+
+const panel = (title, side, ...content) => h('section', { class: 'panel-box' }, h('div', { class: 'cap' }, h('span', {}, title), side), ...content);
+
+// ── home: the control center ──
+function controlCenter(model) {
+  const { now, link, stats } = model;
+  const up = link.key === 'online';
   const list = [...state.workspaces.values()];
-  const first = list[0]?.meta;
-  const ready = state.linked && state.online;
-  const active = activeSession(list);
   const pick = (title, then) => {
     if (!list.length) return toast('Open a project first.');
     if (list.length === 1) return then(list[0].meta);
     sheet(title, ...list.map((w) => h('button', { class: 'row-btn', onclick: () => (closeSheet(), then(w.meta)) }, w.meta.name)));
   };
-  const tab = (id, label) => h('button', { class: state.homeTab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.homeTab === id), onclick: () => ((state.homeTab = id), render(true)) }, label);
-  const tabs = h('div', { class: 'tabs', role: 'tablist' }, tab('control', 'CONTROL CENTER'), tab('projects', 'PROJECTS'));
-  const workspaces = [section('WORKSPACES', h('button', { class: 'add', 'aria-label': 'Open a project', icon: 'plus', onclick: addWorkspace })), list.length ? h('div', { class: 'group' }, list.map(workspaceRow)) : h('div', { class: 'empty' }, ready ? 'No project open yet. Tap + to open one.' : 'Waiting for your Mac…')];
 
-  if (state.homeTab === 'projects') {
-    const opened = new Set(list.map((w) => w.meta.path));
-    const rest = state.folders.filter((f) => !opened.has(f));
-    const open = async (folder) => (await command('open', { path: folder })) && toast(`Opening ${folder}…`);
-    return [
-      header(),
-      tabs,
-      ...workspaces,
-      section('ON YOUR MAC'),
-      rest.length
-        ? h('div', { class: 'group' }, rest.map((f) => h('button', { class: 'row folder', disabled: !ready, onclick: () => open(f) }, h('span', { class: 'ico', icon: 'folder' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, f)), h('span', { class: 'chev', icon: 'plus' }))))
-        : h('div', { class: 'empty' }, ready ? 'Every project folder found on your Mac is already open.' : 'Waiting for your Mac…'),
-    ];
+  let activityPanel;
+  if (!state.loaded) {
+    activityPanel = panel('ACTIVITY', null, h('div', { class: 'skeleton-lines', 'aria-busy': 'true', 'aria-label': 'Loading' }, h('i'), h('i'), h('i')));
+  } else if (!now) {
+    activityPanel = panel('ACTIVITY', null, h('p', { class: 'quiet' }, list.length ? 'Nothing has run yet. Open a session and give Seeker a task.' : 'No project is open yet.'), h('button', { class: 'btn small', disabled: !up, onclick: () => (list.length ? go({ name: 'sessions' }) : addWorkspace()) }, list.length ? 'Open sessions' : 'Open a project'));
+  } else {
+    const { meta } = now.ws;
+    const mark = now.status === 'completed' ? 'check' : now.status === 'failed' ? 'cross' : null;
+    activityPanel = h(
+      'button',
+      { class: 'panel-box tap', onclick: () => go({ name: 'session', ws: meta.id }) },
+      h('span', { class: 'cap' }, h('span', {}, now.live ? 'CURRENT ACTIVITY' : 'RECENT ACTIVITY'), pill(now.status)),
+      h('span', { class: 'lead' }, h('span', { class: 'ico', icon: 'folder' }), h('span', { class: 'grow' }, h('span', { class: 'name line' }, meta.name), h('span', { class: 'meta line' }, [meta.branch, meta.provider].filter(Boolean).join(' · '))), h('span', { class: 'chev', icon: 'chevron' })),
+      now.text && h('span', { class: `said ${STATUSES[now.status].tone}` }, mark ? h('span', { class: 'mark', icon: mark }) : now.live && h('i', { class: 'beat' }), h('span', { class: 'text' }, now.text)),
+    );
   }
 
-  const quick = (label, icon, action) => h('button', { class: 'tile', onclick: action }, h('span', { icon }), h('span', { class: 'mono' }, label));
-  return [
-    header(),
-    tabs,
-    section('ACTIVE SESSION', active && chip(agentState(active.meta))),
-    activeCard(active),
-    section('CONNECTED DEVICE'),
+  const first = list[0]?.meta;
+  const connectionPanel = h(
+    'button',
+    { class: 'panel-box tap', 'aria-label': `Remote connection: ${state.device?.name ?? 'your Mac'}, ${link.label}. Open device details`, onclick: () => go({ name: 'settings' }) },
+    h('span', { class: 'cap' }, h('span', {}, 'REMOTE CONNECTION')),
     h(
-      'button',
-      { class: 'card device', onclick: () => go({ name: 'settings' }) },
-      h('span', { class: 'ico big', icon: 'laptop' }),
-      h('span', { class: 'grow' }, h('span', { class: 'title line' }, dot(tone), state.device?.name ?? 'Your Mac'), h('span', { class: 'sub line' }, text, state.latency ? ` • ${state.latency.ms} ms` : '')),
+      'span',
+      { class: 'lead' },
+      h('span', { class: 'ico', icon: 'laptop' }),
+      h('span', { class: 'grow' }, h('span', { class: 'name line' }, h('i', { class: `state ${link.tone}` }), state.device?.name ?? 'Your Mac'), h('span', { class: 'meta line' }, [first?.provider ?? state.device?.provider, link.label, up && state.latency ? `${state.latency.ms} ms` : null].filter(Boolean).join(' · '))),
       h('span', { class: 'chev', icon: 'chevron' }),
     ),
-    // Each chip states something checked: where the model runs, whether anything leaves the Mac, whether it can take work now.
+  );
+
+  const metric = (icon, value, label) => h('div', { class: 'stat' }, h('span', { class: 'ico', icon }), h('b', {}, value), h('span', {}, label));
+  const statsPanel =
+    state.loaded &&
+    panel(
+      'ACTIVITY',
+      h('span', { class: 'when' }, 'Last 24 hours'),
+      h('div', { class: 'stats' }, metric('pulse', stats.sessions, stats.sessions === 1 ? 'Session' : 'Sessions'), metric('layers', `${stats.tools}${stats.toolsMore ? '+' : ''}`, stats.tools === 1 && !stats.toolsMore ? 'Tool run' : 'Tool runs'), metric('check', stats.completed, 'Completed')),
+    );
+
+  const quick = (label, icon, action) => h('button', { onclick: action }, h('span', { icon }), h('span', { class: 'mono' }, label));
+  return [
+    h('div', { class: 'page-head' }, h('h1', { class: 'grow' }, 'Agent Activity Center')),
+    h('p', { class: 'page-sub' }, 'Operate your remote agent and track progress.'),
+    activityPanel,
+    connectionPanel,
+    statsPanel,
+    section('QUICK COMMANDS'),
     h(
       'div',
-      { class: 'chips' },
-      h('span', { class: `chip ${first ? 'on' : ''}` }, h('i'), !first ? 'NO MODEL' : first.local ? 'LOCAL' : 'CLOUD'),
-      h('span', { class: `chip ${first ? 'on' : ''}` }, h('i'), !first ? '—' : first.local ? 'PRIVATE' : first.provider.toUpperCase()),
-      h('span', { class: `chip ${ready ? 'on' : 'warn'}` }, h('i'), ready ? 'READY' : state.linked ? 'OFFLINE' : 'CONNECTING'),
-    ),
-    ...workspaces,
-    section('QUICK ACTIONS'),
-    h(
-      'div',
-      { class: 'tiles' },
+      { class: 'commands' },
       quick('/init', 'terminal', () => pick('Set up which project?', (m) => (go({ name: 'session', ws: m.id }), sendText(m.id, INIT)))),
       quick('/model', 'cube', chooseModel),
-      quick('/resume', 'play', () => (active ? go({ name: 'session', ws: active.meta.id }) : go({ name: 'sessions' }))),
+      quick('/resume', 'play', () => (now ? go({ name: 'session', ws: now.ws.meta.id }) : go({ name: 'sessions' }))),
     ),
   ];
+}
+
+// ── home: the workspace explorer ──
+function workspaceLine(row) {
+  const live = STATUSES[row.status].live;
+  const seen = since(row.at);
+  const said = [row.terminal && 'Terminal session', !live && row.status !== 'idle' && STATUSES[row.status].label, seen ? `Last active ${seen.toLowerCase()}` : 'No activity yet'].filter(Boolean).join(' · ');
+  return h(
+    'button',
+    { class: 'w-row', 'data-ws': row.id, onclick: () => go({ name: 'session', ws: row.id }) },
+    h('span', { class: 'ico', icon: 'folder' }),
+    h('span', { class: 'grow' }, h('span', { class: 'name line' }, row.name), h('span', { class: 'meta mono line' }, [row.path, row.branch].filter(Boolean).join(' · ')), h('span', { class: 'meta line' }, said)),
+    live && pill(row.status),
+    h('span', { class: 'chev', icon: 'chevron' }),
+  );
+}
+
+function workspaceExplorer(model) {
+  const ex = state.explorer;
+  const { rows, local, link } = model;
+  const up = link.key === 'online';
+  const total = state.workspaces.size;
+  const open = async (folder) => {
+    state.opening = Date.now();
+    if (await command('open', { path: folder })) toast(`Opening ${folder}…`);
+  };
+  const narrowed = ex.query || ex.source !== 'all';
+
+  let listed;
+  if (!state.loaded) listed = h('div', { class: 's-list', 'aria-busy': 'true', 'aria-label': 'Loading workspaces' }, [0, 1, 2].map(() => h('div', { class: 's-row skeleton' }, h('span', { class: 'ico' }), h('span', { class: 'grow' }, h('i'), h('i'), h('i')))));
+  else if (!total) listed = h('div', { class: 'empty' }, h('b', {}, 'No workspace yet'), up ? 'Open a folder from your Mac, or create a new one.' : 'Waiting for your Mac…', h('button', { class: 'btn small', disabled: !up, onclick: addWorkspace }, 'Open a project'));
+  else if (!rows.length) listed = h('div', { class: 'empty' }, h('b', {}, 'No workspace found'), h('button', { class: 'btn small', onclick: () => (Object.assign(ex, { query: '', source: 'all' }), render(true)) }, 'Clear search and filter'));
+  else listed = h('div', { class: 's-list', onkeydown: rowKeys }, rows.map(workspaceLine));
+
+  // The folders are those the Mac listed when it last answered: without the Mac they cannot be opened, and are not called empty.
+  let folders;
+  if (!up) folders = h('p', { class: 'quiet pad' }, state.linked ? 'Your Mac is offline, so its folders cannot be listed.' : 'Not connected yet.');
+  else if (!local.total) folders = h('p', { class: 'quiet pad' }, 'Every project folder found in your home folder is already open. Use + to open another by its path.');
+  else
+    folders = h(
+      'div',
+      { class: 's-list local' },
+      h('button', { class: 'fold', 'aria-expanded': String(ex.local), onclick: () => ((ex.local = !ex.local), ex.local || (ex.localQuery = ''), render(true)) }, h('span', { class: 'ico', icon: 'laptop' }), h('span', { class: 'grow' }, `${local.total} local project${local.total === 1 ? '' : 's'}`), h('span', { class: `chev${ex.local ? ' up' : ''}`, icon: 'down' })),
+      ex.local && local.total > 6 && searchBox('local', ex.localQuery, 'Search local projects…', (v) => (ex.localQuery = v)),
+      ex.local && (local.rows.length ? local.rows.map((f) => h('div', { class: 'f-row' }, h('span', { class: 'grow' }, h('span', { class: 'name line' }, f.name), h('span', { class: 'meta mono line' }, f.path)), h('button', { class: 'add', 'aria-label': `Open ${f.path} as a workspace`, icon: 'plus', onclick: () => open(f.path) }))) : h('p', { class: 'quiet pad' }, 'No folder matches.')),
+    );
+
+  return [
+    h('div', { class: 'page-head' }, h('h1', { class: 'grow' }, 'Workspace Explorer')),
+    h('p', { class: 'page-sub' }, 'Browse and manage your agent workspaces.'),
+    h(
+      'div',
+      { class: 'toolbar' },
+      searchBox('workspaces', ex.query, 'Search workspaces…', (v) => (ex.query = v)),
+      h('button', { class: `icon-btn${ex.sort !== 'recent' ? ' on' : ''}`, 'aria-label': `Sort workspaces — ${WORKSPACE_SORTS.find(([id]) => id === ex.sort)?.[1] ?? ''}`, icon: 'sort', onclick: () => choose('Sort workspaces', WORKSPACE_SORTS, ex.sort, (id) => store('seeker.workspaces.sort', (ex.sort = id))) }),
+      h('button', { class: `icon-btn${ex.source !== 'all' ? ' on' : ''}`, 'aria-label': `Filter workspaces — ${SOURCES.find(([id]) => id === ex.source)?.[1] ?? ''}`, icon: 'funnel', onclick: () => choose('Show', SOURCES, ex.source, (id) => (ex.source = id)) }),
+      h('button', { class: 'icon-btn primary', 'aria-label': 'Open or create a project', icon: 'plus', disabled: !up, onclick: addWorkspace }),
+    ),
+    section(narrowed && total ? `WORKSPACES · ${rows.length} OF ${total}` : 'WORKSPACES'),
+    listed,
+    section('ON YOUR MAC'),
+    folders,
+  ];
+}
+
+/** What Home shows now, and a signature of it: the screen is redrawn only when that changes. */
+function homeNow() {
+  const list = [...state.workspaces.values()];
+  const link = connection(state);
+  const base = [state.homeTab, state.loaded, link.key, state.device?.name, state.device?.settings?.animation];
+  if (state.homeTab === 'projects') {
+    const rows = explorerRows(list, state.explorer);
+    const local = localFolders(state.folders, list, state.explorer.localQuery);
+    return { link, rows, local, signature: JSON.stringify([base, state.explorer, list.length, rows.map((r) => [r, since(r.at)]), local]) };
+  }
+  const front = current(list);
+  const now = front && { ...front, status: statusOf(front.ws), text: summary(front.ws) };
+  const stats = activity(list);
+  const meta = now?.ws.meta;
+  return { link, now, stats, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], stats]) };
+}
+
+function home(model) {
+  const tab = (id, label) => h('button', { class: state.homeTab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.homeTab === id), onclick: () => ((state.homeTab = id), render(true)) }, label);
+  return [header(), h('div', { class: 'tabs', role: 'tablist' }, tab('control', 'CONTROL CENTER'), tab('projects', 'PROJECTS')), state.homeTab === 'projects' ? workspaceExplorer(model) : controlCenter(model)];
 }
 
 function sendText(wsId, text, images = []) {
@@ -1251,7 +1322,7 @@ function sessions({ rows, count, total }) {
     h('button', { class: `icon-btn${list.searching ? ' on' : ''}`, 'aria-label': 'Search sessions', 'aria-expanded': String(list.searching), icon: 'search', onclick: toggleSearch }),
     h('button', { class: `icon-btn${list.sort !== 'recent' ? ' on' : ''}`, 'aria-label': `Sort sessions — ${SORTS.find(([id]) => id === list.sort)?.[1] ?? ''}`, icon: 'sliders', onclick: chooseSort }),
   );
-  const search = list.searching && h('input', { class: 'field search', type: 'search', value: list.query, placeholder: 'Project, instruction or model…', 'aria-label': 'Search sessions', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'search', oninput: (e) => ((list.query = e.target.value), render()) });
+  const search = list.searching && h('input', { class: 'field search', 'data-field': 'sessions', type: 'search', value: list.query, placeholder: 'Project, instruction or model…', 'aria-label': 'Search sessions', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', enterkeyhint: 'search', oninput: (e) => ((list.query = e.target.value), render()) });
 
   let body;
   if (!state.loaded) {
@@ -1421,10 +1492,10 @@ function draw() {
   const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab : ''}`;
   // The Sessions list is left alone while nothing it shows has changed: a token streaming in another
   // project does not rebuild it, so a finger or the keyboard focus stays on the row it was on.
-  const listed = paired && name === 'sessions' ? sessionsNow() : null;
+  const listed = !paired ? null : name === 'sessions' ? sessionsNow() : name === 'home' ? homeNow() : null;
   const unchanged = listed && view.dataset.screen === screen && view.dataset.listed === listed.signature;
   view.dataset.listed = listed?.signature ?? '';
-  const content = unchanged ? null : !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : listed ? sessions(listed) : name === 'settings' ? settings() : home();
+  const content = unchanged ? null : !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : name === 'sessions' ? sessions(listed) : name === 'settings' ? settings() : home(listed);
   const scroll = view.scrollTop;
   const grownFrom = view.scrollHeight;
   const focusedRow = view.contains(document.activeElement) ? document.activeElement.dataset.ws : null;
@@ -1435,9 +1506,10 @@ function draw() {
   view.style.setProperty('--t', `-${Math.round(performance.now())}ms`);
   if (!unchanged) view.replaceChildren(...[linkBanner(), content].flat(3).filter(Boolean));
   if (typing && !unchanged) {
-    const fresh = view.querySelector('input.field');
+    const fresh = [...view.querySelectorAll('input.field')].find((el) => el.dataset.field === typing.dataset.field);
     if (fresh && !fresh.disabled) {
-      fresh.value = typing.value;
+      // A field that mirrors the app's own state (a search) already holds the right text; the others keep what was typed.
+      if (!typing.dataset.field) fresh.value = typing.value;
       fresh.focus();
       try {
         fresh.setSelectionRange(typing.selectionStart, typing.selectionEnd);
