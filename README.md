@@ -380,7 +380,9 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   activity, name or status. The session you opened last is marked in amber.
 - **A session** — what the agent is doing right now (thinking, running a tool, writing, waiting for you,
   finished, failed or stopped), every step as it happens with its output, and context, tokens and tool
-  counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply.
+  counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply. The title
+  and the Activity / Tools / Metrics tabs stay in place while the conversation scrolls, and each tab keeps
+  the place you were reading.
 - **Sending while it works** — a message sent while the agent is busy asks where it should go. *Queue next*
   keeps it on the computer (`~/.seeker/queue.json`) and runs it when the current task has completed, in the
   order sent. *Steer current task* hands it to the running task, which reads it before its next step; that

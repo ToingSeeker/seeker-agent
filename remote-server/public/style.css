@@ -146,7 +146,35 @@ svg {
 }
 /* Room under the last item, so the floating back / latest buttons never cover it. */
 #view.screen-session {
+  padding-top: 12px;
   padding-bottom: 76px;
+  overscroll-behavior-y: contain;
+}
+/* A session's title, state and tabs. It is a region of its own between the status bar and the
+   scrolling area, so a long conversation never carries the tabs out of reach. */
+.session-top {
+  flex: none;
+  padding: 10px 16px 10px;
+  border-bottom: 1px solid var(--sk-border-subtle);
+  background: var(--sk-bg);
+}
+.session-top .topbar {
+  margin-bottom: 6px;
+}
+.session-top .session-bar {
+  margin-bottom: 10px;
+}
+/* With the keyboard up there is little room: the title and the tabs stay, the state line makes way. */
+.keyboard .session-top .session-bar {
+  display: none;
+}
+@media (max-height: 480px) {
+  .session-top .session-bar {
+    display: none;
+  }
+  .session-top .topbar {
+    margin-bottom: 4px;
+  }
 }
 
 .mono {
@@ -1279,11 +1307,6 @@ button.stat:active {
   font: 12px/1.4 var(--mono);
   color: var(--sk-text-secondary);
 }
-.tabs + .timeline,
-.tabs + .empty,
-.tabs + .btn {
-  margin-top: 12px;
-}
 .state-chip {
   display: inline-flex;
   align-items: center;
@@ -1325,15 +1348,33 @@ button.stat:active {
 /* The session's three views, as one segmented control. */
 .tabs.seg {
   padding: 3px;
-  gap: 0;
+  gap: 4px;
+  border-radius: 11px;
 }
 .tabs.seg button {
-  min-height: 38px;
+  position: relative;
+  min-height: 36px;
+  padding: 0 8px;
   font: 600 13.5px/1 var(--sans);
   letter-spacing: 0;
+  white-space: nowrap;
 }
-.tabs.seg button + button:not(.active) {
-  box-shadow: -1px 0 0 var(--sk-border-subtle);
+/* The tab looks 36px tall; the finger gets the full height of the bar. */
+.tabs.seg button::after {
+  content: '';
+  position: absolute;
+  inset: -4px -2px;
+}
+/* A short straight rule between two tabs that are both unselected; none beside the selected one. */
+.tabs.seg button:not(.active) + button:not(.active)::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 50%;
+  width: 1px;
+  height: 14px;
+  transform: translateY(-50%);
+  background: var(--sk-border);
 }
 /* A step that waits for the user, at the end of the timeline. */
 .ev.pending .node {
@@ -2248,12 +2289,6 @@ pre {
   color: var(--sk-text-primary);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
-}
-#fab-back {
-  position: absolute;
-  top: calc(env(safe-area-inset-top) + 8px);
-  left: 16px;
-  z-index: 10;
 }
 #fab-latest {
   margin-left: auto;
