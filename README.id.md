@@ -162,6 +162,8 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 - **Sesi** — apa yang sedang dilakukan agen (berpikir, menjalankan tool, menulis jawaban, menunggumu,
   selesai, gagal atau dihentikan), tiap langkah saat terjadi beserta keluarannya, serta konteks, token dan
   jumlah tool seperti yang dilaporkan komputer. Stop, Review, Resume dan Retry hanya muncul saat berlaku.
+  Judul dan tab Activity / Tools / Metrics tetap di tempat saat percakapan digulir, dan tiap tab mengingat
+  posisi bacamu.
 - **Mengirim saat agen bekerja** — pesan yang dikirim saat agen sibuk akan ditanya mau dibawa ke mana. *Queue next*
   menyimpannya di komputer (`~/.seeker/queue.json`) dan menjalankannya setelah tugas yang berjalan selesai,
   sesuai urutan kirim. *Steer current task* menyerahkannya ke tugas yang sedang berjalan, yang membacanya

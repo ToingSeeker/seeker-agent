@@ -109,6 +109,7 @@ const state = {
   open: new Set(), // timeline entries the reader expanded
   shown: new Map(), // workspace id → how many entries are drawn
   deciding: new Set(), // approvals whose answer is on its way
+  scrolls: new Map(), // "session:<id>:<tab>" → where the reader was in that view
   drawn: new Set(), // timeline entries already on screen once, so only new ones animate in
   loaded: false, // the Mac's list of projects has arrived at least once
   list: { query: '', searching: false, filter: 'all', sort: stored('seeker.sessions.sort', 'recent') }, // the Sessions screen
@@ -137,6 +138,7 @@ const pings = new Map(); // command id → when it was sent
 const acks = new Map(); // key of an instruction → called with what the Mac answered
 const NO_QUEUE = { items: [], paused: null };
 
+const SESSION_TABS = ['activity', 'tools', 'metrics'];
 const PAGE = 120; // timeline entries drawn at first; older ones on request
 const PREFS_KEY = 'seeker.push.prefs';
 function pushPrefs() {
@@ -1061,12 +1063,14 @@ function entryOf(item) {
   return h('li', { class: `ev notice ${item.level}` }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'sub' }, item.text, ' ', time)));
 }
 
+let keepFromBottom = null; // set when earlier entries are asked for: the reader stays on the entry they were on
+
 /** `items` in the order they happened; `tail` is one more entry to close the list with. */
 function timeline(ws, items = ws.items, tail = null) {
   const shown = state.shown.get(ws.meta.id) ?? PAGE;
   const visible = items.slice(-shown);
   return [
-    items.length > visible.length && h('button', { class: 'btn quiet small', onclick: () => (state.shown.set(ws.meta.id, shown + PAGE), render(true)) }, `Show ${Math.min(PAGE, items.length - visible.length)} earlier entries`),
+    items.length > visible.length && h('button', { class: 'btn quiet small', onclick: () => ((keepFromBottom = $('view').scrollHeight - $('view').scrollTop), state.shown.set(ws.meta.id, shown + PAGE), render(true)) }, `Show ${Math.min(PAGE, items.length - visible.length)} earlier entries`),
     h('ol', { class: 'timeline' }, visible.map(entry), tail),
   ];
 }
@@ -1162,7 +1166,16 @@ function session(ws) {
     );
   const up = state.linked && state.online;
   const tab = state.sessionTab;
-  const tabButton = (id, label) => h('button', { class: tab === id ? 'active' : '', role: 'tab', 'aria-selected': String(tab === id), onclick: () => ((state.sessionTab = id), render(true)) }, label);
+  const tabButton = (id, label) => h('button', { class: tab === id ? 'active' : '', role: 'tab', id: `tab-${id}`, 'aria-selected': String(tab === id), 'aria-controls': 'view', tabindex: tab === id ? '0' : '-1', onclick: () => ((state.sessionTab = id), render(true)) }, label);
+  // Left and right move between the tabs, as in any tab list.
+  const tabKeys = (event) => {
+    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    state.sessionTab = SESSION_TABS[(SESSION_TABS.indexOf(tab) + step + SESSION_TABS.length) % SESSION_TABS.length];
+    draw();
+    $(`tab-${state.sessionTab}`)?.focus();
+  };
   const tools = items.filter((i) => i.kind === 'tool');
   const body =
     tab === 'tools'
@@ -1185,7 +1198,8 @@ function session(ws) {
         : items.length || pending || st.busy || ws.queue?.items.length
           ? timeline(ws, items, [pending ? waitingEntry(pending) : workingEntry(meta), queuedEntry(ws.queue)])
           : [h('div', { class: 'empty' }, 'Nothing has happened in this conversation yet.')];
-  return [
+  // The head stays where it is while the body below it scrolls: see draw().
+  const head = [
     h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.model)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
     // What the agent is doing on the left; how full its context is on the right.
     h(
@@ -1194,9 +1208,9 @@ function session(ws) {
       up ? h('span', { class: `state-chip ${st.tone}${st.busy ? ' busy' : ''}` }, h('i'), STATE_WORD[st.key]) : h('span', { class: 'state-chip danger' }, h('i'), 'Offline'),
       h('span', {}, `${kilo(meta.used)} / ${sizeOf(meta.limit)} tokens`),
     ),
-    h('div', { class: 'tabs seg', role: 'tablist' }, tabButton('activity', 'Activity'), tabButton('tools', tools.length ? `Tools · ${tools.length}` : 'Tools'), tabButton('metrics', 'Metrics')),
-    ...body,
+    h('div', { class: 'tabs seg', role: 'tablist', 'aria-label': 'Session views', onkeydown: tabKeys }, tabButton('activity', 'Activity'), tabButton('tools', tools.length ? `Tools · ${tools.length}` : 'Tools'), tabButton('metrics', 'Metrics')),
   ];
+  return { head, body };
 }
 
 function newConversation(meta) {
@@ -1335,6 +1349,16 @@ function sessionRow(row) {
     ),
     h('span', { class: 'chev', icon: 'chevron' }),
   );
+}
+
+let sessionHead = []; // the open session's title, state and tabs, as last built
+
+/** The scrolling part of a session; its head is kept aside for the region above. */
+function sessionParts(ws) {
+  const built = session(ws);
+  if (Array.isArray(built)) return built; // the project was closed: one plain screen
+  sessionHead = built.head;
+  return built.body;
 }
 
 /** What the Sessions screen shows now, and a signature of it: the screen is redrawn only when that changes. */
@@ -1531,14 +1555,15 @@ function draw() {
   const paired = Boolean(state.secret);
   const ws = state.workspaces.get(state.view.ws);
   // Stay at the bottom of a growing conversation, unless the reader has scrolled up.
-  const pinned = name === 'session' && view.scrollHeight - view.scrollTop - view.clientHeight < 80;
+  const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 80;
+  const pinned = name === 'session' && state.sessionTab !== 'metrics' && atBottom;
   const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab : ''}`;
   // The Sessions list is left alone while nothing it shows has changed: a token streaming in another
   // project does not rebuild it, so a finger or the keyboard focus stays on the row it was on.
   const listed = !paired ? null : name === 'sessions' ? sessionsNow() : name === 'home' ? homeNow() : null;
   const unchanged = listed && view.dataset.screen === screen && view.dataset.listed === listed.signature;
   view.dataset.listed = listed?.signature ?? '';
-  const content = unchanged ? null : !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : name === 'sessions' ? sessions(listed) : name === 'settings' ? settings() : home(listed);
+  const content = unchanged ? null : !paired ? login() : name === 'session' ? sessionParts(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : name === 'sessions' ? sessions(listed) : name === 'settings' ? settings() : home(listed);
   const scroll = view.scrollTop;
   const grownFrom = view.scrollHeight;
   const focusedRow = view.contains(document.activeElement) ? document.activeElement.dataset.ws : null;
@@ -1563,13 +1588,33 @@ function draw() {
   }
   view.className = `screen-${paired ? name : 'login'}`;
   const sameScreen = view.dataset.screen === screen;
-  view.scrollTop = pinned || !sameScreen ? (name === 'session' ? view.scrollHeight : 0) : scroll;
+  // Each view of each session keeps its own place: leaving one remembers where the reader was.
+  if (!sameScreen && view.dataset.screen?.startsWith('session:')) state.scrolls.set(view.dataset.screen, { top: scroll, bottom: atBottom });
+  const kept = sameScreen ? null : state.scrolls.get(screen);
+  if (keepFromBottom != null && sameScreen) view.scrollTop = view.scrollHeight - keepFromBottom; // earlier entries were added above
+  else if (kept) view.scrollTop = kept.bottom && state.sessionTab !== 'metrics' ? view.scrollHeight : kept.top;
+  else view.scrollTop = pinned || !sameScreen ? (name === 'session' && state.sessionTab !== 'metrics' ? view.scrollHeight : 0) : scroll;
+  keepFromBottom = null;
   view.dataset.screen = screen;
+  if (name === 'session') view.setAttribute('role', 'tabpanel'), view.setAttribute('aria-labelledby', `tab-${state.sessionTab}`);
+  else view.removeAttribute('role'), view.removeAttribute('aria-labelledby');
   // Something new arrived below while the reader was further up: the jump button gets a dot.
   if (!sameScreen) unseen = false;
   else if (name === 'session' && !pinned && view.scrollHeight > grownFrom) unseen = true;
 
   const inSession = paired && name === 'session' && ws;
+  // The session's head is its own region above the scrolling one, redrawn only when what it says changes.
+  const top = $('top');
+  top.hidden = !inSession;
+  if (inSession) {
+    const signature = `${screen}|${sessionHead.map((el) => el.textContent).join('|')}|${sessionHead[1].querySelector('.state-chip').className}`;
+    if (top.dataset.signature !== signature) {
+      const focused = top.contains(document.activeElement) ? document.activeElement.id : '';
+      top.replaceChildren(...sessionHead);
+      top.dataset.signature = signature;
+      if (focused) $(focused)?.focus();
+    }
+  }
   $('composer').hidden = !inSession;
   if (inSession) {
     const st = agentState(ws.meta);
@@ -1765,20 +1810,17 @@ function chooseMode(ws, text) {
   sheet('Kirim instruksi baru', body);
 }
 
-// ── floating buttons over a long conversation: back (out of thumb reach at the top) and latest ──
+// ── the floating button over a long conversation: jump to the latest entry ──
 let unseen = false;
 function fabs() {
   const view = $('view');
   const inSession = state.view.name === 'session' && !$('composer').hidden;
   const below = view.scrollHeight - view.scrollTop - view.clientHeight;
   if (below < 80) unseen = false;
-  $('fab-back').hidden = !inSession || view.scrollTop < 120;
   $('fab-latest').hidden = !inSession || below < 200;
   $('fab-latest').classList.toggle('unseen', unseen);
 }
-$('fab-back').innerHTML = ICONS.back;
 $('fab-latest').innerHTML = ICONS.down;
-$('fab-back').addEventListener('click', () => go({ name: 'home' }));
 $('fab-latest').addEventListener('click', () => {
   const view = $('view');
   unseen = false;
