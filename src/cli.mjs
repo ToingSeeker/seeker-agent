@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { Agent } from './agent.mjs';
-import { matchCommands, resolveModel, runCommand } from './commands.mjs';
+import { isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
 import { RemoteDaemon, Workspace, remoteCredentials, stayAwake } from './remote.mjs';
 import { saveImages } from './images.mjs';
 import { TerminalLink, teeUi, terminalId } from './link.mjs';
@@ -665,7 +665,26 @@ export async function main(argv) {
     const input = await term.readInput({ placeholder: 'Ask Seeker to build, fix, or explore…', suggest, complete });
     if (input === null) break;
     if (typeof input === 'object') {
-      // Sent from the phone. It is only ever a message for the model: never a `!` shell line or a /command.
+      // Sent from the phone: never a `!` shell line. A /command or /skill runs as it would typed here, minus
+      // what needs this terminal (a picker) or must not come from a phone (runPhoneCommand says which).
+      if (!input.images.length && isSlashCommand(input.text)) {
+        ui.userEcho(input.text);
+        mirror.ui.user(input.text);
+        let result;
+        try {
+          // agent.ui reaches both screens, so the phone sees what the command printed.
+          result = await runPhoneCommand(input.text, { agent, ui: agent.ui, term: null, config, permissions, session, hub, autonomy: getAutonomy, terminal: true });
+        } catch (err) {
+          agent.ui.warn(`  ${err.message}`);
+          continue;
+        }
+        if (result?.prompt) {
+          await mirror.run(result.prompt, [], { references: false, echo: false });
+          await pursueGoal();
+        }
+        watchSchedule();
+        continue;
+      }
       const pictures = input.images.length ? `\n[${input.images.length} image${input.images.length > 1 ? 's' : ''} from the phone]` : '';
       ui.userEcho(`${input.text}${pictures}`);
       await turn(input.text, { images: input.images, typed: true });
