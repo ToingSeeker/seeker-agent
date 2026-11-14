@@ -37,6 +37,22 @@ test('the stylesheet takes every colour from a token', () => {
   assert.ok(!/\.session-card[^{]*\{[^}]*border-left/.test(css) && !/\.s-row[^{]*\{[^}]*border-left/.test(css), 'no status-coloured left border');
 });
 
+test('a session keeps its title and tabs outside the part that scrolls', () => {
+  const html = read('index.html');
+  const css = read('style.css');
+  const app = read('app.js');
+  // Four regions, in this order, as siblings: head, scrolling content, composer, navigation.
+  const order = ['<header id="top"', '<main id="view"', '<footer id="composer"', '<nav id="nav"'].map((tag) => html.indexOf(tag));
+  assert.ok(order.every((at, i) => at > 0 && (i === 0 || at > order[i - 1])), 'head, content, composer and navigation follow one another');
+  assert.ok(html.indexOf('</header>') < html.indexOf('<main id="view"'), 'the head is closed before the scrolling area opens');
+  assert.match(css, /#view \{[^}]*overflow-y: auto/, 'the content is the region that scrolls');
+  assert.match(css, /\.session-top \{[^}]*flex: none/, 'the head keeps its height');
+  assert.doesNotMatch(css, /\.session-top[^{]*\{[^}]*position: (sticky|fixed)/, 'held by the layout, not pinned over the content');
+  // The tabs are built into the head, and say which panel they control.
+  assert.match(app, /return \{ head, body \}/);
+  assert.ok(app.includes("role: 'tablist'") && app.includes("'aria-controls': 'view'") && app.includes("view.setAttribute('role', 'tabpanel')"));
+});
+
 test('how many colours a terminal shows is read from its environment', () => {
   assert.equal(colorDepth({ TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 24);
   assert.equal(colorDepth({ TERM: 'xterm-256color' }), 8);
