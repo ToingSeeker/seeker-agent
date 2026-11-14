@@ -65,6 +65,22 @@ const ICONS = {
   sliders: svg('<path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h8M16 17h4"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="14" cy="17" r="2"/>'),
   sort: svg('<path d="M8 5v14M8 19l-3.5-3.5M8 19l3.5-3.5M16 19V5M16 5l-3.5 3.5M16 5l3.5 3.5"/>'),
   funnel: svg('<path d="M4 5h16l-6.2 7.4V18l-3.6 2v-7.6z"/>'),
+  // Settings: one icon per row, each for what the row is about.
+  cloud: svg('<path d="M7.5 18.5a4.5 4.5 0 01-.6-8.96A5.5 5.5 0 0117.6 10.6 4 4 0 0117 18.5z"/>'),
+  timer: svg('<circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V9.5M9.5 3.5h5M12 3.5v3"/>'),
+  clock: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>'),
+  hourglass: svg('<path d="M7 3.5h10M7 20.5h10M8 3.5v3.2c0 1.6 4 3.6 4 5.3 0-1.7 4-3.7 4-5.300V3.500M8 20.500v-3.200c0-1.6 4-3.6 4-5.3 0 1.7 4 3.7 4 5.300v3.2"/>'),
+  server: svg('<rect x="4" y="4.5" width="16" height="6" rx="1.5"/><rect x="4" y="13.5" width="16" height="6" rx="1.5"/><path d="M7.5 7.500h.01M7.5 16.500h.01"/>'),
+  key: svg('<circle cx="8" cy="15" r="3.5"/><path d="M10.6 12.400L19 4M15.5 7.500l2.5 2.500M13 10l1.8 1.8"/>'),
+  eye: svg('<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>'),
+  eyeoff: svg('<path d="M4 4l16 16M9.9 5.800A8.6 8.6 0 0112 5.500c6 0 9.5 6.5 9.5 6.500a15.6 15.6 0 01-2.9 3.700M6.4 7.400A15.3 15.3 0 002.5 12S6 18.5 12 18.500a8.7 8.7 0 004-1M10 10.100a2.8 2.8 0 003.9 3.9"/>'),
+  plane: svg('<path d="M20.5 3.500L3.5 10.500l6.5 2.5 2.5 6.500zM10 13l4.5-4.5"/>'),
+  help: svg('<circle cx="12" cy="12" r="8.5"/><path d="M9.7 9.500a2.4 2.4 0 114 1.800c-.9.7-1.7 1.2-1.7 2.400M12 16.800h.01"/>'),
+  alert: svg('<path d="M12 4.500l8.5 14.500h-17zM12 10v4.500M12 16.800h.01"/>'),
+  done: svg('<circle cx="12" cy="12" r="8.5"/><path d="M8.5 12.300l2.4 2.4 4.6-5"/>'),
+  phone: svg('<rect x="7" y="3" width="10" height="18" rx="2.2"/><path d="M11 18h2"/>'),
+  gauge: svg('<path d="M4.5 17a8.5 8.5 0 1115 0M12 14l3.5-4.5"/><circle cx="12" cy="14.5" r="1"/>'),
+  tag: svg('<path d="M3.5 12.500V4.500h8l9 9-8 8zM8 8.500h.01"/>'),
   stop: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
@@ -1356,8 +1372,8 @@ function settings() {
   const first = [...state.workspaces.values()][0]?.meta;
   const prefs = pushPrefs();
   const toggle = (on, action, label, disabled = false) => h('button', { class: `switch${on ? ' on' : ''}`, role: 'switch', 'aria-checked': String(on), 'aria-label': label, disabled, onclick: action }, h('i'));
-  const check = (kind, label) =>
-    h('label', { class: 'row check' }, h('span', { class: 'grow' }, h('span', { class: 'label' }, label)), h('input', { type: 'checkbox', checked: prefs[kind], disabled: state.push !== 'on' || !up, onchange: (e) => setPushPref(kind, e.target.checked) }));
+  const check = (kind, label, icon) =>
+    h('label', { class: 'row check' }, h('span', { class: 'ico', icon }), h('span', { class: 'grow' }, h('span', { class: 'label' }, label)), h('input', { type: 'checkbox', checked: prefs[kind], disabled: state.push !== 'on' || !up, onchange: (e) => setPushPref(kind, e.target.checked) }));
   const pushNote = {
     unsupported: 'Not available in this browser. On iPhone: Share → Add to Home Screen, then open SEEKER from the home screen.',
     denied: 'Blocked for this site. Allow notifications for SEEKER in your phone’s settings, then reopen the app.',
@@ -1372,9 +1388,9 @@ function settings() {
       'div',
       { class: 'group' },
       row('laptop', state.device?.name ?? 'Your Mac', up ? 'Connected' : 'Offline', { tone: up ? 'success' : 'danger', sub: first ? `${first.provider}${first.local ? ' · runs on the Mac' : ' · cloud'}` : null }),
-      row('wifi', 'Relay', state.linked ? 'Connected' : 'Reconnecting…', { tone: state.linked ? 'success' : 'warning', sub: location.host }),
-      row('pulse', 'Round trip to the Mac', state.latency ? `${state.latency.ms} ms` : '—', { sub: state.latency ? `measured ${ago(state.latency.at)} · tap to measure again` : up ? 'measuring…' : 'needs the Mac online', onclick: up ? () => (ping(), toast('Measuring…')) : null }),
-      row('terminal', 'Last heard from the Mac', ago(state.lastEntryAt)),
+      row('cloud', 'Relay', state.linked ? 'Connected' : 'Reconnecting…', { tone: state.linked ? 'success' : 'warning', sub: location.host }),
+      row('timer', 'Round trip to the Mac', state.latency ? `${state.latency.ms} ms` : '—', { sub: state.latency ? `measured ${ago(state.latency.at)} · tap to measure again` : up ? 'measuring…' : 'needs the Mac online', onclick: up ? () => (ping(), toast('Measuring…')) : null }),
+      row('clock', 'Last heard from the Mac', ago(state.lastEntryAt)),
     ),
     section('MODEL'),
     h('div', { class: 'group' }, row('cube', first?.model ?? state.device?.model ?? '—', null, { sub: first ? `${first.provider} · ${sizeOf(first.limit)} context${first.vision === false ? ' · no images' : first.vision ? ' · sees images' : ''}` : (state.device?.provider ?? 'No project open'), onclick: up ? chooseModel : null })),
@@ -1384,29 +1400,30 @@ function settings() {
       'div',
       { class: 'group' },
       h('div', { class: 'row' }, h('span', { class: 'ico', icon: 'bell' }), h('span', { class: 'grow' }, h('span', { class: 'label' }, state.push === 'on' ? 'On for this phone' : 'Notifications'), h('span', { class: 'sub' }, pushNote)), toggle(state.push === 'on', state.push === 'on' ? disablePush : enablePush, 'Notifications for this phone', ['unsupported', 'denied', 'unknown'].includes(state.push))),
-      check('done', 'Task completions'),
-      check('approval', 'Approval requests and questions'),
-      check('error', 'Errors'),
-      state.push === 'on' && row('bell', 'Send a test notification', null, { onclick: () => command('push_test') }),
+      check('done', 'Task completions', 'done'),
+      check('approval', 'Approval requests and questions', 'help'),
+      check('error', 'Errors', 'alert'),
+      state.push === 'on' && row('plane', 'Send a test notification', null, { onclick: () => command('push_test') }),
     ),
     section('PRIVACY & SECURITY'),
     h(
       'div',
       { class: 'group' },
       row('lock', 'End-to-end encryption', 'On', { tone: 'success', sub: 'AES-256-GCM between this phone and your Mac' }),
-      row('shield', 'Relay', 'Cannot read', { tone: 'success', sub: 'It holds only a hash of the access token' }),
-      row('check', 'This phone', 'Paired', { tone: 'success', sub: 'The pairing secret is stored on this device only' }),
+      row('eyeoff', 'Relay', 'Cannot read', { tone: 'success', sub: 'It holds only a hash of the access token' }),
+      row('phone', 'This phone', 'Paired', { tone: 'success', sub: 'The pairing secret is stored on this device only' }),
     ),
     section('DIAGNOSTICS'),
     h(
       'div',
       { class: 'group' },
       row('pulse', 'Transport', state.linked ? 'Event stream open' : 'Closed, retrying', { tone: state.linked ? '' : 'warning' }),
-      row('layers', 'Context limit', first ? sizeOf(first.limit) : '—'),
-      row('terminal', 'Agent version', state.device?.version ? `v${state.device.version}` : '—'),
-      row('list', 'Open projects', String(state.workspaces.size)),
+      row('gauge', 'Context limit', first ? sizeOf(first.limit) : '—'),
+      row('tag', 'Agent version', state.device?.version ? `v${state.device.version}` : '—'),
+      row('folder', 'Open projects', String(state.workspaces.size)),
     ),
-    h('div', { class: 'actions stack' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect'), h('button', { class: 'btn quiet danger', onclick: () => confirm('Remove the pairing from this phone?') && signOut() }, 'Unpair this phone')),
+    h('div', { class: 'actions even' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect')),
+    h('button', { class: 'btn quiet danger unpair', onclick: () => confirm('Remove the pairing from this phone?') && signOut() }, 'Unpair this phone'),
   ];
 }
 
@@ -1426,19 +1443,19 @@ function agentSettings(up, toggle) {
     h(
       'div',
       { class: 'group' },
-      flip('pulse', 'Thinking', 'The model reasons before it answers, when it can', cfg.think, () => setConfig('think', !cfg.think)),
+      flip('brain', 'Thinking', 'The model reasons before it answers, when it can', cfg.think, () => setConfig('think', !cfg.think)),
       flip('shield', 'Ask before edits and commands', asks ? 'Each one waits for your approval' : 'Off: they run without asking. Risky ones still ask.', asks, setApproval),
       edit('layers', 'Context window', cfg.context ? `${sizeOf(cfg.context)} tokens` : 'Model default', 'numCtx', cfg.context ?? '', { numeric: true, hint: 'In tokens, at least 2048. A larger window remembers more and needs more memory.' }),
       edit('list', 'Steps per message', String(cfg.maxSteps), 'maxSteps', cfg.maxSteps, { numeric: true, hint: 'How many tool steps the agent may take before it stops and waits for you.' }),
-      edit('cube', 'Keep the model in memory', cfg.keepAlive, 'keepAlive', cfg.keepAlive, { hint: 'For Ollama: how long a model stays loaded after its last answer, such as 30m or 2h.' }),
-      edit('wifi', 'Ollama address', cfg.host, 'host', cfg.host, { hint: 'Where Ollama listens, as your Mac reaches it.' }),
-      row('lock', 'API keys', null, { sub: 'For cloud providers', onclick: up ? chooseKey : null }),
+      edit('hourglass', 'Keep the model in memory', cfg.keepAlive, 'keepAlive', cfg.keepAlive, { hint: 'For Ollama: how long a model stays loaded after its last answer, such as 30m or 2h.' }),
+      edit('server', 'Ollama address', cfg.host, 'host', cfg.host, { hint: 'Where Ollama listens, as your Mac reaches it.' }),
+      row('key', 'API keys', null, { sub: 'For cloud providers', onclick: up ? chooseKey : null }),
     ),
     section('IN THE TERMINAL'),
     h(
       'div',
       { class: 'group' },
-      flip('terminal', 'Show reasoning', 'Print the model’s thinking as it works', cfg.showThinking, () => setConfig('showThinking', !cfg.showThinking)),
+      flip('eye', 'Show reasoning', 'Print the model’s thinking as it works', cfg.showThinking, () => setConfig('showThinking', !cfg.showThinking)),
       flip('logo', 'Animate the robot', 'The robot in the header blinks, here and in the terminal', cfg.animation, () => setConfig('animation', !cfg.animation)),
     ),
     h('div', { class: 'muted small pad' }, 'Saved on your Mac. Projects opened from this app change at once; a seeker already running in a terminal keeps what it started with.'),

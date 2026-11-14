@@ -498,8 +498,15 @@ button.row:active {
   color: var(--sk-danger);
 }
 .row.check {
-  padding-left: 48px;
   cursor: pointer;
+}
+/* Every settings row starts with an icon of the same size and weight; the robot is the one drawn in colour. */
+.row > .ico {
+  width: 20px;
+  height: 20px;
+}
+.row.check .ico {
+  color: var(--sk-text-muted);
 }
 .row.check input {
   width: 20px;
@@ -1733,10 +1740,18 @@ pre {
   gap: 10px;
   margin: 14px 0 4px;
 }
-.actions.stack {
-  grid-template-columns: 1fr;
-  gap: 0;
-  margin-top: 20px;
+/* A lone button (Save) takes the whole row instead of the narrow first column. */
+.actions > :only-child {
+  grid-column: 1 / -1;
+}
+.actions.even {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 22px;
+}
+/* Leaving the pairing is kept apart from the two harmless buttons above it. */
+.btn.unpair {
+  margin-top: 14px;
+  border-color: color-mix(in srgb, var(--sk-danger) 35%, var(--sk-border));
 }
 .btn {
   display: flex;
@@ -2316,9 +2331,38 @@ pre {
   border-radius: 2px;
   background: var(--sk-border);
 }
+/* The title stays put while a long list scrolls under it, so the sheet reads as one scrolling panel. */
 #sheet h3 {
-  margin: 0 0 8px;
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  margin: 0 -16px;
+  padding: 8px 16px;
+  background: var(--sk-surface);
   font-size: 17px;
+}
+/* On a tablet or a desktop window a sheet glued to the bottom edge, narrower than the screen, looks
+   like a card with its lower part cut off. There it is a dialog: centred, closed on all four sides. */
+@media (min-width: 640px) {
+  #sheet {
+    align-items: center;
+    padding: 24px;
+  }
+  #sheet .panel {
+    max-width: 560px;
+    max-height: min(82dvh, 720px);
+    padding-bottom: 18px;
+    border-bottom: 1px solid var(--sk-border);
+    border-radius: 18px;
+    animation-name: enter;
+    animation-duration: var(--sk-motion-normal);
+  }
+  #sheet .grip {
+    display: none;
+  }
+  #sheet h3 {
+    padding-top: 12px;
+  }
 }
 .row-btn {
   display: block;
