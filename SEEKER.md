@@ -20,7 +20,7 @@ Public repo, Apache-2.0.
 ```
 npm install
 npm link                                     # installs `seeker` (bin/seeker.mjs)
-npm test                                     # node --test, offline, 164 tests
+npm test                                     # node --test, offline, 172 tests
 SEEKER_HOME=/tmp/seeker-dev node bin/seeker.mjs   # manual try-out without touching ~/.seeker
 SEEKER_REMOTE_AUTH=<value> node remote-server/server.mjs   # relay locally
 ```
@@ -49,7 +49,7 @@ docs/               README screenshots
 
 ## Conventions seen in the code
 - ESM imports with `node:` prefixes (`node:fs`, `node:path`, `node:test`, `node:assert/strict`).
-- Most `src/` files (40 of 43) open with a comment block explaining the module's purpose and layout; JSDoc `/** */`
+- Most `src/` files (41 of 44) open with a comment block explaining the module's purpose and layout; JSDoc `/** */`
   one-liners on exported functions.
 - Tests use `node:test` + `assert/strict`, build fixtures in `fs.mkdtempSync(os.tmpdir() ...)`,
   and never touch the real `~/.seeker`: under `node --test` `config.mjs` swaps `HOME_DIR` for a
