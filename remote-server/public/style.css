@@ -707,28 +707,80 @@ button.row:active {
   font: 12px/1.4 var(--mono);
   color: var(--sk-text-secondary);
 }
-.status + .tabs {
-  margin-top: 12px;
-}
 .tabs + .timeline,
 .tabs + .empty,
 .tabs + .btn {
   margin-top: 12px;
 }
-.session-bar .dot {
-  margin-right: 6px;
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font: 600 12px/1.3 var(--mono);
+}
+.state-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.state-chip.busy i {
+  animation: pulse 1.6s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.state-chip.muted {
+  color: var(--sk-text-secondary);
+  border-color: var(--sk-border);
+}
+.state-chip.primary {
+  background: var(--sk-primary-soft);
+}
+.state-chip.execution {
+  background: var(--sk-execution-soft);
+}
+.state-chip.reasoning {
+  background: var(--sk-reasoning-soft);
+}
+.state-chip.success {
+  background: var(--sk-success-soft);
+}
+.state-chip.danger {
+  background: var(--sk-danger-soft);
+}
+/* The session's three views, as one segmented control. */
+.tabs.seg {
+  padding: 3px;
+  gap: 0;
+}
+.tabs.seg button {
+  min-height: 38px;
+  font: 600 13.5px/1 var(--sans);
+  letter-spacing: 0;
+}
+.tabs.seg button + button:not(.active) {
+  box-shadow: -1px 0 0 var(--sk-border-subtle);
 }
 /* A step that waits for the user, at the end of the timeline. */
 .ev.pending .node {
+  color: var(--sk-primary);
   border-color: var(--sk-primary);
+  background-image: linear-gradient(var(--sk-primary-soft), var(--sk-primary-soft));
+  animation: pulse 1.8s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
 }
 .ev.pending .title {
   color: var(--sk-primary);
 }
-.ev.pending .btn {
-  width: auto;
-  align-self: flex-start;
-  margin-top: 6px;
+.ev.pending .pair {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 420px;
 }
 .topbar {
   display: flex;
@@ -755,74 +807,6 @@ button.row:active {
   font-weight: 700;
 }
 
-.status {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  margin-top: 10px;
-  padding: 13px 14px;
-  border: 1px solid currentColor;
-  border-radius: var(--sk-radius-lg);
-  background: var(--sk-surface);
-  overflow: hidden;
-  transition: color var(--sk-motion-slow), border-color var(--sk-motion-slow);
-}
-.status.muted {
-  border-color: var(--sk-border);
-}
-.status.reasoning {
-  background: var(--sk-reasoning-soft);
-}
-.status.execution {
-  background: var(--sk-execution-soft);
-}
-.status.primary {
-  background: var(--sk-primary-soft);
-}
-.status.success {
-  background: var(--sk-success-soft);
-}
-.status.danger {
-  background: var(--sk-danger-soft);
-}
-.status .ico {
-  width: 26px;
-  height: 26px;
-  color: inherit;
-}
-.status .grow {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.status .state {
-  font: 800 14px/1.2 var(--mono);
-  letter-spacing: 0.1em;
-}
-.status .what {
-  color: var(--sk-text-primary);
-  opacity: 0.86;
-  font-size: 13px;
-  word-break: break-word;
-}
-.status .chev {
-  color: inherit;
-}
-/* Work in progress has no known length, so the bar only shows that it is alive. */
-.status .bar {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 34%;
-  height: 2px;
-  background: currentColor;
-  animation: slide 1.6s ease-in-out infinite;
-}
-.status.reasoning .ico {
-  animation: pulse 1.8s ease-in-out infinite;
-}
 
 .timeline {
   list-style: none;
@@ -832,9 +816,19 @@ button.row:active {
 .ev {
   position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 10px;
-  padding: 9px 0;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+}
+/* A hairline between steps, starting where the text does. */
+.ev + .ev::after {
+  content: '';
+  position: absolute;
+  left: 40px;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--sk-border-subtle);
 }
 .ev.fresh {
   animation: enter var(--sk-motion-slow) ease-out;
@@ -842,45 +836,99 @@ button.row:active {
 .ev::before {
   content: '';
   position: absolute;
-  left: 10px;
+  left: 13px;
   top: 0;
   bottom: 0;
   width: 1px;
   background: var(--sk-border);
 }
 .ev:first-child::before {
-  top: 16px;
+  top: 22px;
 }
 .ev:last-child::before {
-  bottom: calc(100% - 16px);
+  bottom: calc(100% - 22px);
 }
 .ev .node {
   position: relative;
   z-index: 1;
-  width: 18px;
-  height: 18px;
-  margin: 2px 2px 0;
+  width: 26px;
+  height: 26px;
+  margin: 0 1px;
   border-radius: 50%;
-  border: 2px solid var(--sk-border);
-  background: var(--sk-bg);
-  color: var(--sk-bg);
-  padding: 2px;
+  border: 1.5px solid var(--sk-border);
+  /* The tint is laid over the page colour, so the line behind the node does not show through. */
+  background-color: var(--sk-bg);
+  color: var(--sk-text-muted);
+  padding: 5px;
 }
 .ev .node svg {
-  stroke-width: 3.2;
+  stroke-width: 2.6;
 }
 .ev.tool.done .node {
-  background: var(--sk-success);
+  color: var(--sk-success);
   border-color: var(--sk-success);
+  background-image: linear-gradient(var(--sk-success-soft), var(--sk-success-soft));
 }
 .ev.tool.failed .node {
-  background: var(--sk-danger);
+  color: var(--sk-danger);
   border-color: var(--sk-danger);
+  background-image: linear-gradient(var(--sk-danger-soft), var(--sk-danger-soft));
 }
 .ev.tool.running .node {
+  color: var(--sk-execution);
   border-color: var(--sk-execution);
-  border-top-color: transparent;
-  animation: spin 0.9s linear infinite;
+  background-image: linear-gradient(var(--sk-execution-soft), var(--sk-execution-soft));
+  padding: 6px 5px 6px 7px;
+  animation: pulse 1.8s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.ev.queued .node {
+  color: var(--sk-primary);
+  background-image: linear-gradient(var(--sk-primary-soft), var(--sk-primary-soft));
+}
+.ev.queued .title {
+  color: var(--sk-primary);
+}
+.ev.now-step .node {
+  border-color: currentColor;
+  animation: pulse 1.8s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.ev.now-step.reasoning .node {
+  color: var(--sk-reasoning);
+  background-image: linear-gradient(var(--sk-reasoning-soft), var(--sk-reasoning-soft));
+}
+.ev.now-step.execution .node {
+  color: var(--sk-execution);
+  background-image: linear-gradient(var(--sk-execution-soft), var(--sk-execution-soft));
+}
+.ev.now-step {
+  color: inherit;
+}
+.ev.now-step.reasoning .title {
+  color: var(--sk-reasoning);
+}
+.ev.now-step.execution .title {
+  color: var(--sk-execution);
+}
+/* A running tool has no known length, so the bar only shows that it is alive. */
+.runbar {
+  position: relative;
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--sk-surface-elevated);
+  overflow: hidden;
+}
+.runbar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  border-radius: 2px;
+  background: var(--sk-execution);
+  animation: slide 1.6s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
 }
 .ev.user .node {
   border-color: var(--sk-primary);
@@ -904,7 +952,8 @@ button.row:active {
   gap: 2px;
 }
 .ev .title {
-  font-weight: 600;
+  font-weight: 650;
+  line-height: 26px;
 }
 .ev .sub {
   word-break: break-word;
@@ -913,6 +962,14 @@ button.row:active {
   display: flex;
   align-items: baseline;
   gap: 8px;
+  min-height: 26px;
+}
+/* The time ends the label's line; the text under it keeps the full width. */
+.ev .headline .at {
+  margin-left: auto;
+}
+.ev .body > .headline {
+  padding-right: 20px;
 }
 .ev .at {
   font: 11px/1.4 var(--mono);
@@ -1273,38 +1330,6 @@ pre {
   width: 16px;
   height: 16px;
 }
-.ctl.stop {
-  flex: 0 0 auto;
-}
-.ctl.stop i {
-  width: 11px;
-  height: 11px;
-  border-radius: 2px;
-  background: var(--sk-danger);
-}
-.now {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 0 6px;
-  font: 800 12.5px/1 var(--mono);
-  letter-spacing: 0.1em;
-}
-.now > span:first-child {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-.now.reasoning > span:first-child {
-  animation: pulse 1.8s ease-in-out infinite;
-}
-.now b {
-  font-weight: inherit;
-}
-.now .dots {
-  margin-left: -6px;
-}
 .ctl.approve {
   border-color: var(--sk-primary);
   color: var(--sk-primary);
@@ -1314,6 +1339,222 @@ pre {
 .ctl.resume {
   border-color: var(--sk-primary);
   color: var(--sk-primary);
+}
+
+/* What the agent is doing, above the message box. */
+.run-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
+}
+.run-status .ico {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  padding: 6px;
+  border-radius: 50%;
+  background: var(--sk-surface-elevated);
+}
+.run-status .grow {
+  display: grid;
+  min-width: 0;
+}
+.run-status b {
+  font-size: 14.5px;
+}
+.run-status .sub {
+  font-size: 12.5px;
+  color: var(--sk-text-secondary);
+}
+.run-status .side {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  flex: none;
+}
+.run-status .state-chip {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+}
+.run-status .elapsed {
+  font-size: 12px;
+  color: var(--sk-text-secondary);
+}
+.run-status.reasoning .ico,
+.run-status.reasoning b {
+  color: var(--sk-reasoning);
+}
+.run-status.execution .ico,
+.run-status.execution b {
+  color: var(--sk-execution);
+}
+.run-status.primary .ico,
+.run-status.primary b {
+  color: var(--sk-primary);
+}
+.run-status.muted b {
+  color: var(--sk-text-secondary);
+}
+
+/* Instructions waiting for the task in progress to end. */
+.queue-panel {
+  margin-bottom: 8px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
+  overflow: hidden;
+}
+.queue-panel .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+}
+.queue-panel .head .ico {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--sk-primary);
+}
+.queue-panel .head b {
+  font-size: 13.5px;
+}
+.queue-panel .head .btn {
+  flex: none;
+  width: auto;
+  margin-top: 0;
+  min-height: 32px;
+  padding: 0 10px;
+}
+.queue-panel .paused {
+  padding: 0 10px 6px;
+  font-size: 12.5px;
+  color: var(--sk-warning);
+}
+.queue-panel ol {
+  max-height: 132px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.queue-panel li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-left: 10px;
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.queue-panel .n {
+  flex: none;
+  padding-top: 13px;
+  font-size: 12px;
+  color: var(--sk-text-muted);
+}
+.queue-panel .text {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 11px 0;
+  text-align: left;
+  font-size: 13.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queue-panel .text.open {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.queue-panel .x {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 14px;
+  color: var(--sk-text-secondary);
+}
+.queue-panel .x:disabled {
+  opacity: 0.4;
+}
+
+/* The choice between steering the running task and queueing after it. */
+.mode-sheet .draft {
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--sk-border-strong);
+  font-size: 13.5px;
+  color: var(--sk-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.modes {
+  display: grid;
+  gap: 8px;
+}
+.mode {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-bg-secondary);
+  text-align: left;
+}
+.mode .ico {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  color: var(--sk-primary);
+}
+.mode .grow {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.mode .sub {
+  font-size: 12.5px;
+  color: var(--sk-text-secondary);
+}
+.mode .radio {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1.5px solid var(--sk-border-strong);
+  border-radius: 50%;
+}
+.mode.on {
+  border-color: var(--sk-primary);
+  background: var(--sk-primary-soft);
+}
+.mode.on .radio {
+  border-color: var(--sk-primary);
+  background: radial-gradient(circle, var(--sk-primary) 0 45%, transparent 50%);
+}
+.mode:disabled {
+  opacity: 0.55;
+}
+.mode-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--sk-danger);
+}
+.mode-sheet .pair .btn {
+  margin-top: 0;
+}
+.mode-sheet .pair {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 .suggest {
@@ -1369,16 +1610,34 @@ pre {
   text-overflow: ellipsis;
 }
 .tool-btn {
-  width: 40px;
+  width: 36px;
   height: 44px;
   flex: none;
-  padding: 11px 9px;
+  padding: 12px 8px;
   color: var(--sk-text-secondary);
+}
+/* Stop sits beside Send and never over it; both are a full touch target. */
+.stop-btn {
+  width: 44px;
+  height: 44px;
+  margin-right: 6px;
+  flex: none;
+  padding: 11px;
+  border: 1px solid var(--sk-danger);
+  border-radius: 10px;
+  background: var(--sk-danger-soft);
+  color: var(--sk-danger);
+}
+.stop-btn:disabled {
+  opacity: 0.45;
+}
+.send.busy {
+  animation: pulse 1s ease-in-out infinite;
 }
 .send {
   width: 44px;
-  height: 40px;
-  margin: 2px 0;
+  height: 44px;
+  margin: 0;
   flex: none;
   border-radius: 10px;
   background: var(--sk-primary);
@@ -1583,8 +1842,6 @@ pre {
 /* --t is set on every rebuild of the screen (see draw): looping animations pick up where they were. */
 .chip-state i.live,
 .live i,
-.status .bar,
-.status.reasoning .ico,
 .ev.tool.running .node,
 .spin {
   animation-delay: var(--t, 0s);
