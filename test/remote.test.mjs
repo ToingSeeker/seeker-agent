@@ -78,7 +78,8 @@ async function phone(url, secret) {
             if (event.append) item.text += event.append;
           } else if (event.t === 'approval') state.approvals.push(event.approval);
           else if (event.t === 'approval_done') state.approvals = state.approvals.filter((a) => a.id !== event.id);
-          else if (['toast', 'providers', 'models'].includes(event.t)) state.replies.push(event);
+          else if (event.t === 'queue') state.workspaces.get(event.ws).queue = event.queue;
+          else if (['toast', 'providers', 'models', 'sent'].includes(event.t)) state.replies.push(event);
         }
       }
     } catch {}
@@ -625,6 +626,132 @@ test('remote: the phone is told what the agent is doing, how the turn ended, and
   // A new conversation starts the counts again.
   await me.send('new', { ws: id });
   await until(() => meta().tools.total === 0 && meta().tokens === null && meta().outcome === null);
+  await daemon.stop();
+  await running;
+});
+
+test('remote: instructions sent while the agent works are steered into the task or wait their turn, and a stop pauses the queue', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const queueFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-queue-')), 'queue.json');
+  const secret = 'a-long-secret-for-the-instruction-queue-test';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  // The model answers only when the test lets it, so a turn can be held open.
+  const asked = []; // { messages, answer(text) }
+  const model = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d)).on('end', () => {
+      asked.push({
+        messages: JSON.parse(body).messages,
+        answer: (text) => {
+          res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+          res.end(JSON.stringify(done(text)));
+        },
+      });
+    });
+  });
+  const config = { ...DEFAULTS, host: await listen(model), review: false, remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const options = { config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false, queueFile };
+  const daemon = new RemoteDaemon(options);
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    for (const server of [relay, model]) {
+      server.close();
+      server.closeAllConnections();
+    }
+  });
+  await until(() => me.state.online && [...me.state.workspaces.values()][0]?.queue);
+  const [{ id }] = [...me.state.workspaces.values()];
+  const meta = () => me.state.workspaces.get(id);
+  const ack = (key) => until(() => me.state.replies.find((r) => r.t === 'sent' && r.key === key));
+  const lastUser = (request) => request.messages.filter((m) => m.role === 'user').at(-1).content;
+  assert.deepEqual(meta().can, { queue: true, steer: true, stop: true }, 'the phone is told what this conversation can take while it works');
+  assert.deepEqual(meta().queue, { items: [], paused: null });
+
+  // ── while the first task runs: one instruction waits, one is steered in ──
+  await me.send('message', { ws: id, text: 'first' });
+  await until(() => asked.length === 1 && meta().status === 'working');
+  const turn = meta().turn;
+  assert.match(turn, /^[0-9a-f]{8}$/);
+  await me.send('instruct', { ws: id, text: 'second', mode: 'queue', key: 'k-second' });
+  assert.equal((await ack('k-second')).as, 'queued');
+  // Sent twice (a retry after a lost reply): answered again, queued once.
+  await me.send('instruct', { ws: id, text: 'second', mode: 'queue', key: 'k-second' });
+  await until(() => me.state.replies.filter((r) => r.key === 'k-second').length === 2);
+  assert.deepEqual(meta().queue.items.map((i) => i.text), ['second']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(queueFile, 'utf8'))[id].items.map((i) => i.text), ['second'], 'what waits is on disk, not only in memory');
+  // A daemon started now finds it, and does not run it by itself.
+  assert.deepEqual(new RemoteDaemon({ ...options, folders: [] }).queueView(id), { items: meta().queue.items, paused: 'restart' });
+
+  await me.send('instruct', { ws: id, text: 'use tabs', mode: 'steer', key: 'k-steer' });
+  assert.equal((await ack('k-steer')).as, 'steered');
+  assert.equal(asked.length, 1, 'steering does not start a new request by itself');
+  asked[0].answer('First.');
+  // The turn does not end with an instruction still held: the model is asked again, with it.
+  await until(() => asked.length === 2);
+  assert.match(lastUser(asked[1]), /use tabs/);
+  assert.equal(meta().turn, turn, 'it is still the same task');
+  asked[1].answer('With tabs.');
+  // That task completed, so the one that waited starts by itself.
+  await until(() => asked.length === 3);
+  assert.equal(lastUser(asked[2]), 'second');
+  await until(() => meta().queue.items.length === 0);
+  assert.equal(meta().queue.paused, null);
+  assert.equal(fs.readFileSync(queueFile, 'utf8').includes('second'), false, 'it left the file before it started, so a restart cannot run it again');
+  asked[2].answer('Second.');
+  await until(() => meta().status === 'idle');
+  assert.deepEqual(meta().items.filter((i) => i.kind === 'user').map((i) => [i.text, i.via ?? null]), [['first', null], ['use tabs', 'steer'], ['second', 'queue']]);
+  assert.equal(asked.length, 3);
+
+  // ── a stop ends only the task it names, and what waits does not start after it ──
+  await me.send('message', { ws: id, text: 'third' });
+  await until(() => asked.length === 4 && meta().status === 'working');
+  await me.send('instruct', { ws: id, text: 'fourth', mode: 'queue', key: 'k-fourth' });
+  await me.send('instruct', { ws: id, text: 'held', mode: 'steer', key: 'k-held' });
+  await ack('k-held');
+  await me.send('stop', { ws: id, turn });
+  await me.send('ping');
+  await until(() => me.state.events.some((e) => e.t === 'pong'));
+  assert.equal(meta().status, 'working', 'a stop pressed for an earlier task stops nothing');
+  await me.send('stop', { ws: id, turn: meta().turn });
+  await until(() => meta().status === 'idle');
+  assert.ok(me.state.events.some((e) => e.t === 'ws' && e.ws.stopping === true), 'the phone is told the stop was taken before the task has ended');
+  assert.equal(meta().outcome, 'stopped');
+  // The steered instruction never reached the model: it is kept, ahead of what was already waiting.
+  await until(() => meta().queue.paused === 'stopped');
+  assert.deepEqual(meta().queue.items.map((i) => i.text), ['held', 'fourth']);
+  assert.match(meta().items.at(-1).text, /queue is paused because the task was stopped/);
+  await new Promise((r) => setTimeout(r, 150));
+  assert.equal(asked.length, 4, 'nothing started by itself after the stop');
+
+  // Removing one, then resuming: the rest runs in order.
+  await me.send('queue_remove', { ws: id, item: meta().queue.items[0].id });
+  await until(() => meta().queue.items.length === 1);
+  await me.send('queue_resume', { ws: id });
+  await until(() => asked.length === 5);
+  assert.equal(lastUser(asked[4]), 'fourth');
+  asked[4].answer('Fourth.');
+  await until(() => meta().status === 'idle' && meta().outcome === 'completed' && meta().queue.items.length === 0);
+  assert.equal(meta().queue.paused, null);
+
+  // Sent as queued just as the task ended: with nothing else waiting it simply starts.
+  await me.send('instruct', { ws: id, text: 'fifth', mode: 'queue', key: 'k-fifth' });
+  assert.equal((await ack('k-fifth')).as, 'started');
+  await until(() => asked.length === 6);
+  // Nothing can be steered into a task that is not running, and an empty instruction is refused.
+  asked[5].answer('Fifth.');
+  await until(() => meta().status === 'idle');
+  await me.send('instruct', { ws: id, text: 'too late', mode: 'steer', key: 'k-late' });
+  assert.match((await ack('k-late')).error, /Nothing is running/);
+  await me.send('instruct', { ws: id, text: '  ', mode: 'queue', key: 'k-empty' });
+  assert.match((await ack('k-empty')).error, /nothing to send/);
   await daemon.stop();
   await running;
 });

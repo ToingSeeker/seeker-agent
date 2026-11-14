@@ -152,6 +152,13 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 - **Sesi** — apa yang sedang dilakukan agen (berpikir, menjalankan tool, menulis jawaban, menunggumu,
   selesai, gagal atau dihentikan), tiap langkah saat terjadi beserta keluarannya, serta konteks, token dan
   jumlah tool seperti yang dilaporkan komputer. Stop, Review, Resume dan Retry hanya muncul saat berlaku.
+- **Mengirim saat agen bekerja** — pesan yang dikirim saat agen sibuk akan ditanya mau dibawa ke mana. *Queue next*
+  menyimpannya di komputer (`~/.seeker/queue.json`) dan menjalankannya setelah tugas yang berjalan selesai,
+  sesuai urutan kirim. *Steer current task* menyerahkannya ke tugas yang sedang berjalan, yang membacanya
+  sebelum langkah berikutnya; ini berlaku untuk Ollama dan penyedia API, tidak untuk Claude Code, yang
+  menjalankan satu tugas penuh dalam satu permintaan dan hanya ditawari Queue. Setelah tugas dihentikan atau
+  gagal, dan setelah `seeker remote` dinyalakan ulang, tidak ada yang jalan sendiri: antrean dijeda sampai
+  kamu melanjutkannya. Gambar belum bisa diantrekan, dan sesi yang diketik di terminal tidak punya antrean.
 - **Approvals** — tiap perintah dan tiap perubahan file menunggu di sini. Perubahan ditampilkan sebagai
   diff bernomor baris; perintah yang kena pola berbahaya diberi tanda. Satu permintaan = satu perintah atau satu file.
 - **Settings** — koneksi, model, dan notifikasi mana yang diterima HP ini: tugas selesai, persetujuan dan

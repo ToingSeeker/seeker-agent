@@ -26,6 +26,13 @@ const MAX_ITEMS = 400; // transcript entries kept per workspace
 const SNAPSHOT_EVERY = 400; // events between full snapshots, which let the relay drop older ones
 const COMMAND_MAX_AGE = 5 * 60 * 1000;
 const NOTIFY_FINISHED_AFTER = 30_000; // a turn shorter than this ends without a notification
+const QUEUE_MAX = 20; // instructions that can wait in one project
+const INSTRUCTION_MAX = 20_000; // characters in one of them
+const PAUSED = {
+  stopped: 'The queue is paused because the task was stopped.',
+  failed: 'The queue is paused because the task failed.',
+  restart: 'The queue is paused because SEEKER was restarted on your Mac.',
+};
 
 // ── Keys and encryption ────────────────────────────────────────────────────
 
@@ -84,8 +91,9 @@ export class WebUI {
   }
 
   /** `images` are the pictures sent with the message: their names, and a small preview where there is one. */
-  user(text, images = []) {
-    this.#item(images.length ? { kind: 'user', text, images } : { kind: 'user', text });
+  /** `via` says how it got here when it was not simply sent: 'queue' (it waited its turn) or 'steer' (sent into a running task). */
+  user(text, images = [], via = null) {
+    this.#item({ kind: 'user', text, ...(images.length ? { images } : {}), ...(via ? { via } : {}) });
   }
 
   turnStart() {
@@ -222,6 +230,8 @@ export class Workspace {
     this.phase = null; // thinking | executing | responding, while working
     this.outcome = null; // how the last turn ended: completed | failed | stopped
     this.stopped = false;
+    this.stopping = false; // a stop was asked for and the turn has not ended yet
+    this.turn = null; // names the turn in progress, so a stop can only end the one it was meant for
     this.tools = { total: 0, failed: 0 };
     this.startedAt = null; // when the turn in progress began
     this.lastAt = null; // when anything last happened here
@@ -274,6 +284,10 @@ export class Workspace {
       outcome: this.status === 'idle' ? this.outcome : null,
       activity: this.status === 'idle' ? '' : this.activity,
       startedAt: this.status === 'idle' ? null : this.startedAt,
+      turn: this.status === 'idle' ? null : this.turn,
+      stopping: this.status !== 'idle' && this.stopping,
+      // What can be done to this conversation while it works. A terminal session answers for itself, so it has none.
+      ...(this.terminal ? {} : { can: { queue: true, steer: agent.canSteer, stop: true } }),
       lastAt: this.lastAt,
       tools: { ...this.tools, running: this.status === 'idle' || !this.ui.tool ? null : `${this.ui.tool.doing} ${this.ui.tool.summary}`.trim() },
       // Counted by the provider; null until it has reported once.
@@ -347,9 +361,10 @@ export class Workspace {
    * @param {{ references?: boolean, echo?: boolean }} [opts]  `references` false for a prompt nobody typed (a loop, a goal
    *   step): its @ references stay text. `echo` false when what the user typed is already in the transcript (a /skill).
    */
-  async run(text, images = [], { references = true, echo = true } = {}) {
+  async run(text, images = [], { references = true, echo = true, via = null } = {}) {
     if (this.status !== 'idle') return;
     const started = Date.now();
+    this.turn = crypto.randomBytes(4).toString('hex');
     this.status = 'working';
     this.activity = 'Starting';
     this.phase = 'thinking';
@@ -357,7 +372,7 @@ export class Workspace {
     this.stopped = false;
     this.startedAt = started;
     // The transcript keeps the small previews only; the pictures themselves go to the model.
-    if (echo) this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
+    if (echo) this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })), via);
     this.touch();
     try {
       await this.agent.runTurn(text, { images, references });
@@ -368,8 +383,11 @@ export class Workspace {
       this.activity = '';
       this.phase = null;
       this.outcome = this.stopped ? 'stopped' : this.ui.failed ? 'failed' : 'completed';
+      this.stopping = false;
       this.touch();
     }
+    // What was sent into this turn and never reached the model goes back to the front of the queue.
+    this.daemon.settled?.(this, this.outcome, this.agent.takeSteers());
     const url = `/#v=session:${this.id}`;
     if (this.outcome === 'failed') {
       const error = [...this.items].reverse().find((i) => i.kind === 'notice' && i.level === 'error');
@@ -391,6 +409,8 @@ export class Workspace {
     this.status = 'working';
     this.activity = text.split(/\s/)[0];
     this.phase = 'executing';
+    this.turn = crypto.randomBytes(4).toString('hex');
+    this.stopped = false;
     this.startedAt = Date.now();
     this.touch();
     let result;
@@ -403,14 +423,26 @@ export class Workspace {
       this.status = 'idle';
       this.activity = '';
       this.phase = null;
+      this.stopping = false;
       this.touch();
     }
-    if (result?.prompt) await this.run(result.prompt, [], { references: false, echo: false });
+    if (result?.prompt) return this.run(result.prompt, [], { references: false, echo: false });
+    this.daemon.settled?.(this, this.stopped ? 'stopped' : 'completed', []);
   }
 
   stop() {
-    if (this.status !== 'idle') this.stopped = true;
+    if (this.status !== 'idle' && !this.stopping) {
+      this.stopped = true;
+      this.stopping = true;
+      this.touch();
+    }
     this.agent.interrupt();
+  }
+
+  /** Hands an instruction to the turn in progress. False when there is none, or its provider cannot take one. */
+  steer(text) {
+    if (this.status === 'idle') return false;
+    return this.agent.steer(text, () => this.ui.user(text, [], 'steer'));
   }
 
   reset() {
@@ -531,7 +563,18 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null }) {
+    // Instructions waiting for a project's current task to end: workspace id → { cwd, items, paused }.
+    // Kept on disk, so they outlive this process; what was waiting when it last ended comes back paused.
+    this.queueFile = queueFile;
+    this.queues = new Map();
+    this.acks = new Map(); // key of an instruction → what was answered, so a repeat is answered the same and not done twice
+    try {
+      for (const [id, saved] of Object.entries(queueFile ? JSON.parse(fs.readFileSync(queueFile, 'utf8')) : {})) {
+        const items = (Array.isArray(saved?.items) ? saved.items : []).filter((i) => typeof i?.id === 'string' && typeof i?.text === 'string').slice(0, QUEUE_MAX);
+        if (items.length && typeof saved.cwd === 'string') this.queues.set(id, { cwd: saved.cwd, items, paused: 'restart' });
+      }
+    } catch {}
     this.linkFile = link; // where sessions running in a terminal join; null = they cannot
     this.linkServer = null;
     this.remember = remember; // false in tests, so they never touch the user's settings
@@ -573,7 +616,7 @@ export class RemoteDaemon {
     return {
       t: 'snapshot',
       device: { name: os.hostname().replace(/\.local$/, ''), at: Date.now(), version: VERSION, vapid: this.config.remote.vapid.publicKey, phones: this.subscriptions.length, provider: this.config.provider, model: this.config.model, settings: this.#settings() },
-      workspaces: [...this.workspaces.values()].map((w) => ({ ...w.meta(), items: w.items })),
+      workspaces: [...this.workspaces.values()].map((w) => ({ ...w.meta(), items: w.items, queue: this.queueView(w.id) })),
       approvals: [...this.approvals.values()].map((a) => a.approval),
       folders: projectFolders(),
     };
@@ -766,6 +809,114 @@ export class RemoteDaemon {
     if (!this.#settle(id, answer)) this.send({ t: 'toast', text: 'That request was already answered.' });
   }
 
+  // ── instructions waiting their turn ──
+  /** What the phone is shown of a project's queue. */
+  queueView(id) {
+    const queue = this.queues.get(id);
+    return { items: (queue?.items ?? []).map(({ id, text, at }) => ({ id, text, at })), paused: queue?.items.length ? (queue.paused ?? null) : null };
+  }
+
+  /** Writes the queues to disk and tells the phones. The file is replaced in one step, so it is never half written. */
+  #queueChanged(workspace) {
+    const queue = this.queues.get(workspace.id);
+    if (queue && !queue.items.length) this.queues.delete(workspace.id);
+    if (this.queueFile) {
+      try {
+        const temp = `${this.queueFile}.${process.pid}.tmp`;
+        fs.writeFileSync(temp, JSON.stringify(Object.fromEntries(this.queues), null, 2), { mode: 0o600 });
+        fs.renameSync(temp, this.queueFile);
+      } catch (err) {
+        this.log(`queue: could not be saved (${err.code ?? err.message})`);
+      }
+    }
+    this.send({ t: 'queue', ws: workspace.id, queue: this.queueView(workspace.id) });
+  }
+
+  #queueOf(workspace) {
+    if (!this.queues.has(workspace.id)) this.queues.set(workspace.id, { cwd: workspace.cwd, items: [], paused: null });
+    return this.queues.get(workspace.id);
+  }
+
+  /**
+   * Called when a project's task has ended. After one that completed, the instruction that waited longest starts.
+   * After one that was stopped or failed nothing starts by itself: the queue is paused until the user resumes it.
+   * @param {string[]} undelivered  instructions sent into the task that never reached the model
+   */
+  settled(workspace, outcome, undelivered = []) {
+    if (undelivered.length) this.#queueOf(workspace).items.unshift(...undelivered.map((text) => ({ id: crypto.randomBytes(6).toString('hex'), text, at: Date.now() })));
+    const queue = this.queues.get(workspace.id);
+    if (!queue?.items.length) return;
+    if (outcome !== 'completed') {
+      queue.paused = outcome === 'stopped' ? 'stopped' : 'failed';
+      workspace.ui.notice(`${PAUSED[queue.paused]} ${queue.items.length} instruction${queue.items.length > 1 ? 's are' : ' is'} waiting.`);
+      return this.#queueChanged(workspace);
+    }
+    if (undelivered.length) this.#queueChanged(workspace);
+    if (!queue.paused) this.#startNext(workspace);
+  }
+
+  /** Takes the oldest waiting instruction out of the queue — on disk first — and runs it. So it can never run twice. */
+  #startNext(workspace) {
+    const queue = this.queues.get(workspace.id);
+    if (!queue?.items.length || queue.paused || workspace.status !== 'idle' || !this.running) return;
+    const item = queue.items.shift();
+    this.#queueChanged(workspace);
+    this.log(`${workspace.name} ← (queued) ${item.text.split('\n')[0].slice(0, 70)}`);
+    this.#dispatch(workspace, item.text, [], 'queue');
+  }
+
+  /** Starts a message in a project that is idle: a /command or /skill runs here as in the terminal, anything else goes to the model. */
+  #dispatch(workspace, text, images = [], via = null) {
+    const failed = (err) => this.log(`error in ${workspace.name}: ${err.message}`);
+    if (!images.length && isSlashCommand(text)) {
+      const configure = (key, raw) => {
+        this.#configure(key, raw);
+        this.send(this.snapshot(), { snapshot: true });
+      };
+      return void workspace.command(text, configure).catch(failed);
+    }
+    workspace.run(text, images, { via }).catch(failed);
+  }
+
+  /**
+   * An instruction sent while a project works: 'steer' hands it to the running task, 'queue' keeps it for after.
+   * The phone is answered with what became of it; the same instruction arriving twice is answered again, not done again.
+   */
+  #instruct(command, workspace) {
+    const key = typeof command.key === 'string' && command.key ? command.key.slice(0, 80) : command.id;
+    const reply = (fields) => {
+      const ack = { t: 'sent', key, ws: command.ws, ...fields };
+      this.acks.set(key, ack);
+      if (this.acks.size > 500) this.acks.delete(this.acks.keys().next().value);
+      this.send(ack);
+    };
+    if (this.acks.has(key)) return this.send(this.acks.get(key));
+    if (!workspace) return reply({ error: 'That project is no longer open.' });
+    if (workspace.linked) return reply({ error: 'This conversation runs in a terminal on your Mac. Send it when the terminal has finished.' });
+    const text = typeof command.text === 'string' ? command.text.trim() : '';
+    if (!text) return reply({ error: 'There is nothing to send.' });
+    if (text.length > INSTRUCTION_MAX) return reply({ error: 'That instruction is too long.' });
+    if (command.mode === 'steer') {
+      if (!workspace.agent.canSteer) return reply({ error: `${workspace.agent.provider.label} cannot take an instruction while it works. Queue it instead.` });
+      if (!workspace.steer(text)) return reply({ error: 'Nothing is running to steer any more. Send it as a message.' });
+      this.log(`${workspace.name} ← (steer) ${text.split('\n')[0].slice(0, 70)}`);
+      return reply({ as: 'steered' });
+    }
+    const queue = this.#queueOf(workspace);
+    // The task ended while this was on its way and nothing else is waiting: it simply starts.
+    if (workspace.status === 'idle' && !queue.items.length) {
+      this.queues.delete(workspace.id);
+      this.log(`${workspace.name} ← ${text.split('\n')[0].slice(0, 70)}`);
+      this.#dispatch(workspace, text);
+      return reply({ as: 'started' });
+    }
+    if (queue.items.length >= QUEUE_MAX) return reply({ error: `${QUEUE_MAX} instructions are waiting already. Remove one first.` });
+    const item = { id: crypto.randomBytes(6).toString('hex'), text, at: Date.now() };
+    queue.items.push(item);
+    this.#queueChanged(workspace);
+    reply({ as: 'queued', id: item.id });
+  }
+
   // ── workspaces ──
   async openWorkspace(folder, { create = false } = {}) {
     const cwd = folderPath(folder);
@@ -775,6 +926,8 @@ export class RemoteDaemon {
     if (existing) return existing;
     const workspace = new Workspace(this, cwd);
     await workspace.open();
+    // A saved queue belongs to the folder it was made for, and to no other.
+    if (this.queues.get(workspace.id) && this.queues.get(workspace.id).cwd !== cwd) this.queues.delete(workspace.id);
     this.workspaces.set(workspace.id, workspace);
     this.#remember();
     workspace.touch();
@@ -817,22 +970,37 @@ export class RemoteDaemon {
           }
           const text = (typeof command.text === 'string' ? command.text.trim() : '') || (images.length ? `Look at ${images.length > 1 ? 'these images' : 'this image'}.` : '');
           if (!text) return;
-          if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Stop it first.` });
+          if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Queue it, or stop it first.` });
           this.log(`${workspace.name} ← ${text.split('\n')[0].slice(0, 70)}${images.length ? ` (+${images.length} image${images.length > 1 ? 's' : ''})` : ''}`);
-          // A /command or /skill runs here, as it would in the terminal; it is not a message for the model.
-          if (!images.length && isSlashCommand(text)) {
-            const configure = (key, raw) => {
-              this.#configure(key, raw);
-              this.send(this.snapshot(), { snapshot: true });
-            };
-            workspace.command(text, configure).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
-            return;
-          }
-          workspace.run(text, images).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
-          return;
+          return this.#dispatch(workspace, text, images);
+        }
+        case 'instruct':
+          return this.#instruct(command, workspace);
+        case 'queue_remove': {
+          const queue = workspace && this.queues.get(workspace.id);
+          const at = queue?.items.findIndex((i) => i.id === command.item) ?? -1;
+          if (at < 0) return this.send({ t: 'toast', text: 'That instruction is no longer waiting: it has started or was removed.' });
+          queue.items.splice(at, 1);
+          return this.#queueChanged(workspace);
+        }
+        case 'queue_clear': {
+          const queue = workspace && this.queues.get(workspace.id);
+          if (!queue) return;
+          queue.items = [];
+          return this.#queueChanged(workspace);
+        }
+        case 'queue_resume': {
+          const queue = workspace && this.queues.get(workspace.id);
+          if (!queue?.items.length) return;
+          queue.paused = null;
+          this.#queueChanged(workspace);
+          return this.#startNext(workspace);
         }
         case 'stop':
           if (!workspace) return;
+          // A stop names the task it was pressed for; one that arrives after that task ended stops nothing.
+          if (!workspace.linked && typeof command.turn === 'string' && command.turn !== workspace.turn) return;
+          if (!workspace.linked && workspace.status === 'idle') return;
           workspace.stop();
           // Anything it was waiting on is answered "no" so the turn can end.
           for (const [id, entry] of this.approvals) if (entry.approval.ws === workspace.id) this.#settle(id, null);
