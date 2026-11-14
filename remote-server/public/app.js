@@ -869,30 +869,30 @@ function entry(item) {
 const runningDots = () => h('span', { class: 'dots', 'aria-hidden': 'true' }, h('i', {}, '.'), h('i', {}, '.'), h('i', {}, '.'));
 
 function entryOf(item) {
+  // The time sits beside the entry's label, so what follows uses the full width of the screen.
   const time = h('time', { class: 'at' }, clock(item.at));
   if (item.kind === 'tool') {
     const mark = item.state === 'done' ? 'done' : item.state === 'failed' ? 'failed' : 'running';
     const verb = item.state === 'done' ? item.done : item.doing;
     const hasMore = item.output?.length || item.diff;
-    const head = [h('span', { class: 'title' }, verb, item.state === 'running' && runningDots()), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note)];
+    const head = [h('div', { class: 'headline' }, h('span', { class: 'title' }, verb, item.state === 'running' && runningDots()), time), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note)];
     return h(
       'li',
       { class: `ev tool ${mark}` },
       h('span', { class: 'node' }, mark === 'done' ? h('span', { icon: 'check' }) : mark === 'failed' ? h('span', { icon: 'cross' }) : null),
       h('div', { class: 'body' }, hasMore ? expandable(item, head, item.diff && diffView(item.diff, item.summary), item.output?.length ? h('pre', { class: 'out' }, item.output.join('\n')) : null) : head),
-      time,
     );
   }
   if (item.kind === 'user') {
     // A preview is shown only as an image of a type the Mac recognised; anything else is just named.
     const shots = (item.images ?? []).map((i) => (i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name }) : h('span', { class: 'file' }, i.name)));
-    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'who' }, 'YOU'), h('div', { class: 'said' }, item.text), shots.length ? h('div', { class: 'shots' }, shots) : null), time);
+    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), time), h('div', { class: 'said' }, item.text), shots.length ? h('div', { class: 'shots' }, shots) : null));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
-    return h('li', { class: 'ev assistant' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'who' }, 'SEEKER'), h('div', { class: 'prose' }, prose(item.text))), time);
+    return h('li', { class: 'ev assistant' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'SEEKER'), time), h('div', { class: 'prose' }, prose(item.text))));
   }
-  return h('li', { class: `ev notice ${item.level}` }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'sub' }, item.text)), time);
+  return h('li', { class: `ev notice ${item.level}` }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'sub' }, item.text, ' ', time)));
 }
 
 /** `items` in the order they happened; `tail` is one more entry to close the list with. */
