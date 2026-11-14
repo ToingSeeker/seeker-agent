@@ -1200,14 +1200,10 @@ function session(ws) {
           : [h('div', { class: 'empty' }, 'Nothing has happened in this conversation yet.')];
   // The head stays where it is while the body below it scrolls: see draw().
   const head = [
-    h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.model)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
-    // What the agent is doing on the left; how full its context is on the right.
-    h(
-      'div',
-      { class: 'session-bar' },
-      up ? h('span', { class: `state-chip ${st.tone}${st.busy ? ' busy' : ''}` }, h('i'), STATE_WORD[st.key]) : h('span', { class: 'state-chip danger' }, h('i'), 'Offline'),
-      h('span', {}, `${kilo(meta.used)} / ${sizeOf(meta.limit)} tokens`),
-    ),
+    h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.model)),
+      // What the agent is doing, in words beside the title. How full the context is stays under the message box.
+      up ? h('span', { class: `state-chip plain ${st.tone}${st.busy ? ' busy' : ''}`, role: 'status' }, h('i'), STATE_WORD[st.key]) : h('span', { class: 'state-chip plain danger', role: 'status' }, h('i'), 'Offline'),
+      h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
     h('div', { class: 'tabs seg', role: 'tablist', 'aria-label': 'Session views', onkeydown: tabKeys }, tabButton('activity', 'Activity'), tabButton('tools', tools.length ? `Tools · ${tools.length}` : 'Tools'), tabButton('metrics', 'Metrics')),
   ];
   return { head, body };
@@ -1607,7 +1603,7 @@ function draw() {
   const top = $('top');
   top.hidden = !inSession;
   if (inSession) {
-    const signature = `${screen}|${sessionHead.map((el) => el.textContent).join('|')}|${sessionHead[1].querySelector('.state-chip').className}`;
+    const signature = `${screen}|${sessionHead.map((el) => el.textContent).join('|')}|${sessionHead[0].querySelector('.state-chip').className}`;
     if (top.dataset.signature !== signature) {
       const focused = top.contains(document.activeElement) ? document.activeElement.id : '';
       top.replaceChildren(...sessionHead);

@@ -154,27 +154,24 @@ svg {
    scrolling area, so a long conversation never carries the tabs out of reach. */
 .session-top {
   flex: none;
-  padding: 10px 16px 10px;
+  padding: 8px 16px 8px;
   border-bottom: 1px solid var(--sk-border-subtle);
   background: var(--sk-bg);
 }
 .session-top .topbar {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
-.session-top .session-bar {
-  margin-bottom: 10px;
+/* The state beside the title: a dot and a word in the state's colour, nothing around them. */
+.session-top .state-chip.plain {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 600 12.5px/1.3 var(--sans);
+  white-space: nowrap;
 }
-/* With the keyboard up there is little room: the title and the tabs stay, the state line makes way. */
-.keyboard .session-top .session-bar {
-  display: none;
-}
-@media (max-height: 480px) {
-  .session-top .session-bar {
-    display: none;
-  }
-  .session-top .topbar {
-    margin-bottom: 4px;
-  }
+.session-top .state-chip.plain.muted {
+  border: 0;
 }
 
 .mono {
@@ -1297,16 +1294,6 @@ button.stat:active {
 }
 
 /* ── session ── */
-/* One line under the title: what the agent is doing, and how full its context is. */
-.session-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 12px;
-  font: 12px/1.4 var(--mono);
-  color: var(--sk-text-secondary);
-}
 .state-chip {
   display: inline-flex;
   align-items: center;
@@ -1349,21 +1336,22 @@ button.stat:active {
 .tabs.seg {
   padding: 3px;
   gap: 4px;
-  border-radius: 11px;
+  border-radius: 10px;
 }
 .tabs.seg button {
   position: relative;
-  min-height: 36px;
+  min-height: 30px;
   padding: 0 8px;
-  font: 600 13.5px/1 var(--sans);
+  border-radius: 7px;
+  font: 600 13px/1 var(--sans);
   letter-spacing: 0;
   white-space: nowrap;
 }
-/* The tab looks 36px tall; the finger gets the full height of the bar. */
+/* The tab looks 30px tall; the finger gets more, above and below the bar. */
 .tabs.seg button::after {
   content: '';
   position: absolute;
-  inset: -4px -2px;
+  inset: -7px -2px;
 }
 /* A short straight rule between two tabs that are both unselected; none beside the selected one. */
 .tabs.seg button:not(.active) + button:not(.active)::before {
@@ -1372,7 +1360,7 @@ button.stat:active {
   left: -3px;
   top: 50%;
   width: 1px;
-  height: 14px;
+  height: 12px;
   transform: translateY(-50%);
   background: var(--sk-border);
 }
