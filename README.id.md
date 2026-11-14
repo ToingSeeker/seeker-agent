@@ -145,10 +145,14 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
 ### Yang tampil di HP
 
-- **Home** — sesi yang paling butuh kamu (menunggu persetujuan, lalu yang sedang jalan, lalu yang terakhir),
-  komputer yang terhubung beserta waktu bolak-balik yang terukur, proyek yang terbuka, dan `/init` `/model` `/resume`.
-  Tombol **+** membuka folder di komputer, atau membuat folder baru untuk proyek baru. Folder baru hanya
-  bisa dibuat di dalam folder home, dan tidak pernah di folder tersembunyi.
+- **Home → Control Center** — apa yang sedang dikerjakan agen (atau, kalau tidak ada yang jalan, bagaimana
+  task terakhir berakhir), komputer yang terhubung beserta statusnya dan waktu bolak-balik yang terukur,
+  24 jam terakhir (proyek yang aktif, jumlah tool run, proyek yang task terakhirnya selesai — dihitung dari
+  percakapannya sendiri), dan `/init` `/model` `/resume`.
+- **Home → Projects** — proyek yang terbuka dalam satu daftar, dengan pencarian (nama, folder, branch),
+  pengurutan, dan filter sesi terminal. Di bawah **On your Mac**, folder proyek yang ditemukan di folder home
+  bisa dibuka dengan satu ketukan. Tombol **+** membuka folder lewat path-nya, atau membuat folder baru untuk
+  proyek baru. Folder baru hanya bisa dibuat di dalam folder home, dan tidak pernah di folder tersembunyi.
 - **Sessions** — tiap proyek yang terbuka jadi satu baris ringkas: nama, instruksi terakhir, pill status kecil
   (Executing, Approval needed, Queued, Failed, Stopped, Completed, Idle), model, jumlah tool run, dan kapan
   terakhir aktif. Cari berdasarkan proyek, instruksi, atau model; saring per status (angkanya langsung
