@@ -8,6 +8,7 @@ import { decide, fallbackChain, reasonText } from './failover.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
+import { recordUsage } from './usage.mjs';
 import { MAX_IMAGES_PER_MESSAGE, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
 const CHARS_PER_TOKEN = 3.5;
@@ -371,6 +372,8 @@ export class Agent {
             const input = chunk.prompt_eval_count || 0;
             const output = chunk.eval_count || 0;
             this.usage = { input, output, totalInput: this.usage.totalInput + input, totalOutput: this.usage.totalOutput + output, known: true };
+            // The ledger on this machine. A provider that ran several steps in one reply says what they added up to.
+            recordUsage(chunk.spent ?? { input, output });
           }
           this.lastStats = {
             tokensPerSecond: chunk.eval_duration ? (chunk.eval_count / chunk.eval_duration) * 1e9 : 0,

@@ -1076,6 +1076,62 @@ button.row:active {
   border-color: var(--sk-border-strong);
 }
 
+button.stat {
+  text-align: left;
+  border-radius: 8px;
+  transition: background var(--sk-motion-fast);
+}
+button.stat:active {
+  background: var(--sk-surface-hover);
+}
+.stat > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.stat .chev {
+  width: 14px;
+  height: 14px;
+}
+/* The token sheet: the total first, then a line per day. */
+.u-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0 14px;
+}
+.u-total .cap {
+  font: 700 11px/1 var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--sk-text-secondary);
+}
+.u-total b {
+  font: 700 30px/1.25 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+.u-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 7px 0;
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.u-row .grow {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.u-row b {
+  flex: none;
+  font-size: 14px;
+  font-weight: 600;
+}
+.u-list + p {
+  margin: 12px 0 0;
+}
+
 /* ── workspace explorer ── */
 .toolbar {
   display: flex;
