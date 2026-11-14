@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { HOME_DIR } from './config.mjs';
 
 /** Parses the small YAML subset skills use: `key: value`, with folded / indented continuation lines. */
@@ -68,9 +69,14 @@ function scan(dir, source, namespace = '', depth = 1) {
 
 const expand = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
 
-/** Later sources win on a name clash: extra dirs, then ~/.seeker/skills, then the project's own. */
-export function loadSkills(cwd, extraDirs = []) {
+/** The skills that ship with SEEKER, in the repository's own skills/ folder. */
+export const BUNDLED_SKILLS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills');
+
+/** Later sources win on a name clash: bundled, plugins, extra dirs, then ~/.seeker/skills, then the project's own. */
+export function loadSkills(cwd, extraDirs = [], { bundled = true, bundledDir = BUNDLED_SKILLS_DIR } = {}) {
   const byName = new Map();
+  // SEEKER's own skills come first, so any skill the user installs under the same name replaces it.
+  if (bundled && bundledDir) for (const skill of scan(bundledDir, 'bundled')) byName.set(skill.name, skill);
   // Plugins first, so a skill of the user's own with the same name would win.
   let plugins = [];
   try {

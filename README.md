@@ -98,6 +98,9 @@ patterns are asked about even with `--yolo`.
 - `~/.seeker/SEEKER.md` — rules that apply in every project.
 - `~/.seeker/memory/` — notes from earlier sessions; `MEMORY.md` is the index (one line per note).
   `~/.seeker/memory/projects/<folder>/` holds notes for one project.
+- `skills/` in this repository — skills that ship with SEEKER (engineering, design, data, SEO, marketing,
+  business operations), written for SEEKER and licensed with it. A skill of yours with the same name replaces
+  one; `/config bundledSkills off` hides them all.
 - `~/.seeker/skills/<name>/SKILL.md` and `.seeker/skills/<name>/SKILL.md` — skills, called as `/name`.
   Plugin skills live in `~/.seeker/plugins/<plugin>/skills/…` and are called as `/plugin:name`.
 - MCP servers: `mcpServers` in the config or `.seeker/mcp.json`; manage them with `/mcp`. A server defined by a
