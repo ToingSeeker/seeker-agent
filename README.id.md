@@ -53,6 +53,8 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
   di subfolder (`packages/api/AGENTS.md`) diberikan ke model saat ia pertama kali bekerja di folder itu. File yang
   isinya seperti prompt injection tidak dimuat.
 - `~/.seeker/SEEKER.md` — aturan kerja yang berlaku di semua proyek.
+- `~/.seeker/usage.json` — jumlah token yang dipakai SEEKER: hitungan per hari dan total berjalan, tidak ada
+  yang lain. Tetap di mesin ini dan ditampilkan di Home pada HP.
 - `~/.seeker/memory/` — catatan dari sesi-sesi sebelumnya; `MEMORY.md` adalah indeksnya (satu baris per catatan).
 - `~/.seeker/memory/projects/<folder>/` — catatan khusus satu proyek, dimuat saat SEEKER dijalankan di folder itu.
 
@@ -147,8 +149,8 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
 - **Home → Control Center** — apa yang sedang dikerjakan agen (atau, kalau tidak ada yang jalan, bagaimana
   task terakhir berakhir), komputer yang terhubung beserta statusnya dan waktu bolak-balik yang terukur,
-  24 jam terakhir (proyek yang aktif, jumlah tool run, proyek yang task terakhirnya selesai — dihitung dari
-  percakapannya sendiri), dan `/init` `/model` `/resume`.
+  24 jam terakhir (proyek yang aktif dan jumlah tool run, dihitung dari percakapannya sendiri), token yang
+  terpakai hari ini — ketuk untuk melihat tujuh hari terakhir dan total sejak penghitungan dimulai — dan `/init` `/model` `/resume`.
 - **Home → Projects** — proyek yang terbuka dalam satu daftar, dengan pencarian (nama, folder, branch),
   pengurutan, dan filter sesi terminal. Di bawah **On your Mac**, folder proyek yang ditemukan di folder home
   bisa dibuka dengan satu ketukan. Tombol **+** membuka folder lewat path-nya, atau membuat folder baru untuk

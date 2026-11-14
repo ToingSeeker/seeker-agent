@@ -112,6 +112,7 @@ const state = {
   drawn: new Set(), // timeline entries already on screen once, so only new ones animate in
   loaded: false, // the Mac's list of projects has arrived at least once
   list: { query: '', searching: false, filter: 'all', sort: stored('seeker.sessions.sort', 'recent') }, // the Sessions screen
+  usage: null, // token counts from the Mac's own ledger; null when the Mac does not send them
   everLinked: false, // the relay has answered at least once since the app opened
   explorer: { query: '', sort: stored('seeker.workspaces.sort', 'recent'), source: 'all', local: false, localQuery: '' }, // Home → Projects
   lastSession: stored('seeker.sessions.last', null), // the session opened last, marked in the list
@@ -226,6 +227,7 @@ function apply(event) {
       state.folders = event.folders ?? [];
       state.approvals = event.approvals ?? [];
       state.loaded = true;
+      state.usage = event.usage ?? null;
       state.workspaces = new Map(event.workspaces.map(({ items, queue, ...meta }) => [meta.id, { meta, items: items ?? [], queue: queue ?? NO_QUEUE }]));
       break;
     case 'ws': {
@@ -245,6 +247,9 @@ function apply(event) {
       if (event.append) item.text = (item.text ?? '') + event.append;
       break;
     }
+    case 'usage':
+      state.usage = event.usage ?? null;
+      break;
     case 'queue':
       // Always the whole queue as the Mac holds it, so a repeated or late event cannot leave a wrong one behind.
       if (ws) ws.queue = event.queue ?? NO_QUEUE;
@@ -763,13 +768,15 @@ function controlCenter(model) {
     ),
   );
 
+  // The Mac's ledger counts by calendar day, so this one says "today" inside a panel about the last 24 hours.
+  const tokensMetric = () => h('button', { class: 'stat tap', 'aria-label': `Tokens today: ${spent(state.usage.today).toLocaleString()}. Show token usage`, onclick: showUsage }, h('span', { class: 'ico', icon: 'cube' }), h('b', {}, kilo(spent(state.usage.today))), h('span', {}, 'Tokens today', h('span', { class: 'chev', icon: 'chevron' })));
   const metric = (icon, value, label) => h('div', { class: 'stat' }, h('span', { class: 'ico', icon }), h('b', {}, value), h('span', {}, label));
   const statsPanel =
     state.loaded &&
     panel(
       'ACTIVITY',
       h('span', { class: 'when' }, 'Last 24 hours'),
-      h('div', { class: 'stats' }, metric('pulse', stats.sessions, stats.sessions === 1 ? 'Session' : 'Sessions'), metric('layers', `${stats.tools}${stats.toolsMore ? '+' : ''}`, stats.tools === 1 && !stats.toolsMore ? 'Tool run' : 'Tool runs'), metric('check', stats.completed, 'Completed')),
+      h('div', { class: 'stats' }, metric('pulse', stats.sessions, stats.sessions === 1 ? 'Session' : 'Sessions'), metric('layers', `${stats.tools}${stats.toolsMore ? '+' : ''}`, stats.tools === 1 && !stats.toolsMore ? 'Tool run' : 'Tool runs'), state.usage ? tokensMetric() : metric('check', stats.completed, 'Completed')),
     );
 
   const quick = (label, icon, action) => h('button', { onclick: action }, h('span', { icon }), h('span', { class: 'mono' }, label));
@@ -853,6 +860,24 @@ function workspaceExplorer(model) {
   ];
 }
 
+const spent = (counts) => (counts?.input ?? 0) + (counts?.output ?? 0);
+const big = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M` : kilo(n));
+
+/** Token use as the Mac has counted it: today, the last seven days, and everything since counting began. */
+function showUsage() {
+  const { usage } = state;
+  if (!usage) return;
+  const line = (label, value, sub) => h('div', { class: 'u-row' }, h('span', { class: 'grow' }, h('span', {}, label), sub && h('span', { class: 'sub' }, sub)), h('b', { class: 'mono', title: value.toLocaleString() }, value.toLocaleString()));
+  const detail = (c) => `${big(c.input)} in${c.cached ? ` (${big(c.cached)} from cache)` : ''} · ${big(c.output)} out`;
+  const dayName = (day, i) => (i === 0 ? 'Today' : i === 1 ? 'Yesterday' : new Date(`${day}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }));
+  sheet(
+    'Token usage',
+    h('div', { class: 'u-total' }, h('span', { class: 'cap' }, usage.since ? `SINCE ${new Date(usage.since).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()}` : 'TOTAL'), h('b', {}, spent(usage.total).toLocaleString()), h('span', { class: 'sub' }, `${detail(usage.total)} · ${usage.total.replies.toLocaleString()} model repl${usage.total.replies === 1 ? 'y' : 'ies'}`)),
+    h('div', { class: 'u-list' }, usage.week.map((d, i) => line(dayName(d.day, i), spent(d), spent(d) ? detail(d) : null))),
+    h('p', { class: 'muted small' }, 'Counted on your Mac, in its own settings folder, from the day this counter was added. Earlier use was not recorded. Input includes what the provider read from its cache.'),
+  );
+}
+
 /** What Home shows now, and a signature of it: the screen is redrawn only when that changes. */
 function homeNow() {
   const list = [...state.workspaces.values()];
@@ -867,7 +892,7 @@ function homeNow() {
   const now = front && { ...front, status: statusOf(front.ws), text: summary(front.ws) };
   const stats = activity(list);
   const meta = now?.ws.meta;
-  return { link, now, stats, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], stats]) };
+  return { link, now, stats, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], stats, state.usage && spent(state.usage.today)]) };
 }
 
 function home(model) {

@@ -165,6 +165,8 @@ export function claudeCodeProvider(def, config, deps = {}) {
       prompt_eval_count: (counted.input_tokens ?? 0) + (counted.cache_read_input_tokens ?? 0) + (counted.cache_creation_input_tokens ?? 0),
       eval_count: counted.output_tokens ?? 0,
       eval_duration: output ? ((Date.now() - started) * 1e6 * (counted.output_tokens ?? 0)) / output : 0,
+      // For the usage ledger: every step of this turn, not only the last one.
+      spent: spentOf(result.usage ?? counted),
     };
   }
 
@@ -177,4 +179,10 @@ export function claudeCodeProvider(def, config, deps = {}) {
     describe: async () => ({ tools: true, thinking: true, context: def.context }),
     chat,
   };
+}
+
+/** Anthropic's usage block as ledger counts: everything sent (cache reads included, and named), and what was written. */
+export function spentOf(usage = {}) {
+  const cached = usage.cache_read_input_tokens ?? 0;
+  return { input: (usage.input_tokens ?? 0) + cached + (usage.cache_creation_input_tokens ?? 0), cached, output: usage.output_tokens ?? 0 };
 }
