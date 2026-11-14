@@ -33,7 +33,7 @@ function h(tag, attrs = {}, ...children) {
 const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICONS = {
   // The robot of the terminal header, on the same 11×8 pixel grid (src/mascot.mjs).
-  logo: `<svg class="robot" viewBox="0 -1.5 11 11" shape-rendering="crispEdges" aria-hidden="true"><path class="o" d="M3 0h1v1H3zM7 0h1v1H7zM3 7h2v1H3zM6 7h2v1H6z"/><path class="c" d="M2 1h7v1H2zM1 2h1v2H1zM9 2h1v2H9zM2 4h7v1H2zM3 5h5v1H3zM3 6h2v1H3zM6 6h2v1H6z"/><path class="b" d="M.5 2H1v2H.5zM10 2h.5v2H10zM2 6h1v1H2zM8 6h1v1H8z"/><path class="k" d="M2 2h7v2H2z"/><path class="y" d="M5 6h1v1H5z"/><path class="eye" shape-rendering="geometricPrecision" d="M4.2 2.5l.6.5-.6.5M6.8 2.5l-.6.5.6.5"/><path class="cur" d="M5.15 3.4h.7v.25h-.7z"/></svg>`,
+  logo: `<svg class="robot" viewBox="0 -1.5 11 11" shape-rendering="crispEdges" aria-hidden="true"><path class="o" d="M3 0h1v1H3zM7 0h1v1H7zM3 7h2v1H3zM6 7h2v1H6z"/><path class="c" d="M2 1h7v1H2zM1 2h1v2H1zM9 2h1v2H9zM2 4h7v1H2zM3 5h5v1H3zM3 6h2v1H3zM6 6h2v1H6z"/><path class="b" d="M.5 2H1v2H.5zM10 2h.5v2H10zM2 6h1v1H2zM8 6h1v1H8z"/><path class="k" d="M2 2h7v2H2z"/><path class="y" d="M5 6h1v1H5z"/><g class="face" shape-rendering="geometricPrecision"><path class="eye open" d="M4.2 2.5l.6.5-.6.5M6.8 2.5l-.6.5.6.5"/><path class="eye shut" d="M4.15 3h.7M6.15 3h.7"/><path class="cur" d="M5.15 3.4h.7v.25h-.7z"/></g></svg>`,
   laptop: svg('<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>'),
   chevron: svg('<path d="M9 6l6 6-6 6"/>'),
   back: svg('<path d="M15 6l-6 6 6 6"/>'),
@@ -591,7 +591,7 @@ function header() {
   return h(
     'header',
     { class: 'brand' },
-    h('span', { class: 'mark', icon: 'logo' }),
+    h('span', { class: state.device?.settings?.animation === false ? 'mark still' : 'mark', icon: 'logo' }),
     h('div', { class: 'grow' }, h('div', { class: 'word' }, 'SEEKER'), h('div', { class: 'sub' }, 'REMOTE')),
     h('button', { class: 'avatar', 'aria-label': `Settings — ${up ? 'connected' : 'not connected'}`, onclick: () => go({ name: 'settings' }) }, initial, h('i', { class: up ? 'on' : 'off' })),
   );
@@ -865,13 +865,16 @@ function entry(item) {
   return el;
 }
 
+/** Three dots that light up one after another while a tool runs. */
+const runningDots = () => h('span', { class: 'dots', 'aria-hidden': 'true' }, h('i', {}, '.'), h('i', {}, '.'), h('i', {}, '.'));
+
 function entryOf(item) {
   const time = h('time', { class: 'at' }, clock(item.at));
   if (item.kind === 'tool') {
     const mark = item.state === 'done' ? 'done' : item.state === 'failed' ? 'failed' : 'running';
     const verb = item.state === 'done' ? item.done : item.doing;
     const hasMore = item.output?.length || item.diff;
-    const head = [h('span', { class: 'title' }, verb, item.state === 'running' && '…'), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note)];
+    const head = [h('span', { class: 'title' }, verb, item.state === 'running' && runningDots()), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note)];
     return h(
       'li',
       { class: `ev tool ${mark}` },
@@ -1228,7 +1231,7 @@ function agentSettings(up, toggle) {
       'div',
       { class: 'group' },
       flip('terminal', 'Show reasoning', 'Print the model’s thinking as it works', cfg.showThinking, () => setConfig('showThinking', !cfg.showThinking)),
-      flip('logo', 'Animate the robot', 'The robot in the header blinks', cfg.animation, () => setConfig('animation', !cfg.animation)),
+      flip('logo', 'Animate the robot', 'The robot in the header blinks, here and in the terminal', cfg.animation, () => setConfig('animation', !cfg.animation)),
     ),
     h('div', { class: 'muted small pad' }, 'Saved on your Mac. Projects opened from this app change at once; a seeker already running in a terminal keeps what it started with.'),
   ];

@@ -1566,6 +1566,68 @@ pre {
     opacity: 0.35;
   }
 }
+.dots i {
+  font-style: normal;
+  animation: dot 1200ms ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.dots i:nth-child(2) {
+  animation-delay: calc(var(--t, 0s) + 200ms);
+}
+.dots i:nth-child(3) {
+  animation-delay: calc(var(--t, 0s) + 400ms);
+}
+/* The robot's idle loop, as in the terminal (src/mascot.mjs): 64 ticks of 150ms. It blinks at
+   ticks 18, 50 and 52, glances left then right from tick 32 to 40, and its cursor is on for four ticks, off for four. */
+.robot .shut {
+  opacity: 0;
+}
+.robot .open {
+  animation: robot-open 9600ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.robot .shut {
+  animation: robot-shut 9600ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.robot .face {
+  animation: robot-look 9600ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.robot .cur {
+  animation: robot-cursor 1200ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.still .robot * {
+  animation: none;
+}
+@keyframes robot-open {
+  0%, 29.6875%, 79.6875%, 82.8125% { opacity: 1; }
+  28.125%, 78.125%, 81.25% { opacity: 0; }
+}
+@keyframes robot-shut {
+  0%, 29.6875%, 79.6875%, 82.8125% { opacity: 0; }
+  28.125%, 78.125%, 81.25% { opacity: 1; }
+}
+@keyframes robot-look {
+  0%, 62.5% { transform: none; }
+  50% { transform: translateX(-1px); }
+  56.25% { transform: translateX(1px); }
+}
+@keyframes robot-cursor {
+  0% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.2;
+  }
+  30% {
+    opacity: 1;
+  }
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
