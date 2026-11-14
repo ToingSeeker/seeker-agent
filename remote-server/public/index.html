@@ -22,15 +22,19 @@
         <div id="fabs" class="fabs">
           <button id="fab-latest" class="fab" type="button" aria-label="Jump to the latest message" hidden></button>
         </div>
+        <div id="status" class="run-status" role="status" hidden></div>
+        <div id="queue" class="queue-panel" aria-label="Queued instructions" hidden></div>
         <div id="controls" class="controls" hidden></div>
         <div id="suggest" class="suggest" hidden></div>
         <div id="attachments" class="attachments" hidden></div>
         <form id="form" class="composer-box">
           <button id="commands" class="tool-btn" type="button" aria-label="Commands and earlier messages"></button>
           <button id="attach" class="tool-btn" type="button" aria-label="Attach an image"></button>
+          <button id="mention" class="tool-btn" type="button" aria-label="Mention a file"></button>
           <input id="file" type="file" accept="image/*" multiple hidden />
           <textarea id="input" rows="1" placeholder="Message or /command…" autocomplete="off" autocapitalize="sentences" aria-label="Message to Seeker"></textarea>
-          <button id="send" class="send" type="submit" aria-label="Send"></button>
+          <button id="stop" class="stop-btn" type="button" aria-label="Stop current execution" hidden></button>
+          <button id="send" class="send" type="submit" aria-label="Send instruction"></button>
         </form>
         <div class="composer-foot"><span>/ commands · images</span><span id="tokens" aria-label="Context used"></span></div>
       </footer>

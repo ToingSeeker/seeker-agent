@@ -28,7 +28,7 @@ test('the stylesheet takes every colour from a token', () => {
   const app = read('app.js');
   for (const tone of ['primary', 'execution', 'reasoning', 'success', 'danger']) {
     assert.ok(app.includes(`tone: '${tone}'`), `${tone} is a state of the agent`);
-    assert.ok(css.includes(`.status.${tone}`) && css.includes(`.session-card.${tone}`), `${tone} is styled`);
+    assert.ok(css.includes(`.state-chip.${tone}`) && css.includes(`.session-card.${tone}`), `${tone} is styled`);
   }
 });
 

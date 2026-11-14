@@ -92,6 +92,7 @@ export class Agent {
     this.helper = null;
     // Helpers running side by side (see #delegateMany).
     this.helpers = new Set();
+    this.steers = []; // instructions sent while a turn runs, waiting for its next step
     // The conversation's file on disk, set by the interface; session_search leaves it out of its results.
     this.session = null;
     // Per-message scratch space for tools (a checkpoint taken, memory attempts that failed).
@@ -148,6 +149,41 @@ export class Agent {
 
   setExtraTools(tools) {
     this.extraTools = tools;
+  }
+
+  /**
+   * Whether an instruction can be handed to the model while a turn is running. It can where this loop asks the
+   * model again after every step. A provider that runs its own tools works through the whole turn in one
+   * request, so there is no step between which to put it.
+   */
+  get canSteer() {
+    return Boolean(this.caps.tools) && !this.provider.ownTools;
+  }
+
+  /**
+   * Holds an instruction for the turn in progress; the model reads it before its next step.
+   * @param {() => void} [onDelivered]  called when it is put in front of the model
+   * @returns {boolean} false when it cannot be taken: no turn is running, or this provider cannot be steered
+   */
+  steer(text, onDelivered = () => {}) {
+    if (!this.controller || this.controller.signal.aborted || !this.canSteer) return false;
+    this.steers.push({ text, onDelivered });
+    return true;
+  }
+
+  /** Instructions that were held for a turn and never reached the model, because it was stopped or failed first. */
+  takeSteers() {
+    return this.steers.splice(0).map((s) => s.text);
+  }
+
+  /** Puts what is held in front of the model. True if there was anything. */
+  #deliverSteers() {
+    if (!this.steers.length) return false;
+    for (const { text, onDelivered } of this.steers.splice(0)) {
+      this.messages.push({ role: 'user', content: `[Sent by the user while you were working — take it into account from here on]\n${text}` });
+      onDelivered();
+    }
+    return true;
   }
 
   interrupt() {
@@ -776,6 +812,7 @@ export class Agent {
           if (await this.compact({ midTask: true })) compactions++;
         }
 
+        this.#deliverSteers();
         const { content, toolCalls, blocks } = await this.#streamOnce(signal);
         this.stepsSinceSkill++;
         const message = { role: 'assistant', content };
@@ -784,6 +821,8 @@ export class Agent {
         this.messages.push(message);
 
         if (!toolCalls.length) {
+          // An instruction that arrived while the model was writing its last words is answered before the turn ends.
+          if (this.steers.length && !signal.aborted) continue;
           if (!content.trim()) ui.notice('  (the model returned nothing — try again or rephrase)');
           break;
         }
