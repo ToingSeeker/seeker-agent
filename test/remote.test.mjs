@@ -1089,3 +1089,42 @@ test('remote: in a session that runs in a terminal, the phone cannot change its 
   assert.equal(configured, 0);
   assert.equal(notes.filter(([kind, x]) => kind === 'warn' && /runs in a terminal/.test(x)).length, 3);
 });
+
+test('phone transcript: parallel provider tools each end on their own row, and an interrupted one is not left running', async () => {
+  const { claudeCodeProvider } = await import('../src/claude-code.mjs');
+  const { WebUI } = await import('../src/remote.mjs');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-parallel-'));
+  let breakAfterStart = false;
+  // Claude Code starting three tools in one message and reporting them back out of order.
+  const query = () =>
+    (async function* () {
+      const use = (id, name, input) => ({ type: 'tool_use', id, name, input });
+      const result = (id, content) => ({ type: 'tool_result', tool_use_id: id, is_error: false, content });
+      yield {
+        type: 'assistant',
+        parent_tool_use_id: null,
+        message: { content: [use('t1', 'Bash', { command: 'sleep 1' }), use('t2', 'Read', { file_path: `${cwd}/a.png` }), use('t3', 'Read', { file_path: `${cwd}/b.png` })] },
+      };
+      if (breakAfterStart) throw new Error('Stream closed');
+      yield { type: 'user', parent_tool_use_id: null, message: { content: [result('t2', 'x'), result('t1', 'ok'), result('t3', 'y')] } };
+      yield { type: 'result', subtype: 'success', is_error: false, session_id: 's', usage: { input_tokens: 1, output_tokens: 1 } };
+    })();
+  const def = { id: 'claude-code', label: 'Claude Code', kind: 'claude-code', context: 200000, ownTools: true };
+  const config = { ...DEFAULTS, bundledSkills: false, providers: {} };
+  const items = new Map();
+  const ui = new WebUI((e) => {
+    if (e.t === 'item') items.set(e.item.id, { ...e.item });
+    else if (e.t === 'patch' && items.has(e.id)) Object.assign(items.get(e.id), e.patch ?? {});
+  });
+  const agent = new Agent({ config, ui, permissions: new Permissions({ mode: 'auto', cwd }), provider: claudeCodeProvider(def, config, { query }), info: { tools: true, thinking: true, context: null }, cwd });
+  const rows = () => [...items.values()].filter((i) => i.kind === 'tool').map((i) => `${i.state} ${i.doing} ${i.summary}`);
+
+  await agent.runTurn('look');
+  assert.deepEqual(rows(), ['done Running sleep 1', 'done Reading a.png', 'done Reading b.png'], 'one row per tool, none left running');
+
+  items.clear();
+  breakAfterStart = true;
+  await agent.runTurn('again').catch(() => {});
+  assert.deepEqual(rows(), ['failed Running sleep 1', 'failed Reading a.png', 'failed Reading b.png']);
+  assert.ok([...items.values()].filter((i) => i.kind === 'tool').every((i) => i.note === 'interrupted'));
+});
