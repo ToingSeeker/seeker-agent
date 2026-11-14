@@ -172,8 +172,12 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
 - **Gambar dari HP** — kirim screenshot tanpa teks, dan path-nya masuk ke pesan yang sedang kamu ketik di
   terminal, seperti file yang di-drag ke sana. Selesaikan kalimatnya lalu tekan Enter.
 - **Pesan dari HP** — pesan yang berisi teks dijalankan sebagai giliran sendiri saat terminal sedang
-  bebas. Ketikan yang belum selesai kembali ke kotak sesudahnya. Isinya selalu pesan untuk model: baris
-  shell `!` dan `/perintah` tidak dijalankan dari HP.
+  bebas. Ketikan yang belum selesai kembali ke kotak sesudahnya. Baris shell `!` tidak dijalankan dari HP.
+- **Perintah dan skill dari HP** — `/status`, `/compact`, `/skills`, `/memory`, `/cron`, `/goal`, `/loop`,
+  `/help` dan `/<skill>` apa pun jalan seperti diketik di terminal (juga di proyek yang dibuka dari HP).
+  Setelan (`/yolo`, `/think`, `/config`) hanya mengubah proyek yang dibuka dari HP dan disimpan seperti tab
+  Settings; setelan sesi terminal diubah di terminal itu. Yang butuh daftar pilihan, atau tidak boleh datang
+  dari HP yang hilang, tetap di terminal: `/hooks`, `/mcp`, `/rollback`, `/resume`, `/key`, `/paste`, `/exit`.
 - **Persetujuan** — ditanyakan di dua tempat; jawaban pertama yang berlaku dan yang satunya tertutup.
 - **Tidak dari HP** — percakapan baru, ganti model, dan menutup sesi dilakukan di terminal. Sesi yang
   dijalankan dengan `--yolo` tampil di HP tapi tidak menerima tugas dari sana.

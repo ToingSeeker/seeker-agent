@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isSlashCommand, runPhoneCommand } from './commands.mjs';
 import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
@@ -179,6 +180,12 @@ export class WebUI {
     this.#item({ kind: 'notice', level: 'error', text: plain(text).trim() });
   }
 
+  /** Plain output of a /command (a list, a status table). */
+  line(text) {
+    const shown = plain(text).replace(/^\n+|\s+$/g, '');
+    if (shown) this.#item({ kind: 'notice', level: 'info', text: shown });
+  }
+
   startSpinner(label) {
     // The spinner runs while the model has been asked and nothing has come back yet.
     this.#activity('thinking', plain(label));
@@ -337,9 +344,10 @@ export class Workspace {
 
   /**
    * @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message
-   * @param {{ references?: boolean }} [opts]  false for a prompt nobody typed (a loop, a goal step): its @ references stay text
+   * @param {{ references?: boolean, echo?: boolean }} [opts]  `references` false for a prompt nobody typed (a loop, a goal
+   *   step): its @ references stay text. `echo` false when what the user typed is already in the transcript (a /skill).
    */
-  async run(text, images = [], { references = true } = {}) {
+  async run(text, images = [], { references = true, echo = true } = {}) {
     if (this.status !== 'idle') return;
     const started = Date.now();
     this.status = 'working';
@@ -349,7 +357,7 @@ export class Workspace {
     this.stopped = false;
     this.startedAt = started;
     // The transcript keeps the small previews only; the pictures themselves go to the model.
-    this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
+    if (echo) this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })));
     this.touch();
     try {
       await this.agent.runTurn(text, { images, references });
@@ -370,6 +378,34 @@ export class Workspace {
       const last = [...this.items].reverse().find((i) => i.kind === 'assistant' && i.text);
       this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'done');
     }
+  }
+
+  /**
+   * A /command or /skill typed on the phone, run here as the terminal would run it. Its output goes to the
+   * transcript; one that turns into a message for the model (a skill, /init) then runs as a turn.
+   * @param {(key: string, raw: string) => void} configure  saves a setting for every project opened from the phone
+   */
+  async command(text, configure) {
+    if (this.status !== 'idle') return;
+    this.ui.user(text);
+    this.status = 'working';
+    this.activity = text.split(/\s/)[0];
+    this.phase = 'executing';
+    this.startedAt = Date.now();
+    this.touch();
+    let result;
+    try {
+      const { agent, session } = this;
+      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure });
+    } catch (err) {
+      this.ui.warn(`  ${err.message}`);
+    } finally {
+      this.status = 'idle';
+      this.activity = '';
+      this.phase = null;
+      this.touch();
+    }
+    if (result?.prompt) await this.run(result.prompt, [], { references: false, echo: false });
   }
 
   stop() {
@@ -783,6 +819,15 @@ export class RemoteDaemon {
           if (!text) return;
           if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Stop it first.` });
           this.log(`${workspace.name} ← ${text.split('\n')[0].slice(0, 70)}${images.length ? ` (+${images.length} image${images.length > 1 ? 's' : ''})` : ''}`);
+          // A /command or /skill runs here, as it would in the terminal; it is not a message for the model.
+          if (!images.length && isSlashCommand(text)) {
+            const configure = (key, raw) => {
+              this.#configure(key, raw);
+              this.send(this.snapshot(), { snapshot: true });
+            };
+            workspace.command(text, configure).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
+            return;
+          }
           workspace.run(text, images).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
           return;
         }
