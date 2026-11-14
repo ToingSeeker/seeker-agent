@@ -1318,6 +1318,17 @@ function draw() {
       $('controls').replaceChildren(...buttons);
       $('controls').dataset.signature = signature;
     }
+    // What the agent is doing, beside Stop: readable at the end of a long conversation without scrolling back to the top.
+    // It is kept apart from the buttons so that a change of state never swaps Stop out from under a finger.
+    let now = $('controls').querySelector('.now');
+    if (st.busy && st.key !== 'approval') {
+      if (!now) $('controls').append((now = h('div', { class: 'now', role: 'status' })));
+      if (now.dataset.key !== st.key) {
+        now.dataset.key = st.key;
+        now.className = `now ${st.tone}`;
+        now.replaceChildren(h('span', { icon: st.key === 'thinking' ? 'brain' : 'bolt' }), h('b', {}, st.label), runningDots());
+      }
+    } else now?.remove();
     $('controls').hidden = buttons.length === 0;
     // A terminal session takes a picture at any time: it goes into the message being typed there.
     $('send').disabled = (st.busy && !ws.meta.terminal) || sending || !up;
