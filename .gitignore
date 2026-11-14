@@ -4,3 +4,5 @@ node_modules/
 .env
 .env.*
 .railway/
+# The token ledger belongs in ~/.seeker; this keeps it out even if SEEKER_HOME is pointed here.
+usage.json

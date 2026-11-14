@@ -19,6 +19,7 @@ import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
+import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
 
 const plain = (text) => String(text ?? '').replace(ANSI, '');
@@ -318,6 +319,7 @@ export class Workspace {
   /** Tells the phone this workspace's summary changed. */
   touch() {
     this.daemon.send({ t: 'ws', ws: this.meta() });
+    if (this.status === 'idle') this.daemon.usageChanged?.();
   }
 
   /** Put to the user on the phone; resolves with 'y' | 'a' | 'n' | their written instruction | null. */
@@ -631,7 +633,22 @@ export class RemoteDaemon {
       workspaces: [...this.workspaces.values()].map((w) => ({ ...w.meta(), items: w.items, queue: this.queueView(w.id) })),
       approvals: [...this.approvals.values()].map((a) => a.approval),
       folders: projectFolders(),
+      usage: this.#usage(),
     };
+  }
+
+  /** Token counts from the ledger on this machine (src/usage.mjs). Numbers only; sealed like everything else sent. */
+  #usage() {
+    const usage = usageSummary();
+    this.usageSent = JSON.stringify(usage);
+    return usage;
+  }
+
+  /** Tells the phone when the counts have moved: after a task here, or one in a terminal on this machine. */
+  usageChanged() {
+    const before = this.usageSent;
+    const usage = this.#usage();
+    if (this.usageSent !== before) this.send({ t: 'usage', usage });
   }
 
   send(event, { snapshot = false } = {}) {
@@ -1141,6 +1158,7 @@ export class RemoteDaemon {
         if (event.t === 'toast') return this.send({ t: 'toast', text: String(event.text ?? '').slice(0, 300) });
         if (event.t === 'ws') {
           workspace.track(event);
+          if (workspace.status === 'idle') this.usageChanged();
           return this.send({ t: 'ws', ws: workspace.meta() });
         }
         if (event.t !== 'item' && event.t !== 'patch') return;

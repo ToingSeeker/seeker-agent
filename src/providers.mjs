@@ -379,6 +379,7 @@ function anthropicProvider(def, config) {
         prompt_eval_count: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0),
         eval_count: output,
         eval_duration: output ? (Date.now() - started) * 1e6 : 0,
+        spent: { input: (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0), cached: usage.cache_read_input_tokens ?? 0, output },
       };
       return;
     }

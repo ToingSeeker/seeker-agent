@@ -9,12 +9,13 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { createRelay } from '../remote-server/server.mjs';
 import { Agent } from '../src/agent.mjs';
-import { DEFAULTS, VERSION } from '../src/config.mjs';
+import { DEFAULTS, HOME_DIR, VERSION } from '../src/config.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
 import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
 import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
+import { USAGE_FILE } from '../src/usage.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)));
@@ -70,7 +71,9 @@ async function phone(url, secret) {
             state.device = event.device;
             state.workspaces = new Map(event.workspaces.map((w) => [w.id, w]));
             state.approvals = event.approvals;
-          } else if (event.t === 'ws') state.workspaces.set(event.ws.id, { ...(state.workspaces.get(event.ws.id) ?? { items: [] }), ...event.ws });
+            state.usage = event.usage;
+          } else if (event.t === 'usage') state.usage = event.usage;
+          else if (event.t === 'ws') state.workspaces.set(event.ws.id, { ...(state.workspaces.get(event.ws.id) ?? { items: [] }), ...event.ws });
           else if (event.t === 'item') state.workspaces.get(event.ws).items.push(event.item);
           else if (event.t === 'patch') {
             const item = state.workspaces.get(event.ws).items.find((i) => i.id === event.id);
@@ -568,6 +571,7 @@ test('remote: the phone is told what the agent is doing, how the turn ended, and
   const seen = (check) => me.state.events.some((e) => e.t === 'ws' && check(e.ws));
   assert.equal(me.state.device.version, VERSION);
   assert.deepEqual([meta().phase, meta().outcome, meta().tokens, meta().tools], [null, null, null, { total: 0, failed: 0, running: null }], 'before anything ran, nothing is claimed');
+  const usageBefore = structuredClone(me.state.usage);
 
   // This phone wants approvals and errors, but not "finished".
   const browser = crypto.createECDH('prime256v1');
@@ -597,6 +601,12 @@ test('remote: the phone is told what the agent is doing, how the turn ended, and
   assert.equal(meta().outcome, 'completed');
   assert.deepEqual(meta().tools, { total: 1, failed: 0, running: null });
   assert.deepEqual(meta().tokens, { input: 10, output: 5, totalInput: 10, totalOutput: 5 }, 'tokens are the provider’s own count');
+  // The same count went into the ledger on this machine, and the phone was told without asking.
+  await until(() => me.state.usage.total.replies === usageBefore.total.replies + 1);
+  const spentNow = (u) => [u.today.input - usageBefore.today.input, u.today.output - usageBefore.today.output, u.total.input - usageBefore.total.input, u.total.output - usageBefore.total.output];
+  assert.deepEqual(spentNow(me.state.usage), [10, 5, 10, 5], 'today and the running total both moved by this reply');
+  assert.ok(me.state.usage.since <= Date.now() && me.state.usage.week.length === 7 && me.state.usage.week[0].day === me.state.usage.today.day);
+  assert.ok(USAGE_FILE.startsWith(HOME_DIR + path.sep) && fs.existsSync(USAGE_FILE), 'kept in the settings folder of this machine');
   assert.equal(pushes.length, 2, 'no "finished" notification for a phone that switched those off');
 
   // An answer for a request that is gone is refused out loud, not dropped.
