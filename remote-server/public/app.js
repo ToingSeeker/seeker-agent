@@ -732,6 +732,9 @@ function home() {
 }
 
 function sendText(wsId, text, images = []) {
+  // What was just sent is what the reader wants to follow: back to the bottom, so the reply stays in view.
+  const view = $('view');
+  view.scrollTop = view.scrollHeight;
   return command('message', images.length ? { ws: wsId, text, images } : { ws: wsId, text });
 }
 
@@ -1230,7 +1233,8 @@ function draw() {
   const pinned = name === 'session' && view.scrollHeight - view.scrollTop - view.clientHeight < 80;
   const content = !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : name === 'sessions' ? sessions() : name === 'settings' ? settings() : home();
   const scroll = view.scrollTop;
-  const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : ''}`;
+  const grownFrom = view.scrollHeight;
+  const screen =`${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : ''}`;
   // A field being typed in (an answer, a note) keeps its text and the cursor across a redraw.
   const typing = view.contains(document.activeElement) && document.activeElement.matches('input.field') && view.dataset.screen === screen ? document.activeElement : null;
   // The screen is rebuilt on every event. Starting each looping animation "this long ago" keeps
@@ -1245,8 +1249,12 @@ function draw() {
     }
   }
   view.className = `screen-${paired ? name : 'login'}`;
-  view.scrollTop = pinned || view.dataset.screen !== screen ? (name === 'session' ? view.scrollHeight : 0) : scroll;
+  const sameScreen = view.dataset.screen === screen;
+  view.scrollTop = pinned || !sameScreen ? (name === 'session' ? view.scrollHeight : 0) : scroll;
   view.dataset.screen = screen;
+  // Something new arrived below while the reader was further up: the jump button gets a dot.
+  if (!sameScreen) unseen = false;
+  else if (name === 'session' && !pinned && view.scrollHeight > grownFrom) unseen = true;
 
   const inSession = paired && name === 'session' && ws;
   $('composer').hidden = !inSession;
@@ -1278,7 +1286,29 @@ function draw() {
     ),
   );
   document.title = state.approvals.length ? `(${state.approvals.length}) SEEKER Remote` : 'SEEKER Remote';
+  fabs();
 }
+
+// ── floating buttons over a long conversation: back (out of thumb reach at the top) and latest ──
+let unseen = false;
+function fabs() {
+  const view = $('view');
+  const inSession = state.view.name === 'session' && !$('composer').hidden;
+  const below = view.scrollHeight - view.scrollTop - view.clientHeight;
+  if (below < 80) unseen = false;
+  $('fab-back').hidden = !inSession || view.scrollTop < 120;
+  $('fab-latest').hidden = !inSession || below < 200;
+  $('fab-latest').classList.toggle('unseen', unseen);
+}
+$('fab-back').innerHTML = ICONS.back;
+$('fab-latest').innerHTML = ICONS.down;
+$('fab-back').addEventListener('click', () => go({ name: 'home' }));
+$('fab-latest').addEventListener('click', () => {
+  const view = $('view');
+  unseen = false;
+  view.scrollTo({ top: view.scrollHeight, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+});
+$('view').addEventListener('scroll', fabs, { passive: true });
 
 // ── composer (kept outside the redrawn area so typing is never interrupted) ──
 const input = $('input');
