@@ -795,7 +795,9 @@ test('remote: the phone changes the settings /config holds, they take effect at 
     [call('write_file', { path: 'b.txt', content: 'two' }), { done: true }],
     [done('Also written.')],
   ]);
-  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret } };
+  // The replies are scripted and the context is cut to 8k below; the shipped skills' list would push the
+  // prompt past the compaction mark, and the summary would eat one of the scripted replies.
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret }, bundledSkills: false };
   const build = async (folder, ui, asker, info) => ({
     agent: new Agent({ config, ui, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
     session: { save() {}, startNew() {} },

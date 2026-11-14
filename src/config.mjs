@@ -28,6 +28,8 @@ export const DEFAULTS = {
   keepAlive: '30m',
   // Extra folders to load skills from, besides ~/.seeker/skills and <project>/.seeker/skills.
   skillDirs: [],
+  // The skills that ship with SEEKER (its skills/ folder). A skill of yours with the same name replaces one.
+  bundledSkills: true,
   // MCP servers that add tools, as in Claude Code: { name: { command, args, env } | { url, headers }, disabled? }.
   mcpServers: {},
   // Backup models tried, in order, when the chosen one is rate limited, out of credit or down:
@@ -56,6 +58,7 @@ export const SETTINGS = {
   maxSteps: { parse: int(1), help: 'tool steps allowed per message' },
   checkpoints: { parse: bool, help: 'snapshot files before changing them, for /rollback' },
   autoLearn: { parse: bool, help: 'save memory and skills without asking' },
+  bundledSkills: { parse: bool, help: "offer the skills that ship with SEEKER (yours always load)" },
   review: { parse: bool, help: 'learn from finished work: save facts and skills after a reply' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },
   host: {

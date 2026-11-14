@@ -29,7 +29,7 @@ export async function runJob(job, { config, info, now = new Date() }) {
     const agent = new Agent({ config: { ...config, review: false }, ui: quiet, permissions, provider, info: info ?? (await provider.describe(config.model)), cwd: job.workdir });
     agent.allowReview = false;
     agent.withheld = new Set(WITHHELD);
-    const skills = loadSkills(job.workdir, config.skillDirs);
+    const skills = loadSkills(job.workdir, config.skillDirs, { bundled: config.bundledSkills !== false });
     await agent.runTurn(jobPrompt(job, now, (name) => skills.find((s) => s.name === name)?.body ?? null));
     reply = ([...agent.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '').trim();
     if (errors.length) error = errors.join('; ').replace(/^Error:\s*/, '');

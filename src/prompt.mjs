@@ -4,6 +4,7 @@ import path from 'node:path';
 import { HOME_DIR, projectSlug } from './config.mjs';
 import { discoverContextFiles } from './context-files.mjs';
 import { MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, memoryBlocks } from './memory.mjs';
+import { BUNDLED_SKILLS_DIR } from './skills.mjs';
 
 export { projectSlug };
 
@@ -106,7 +107,7 @@ export function skillsSection(skills, contextLimit, { roots = null } = {}) {
 function skillRoots(cwd, skillDirs = []) {
   const expand = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
   const plugins = path.join(HOME_DIR, 'plugins');
-  const dirs = [...skillDirs.map((d) => path.resolve(cwd, expand(String(d)))), path.join(HOME_DIR, 'skills'), path.join(cwd, '.seeker', 'skills'), plugins];
+  const dirs = [...skillDirs.map((d) => path.resolve(cwd, expand(String(d)))), path.join(HOME_DIR, 'skills'), path.join(cwd, '.seeker', 'skills'), plugins, BUNDLED_SKILLS_DIR];
   return { plugins, dirs };
 }
 

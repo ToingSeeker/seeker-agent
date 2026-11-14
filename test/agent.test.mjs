@@ -33,7 +33,9 @@ const call = (name, args) => ({ message: { content: '', tool_calls: [{ function:
 const done = (content, extra = {}) => ({ message: { content }, done: true, prompt_eval_count: 100, eval_count: 20, ...extra });
 
 function makeAgent(host, cwd, { mode = 'auto', ask = null, numCtx = 32768 } = {}) {
-  const config = { ...DEFAULTS, host, numCtx };
+  // The model's replies are scripted, some at a tiny context: the shipped skills' list would move the
+  // compaction mark these tests are written against.
+  const config = { ...DEFAULTS, host, numCtx, bundledSkills: false };
   const permissions = new Permissions({ mode, cwd, ask });
   const provider = createProvider('ollama', config);
   return new Agent({ config, ui: silentUi, permissions, provider, info: { tools: true, thinking: true, context: null }, cwd });

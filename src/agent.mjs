@@ -116,7 +116,7 @@ export class Agent {
     this.provider = provider;
     this.info = info;
     this.caps = { tools: Boolean(info.tools), thinking: Boolean(info.thinking), vision: Boolean(info.vision) };
-    this.skills = loadSkills(this.cwd, this.config.skillDirs);
+    this.skills = loadSkills(this.cwd, this.config.skillDirs, { bundled: this.config.bundledSkills !== false });
     const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, provider, contextLimit: this.contextLimit() });
     this.system = prompt;
     this.instructionFiles = instructionFiles;
@@ -583,7 +583,7 @@ export class Agent {
 
   /** After skill_manage changed something: the skill tool sees it at once; the model is told with the next message. */
   #skillsChanged(created = []) {
-    this.skills = loadSkills(this.cwd, this.config.skillDirs);
+    this.skills = loadSkills(this.cwd, this.config.skillDirs, { bundled: this.config.bundledSkills !== false });
     this.newSkills.push(...created);
     this.stepsSinceSkill = 0;
   }
