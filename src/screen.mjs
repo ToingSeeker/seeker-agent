@@ -102,8 +102,10 @@ export class Screen {
   #footer(width) {
     const { c, footer } = this;
     const inner = Math.max(10, width - 6);
-    const border = (l, r) => c.accent(`${l}${'─'.repeat(width - 2)}${r}`);
-    const row = (mark, body) => `${c.accent('│')} ${mark} ${padEnd(body, inner)} ${c.accent('│')}`;
+    // The brand colour marks the box that is taking typing; while the agent works the border is quiet.
+    const edge = footer.input ? c.accent : c.dim;
+    const border = (l, r) => edge(`${l}${'─'.repeat(width - 2)}${r}`);
+    const row = (mark, body) => `${edge('│')} ${mark} ${padEnd(body, inner)} ${edge('│')}`;
     const rows = ['', border('╭', '╮')];
     let cursor = null;
 

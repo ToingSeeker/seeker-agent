@@ -622,7 +622,7 @@ export async function main(argv) {
   /** After a message: while a goal is active, a judge decides whether SEEKER carries on by itself. */
   const pursueGoal = async () => {
     while (autonomy?.goal?.status === 'active' && !autonomy.goal.parkedUntil) {
-      ui.startSpinner('Checking the goal');
+      ui.startSpinner('Checking the goal', undefined, 'purple');
       const next = await autonomy.afterTurn({ interrupted: agent.interrupted, response: lastReply() }).finally(() => ui.stopSpinner());
       for (const line of next.lines) ui.notice(`  ${line}`);
       if (!next.prompt) break;
