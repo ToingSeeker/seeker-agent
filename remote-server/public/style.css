@@ -89,6 +89,7 @@ svg {
 }
 
 #app {
+  position: relative;
   max-width: 620px;
   margin: 0 auto;
   height: 100dvh;
@@ -1255,8 +1256,8 @@ pre {
   padding: 9px 11px;
   transition: opacity var(--fast);
 }
-/* Floating over the bottom of a long conversation, within thumb reach: back to the projects on
-   the left, down to the newest message on the right. Each shows only when it would help. */
+/* Over a long conversation: back to the projects in the top-left corner, once the top bar has
+   scrolled away, and down to the newest message above the message box. Each shows only when it helps. */
 .fabs {
   position: absolute;
   bottom: 100%;
@@ -1278,6 +1279,12 @@ pre {
   color: var(--text);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
+}
+#fab-back {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: 16px;
+  z-index: 10;
 }
 #fab-latest {
   margin-left: auto;
