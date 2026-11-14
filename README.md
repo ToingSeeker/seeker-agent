@@ -96,6 +96,8 @@ patterns are asked about even with `--yolo`.
   An instruction file deeper in the tree (`packages/api/AGENTS.md`) is handed to the model the first time it
   works in that folder. A file that reads like a prompt injection is not loaded.
 - `~/.seeker/SEEKER.md` — rules that apply in every project.
+- `~/.seeker/usage.json` — how many tokens SEEKER has used: counts per day and a running total, nothing else.
+  It stays on this machine and is shown on the phone's Home.
 - `~/.seeker/memory/` — notes from earlier sessions; `MEMORY.md` is the index (one line per note).
   `~/.seeker/memory/projects/<folder>/` holds notes for one project.
 - `skills/` in this repository — skills that ship with SEEKER (engineering, design, data, SEO, marketing,
@@ -365,7 +367,8 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
 - **Home → Control Center** — what the agent is doing now (or, when nothing runs, how the latest task ended),
   the connected computer with its state and the measured round trip, the last 24 hours (projects that were
-  active, tool runs, projects whose latest task completed — counted from the conversations themselves), and
+  active and tool runs, counted from the conversations themselves), the tokens used today — tap it for the
+  last seven days and the total since counting began — and
   `/init` `/model` `/resume`.
 - **Home → Projects** — the open projects in one list, with search (name, folder, branch), sorting and a
   filter for terminal sessions. Under **On your Mac**, the project folders found in your home folder open
