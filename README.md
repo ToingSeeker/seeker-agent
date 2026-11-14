@@ -363,10 +363,14 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
 ### What the phone shows
 
-- **Home** — the session that needs you first (waiting for approval, then running, then the latest), the
-  connected computer with the measured round trip to it, your open projects, and `/init` `/model` `/resume`.
-  The **+** opens a folder on the computer, or makes a new one for a new project. A new folder can only be
-  made inside your home folder, and never in a hidden one.
+- **Home → Control Center** — what the agent is doing now (or, when nothing runs, how the latest task ended),
+  the connected computer with its state and the measured round trip, the last 24 hours (projects that were
+  active, tool runs, projects whose latest task completed — counted from the conversations themselves), and
+  `/init` `/model` `/resume`.
+- **Home → Projects** — the open projects in one list, with search (name, folder, branch), sorting and a
+  filter for terminal sessions. Under **On your Mac**, the project folders found in your home folder open
+  with one tap. The **+** opens a folder by its path, or makes a new one for a new project. A new folder can
+  only be made inside your home folder, and never in a hidden one.
 - **Sessions** — every open project as one compact row: its name, the latest instruction, a small status pill
   (Executing, Approval needed, Queued, Failed, Stopped, Completed, Idle), the model, tool runs and when it was
   last active. Search by project, instruction or model; filter by status (the counts are live); sort by
