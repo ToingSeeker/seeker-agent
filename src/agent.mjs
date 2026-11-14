@@ -117,7 +117,7 @@ export class Agent {
     this.info = info;
     this.caps = { tools: Boolean(info.tools), thinking: Boolean(info.thinking), vision: Boolean(info.vision) };
     this.skills = loadSkills(this.cwd, this.config.skillDirs);
-    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, provider, contextLimit: this.contextLimit() });
+    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, provider, contextLimit: this.contextLimit() });
     this.system = prompt;
     this.instructionFiles = instructionFiles;
     this.hints = new SubdirectoryHints(this.cwd, contextFiles);

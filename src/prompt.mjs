@@ -86,9 +86,12 @@ export function loadInstructions(cwd, contextLimit) {
  * The skill list for the prompt. With hundreds of skills the descriptions are
  * shortened to share the space; past that, only the names are listed.
  */
-export function skillsSection(skills, contextLimit) {
+export function skillsSection(skills, contextLimit, { roots = null } = {}) {
   const budget = Math.floor(contextLimit * SKILLS_SHARE * CHARS_PER_TOKEN);
-  const intro = `# Skills\nThese are instructions prepared for specific kinds of task. When the user's request matches one, call the \`skill\` tool with its exact name BEFORE doing anything else, then follow what it returns. If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it with skill_manage before finishing.`;
+  // A provider with its own tools (Claude Code) has no `skill` tool, so it reads the file itself.
+  const intro = roots
+    ? `# SEEKER skills\nThese are instructions prepared for specific kinds of task. They are SEEKER's own, separate from any skills your harness lists. When the user's request matches one, read its SKILL.md BEFORE doing anything else and follow it; files it mentions are relative to its folder. A skill \`name\` is in \`<root>/<name>/SKILL.md\`, and \`plugin:name\` in \`${roots.plugins}/<plugin>/skills/\` (possibly one folder deeper). If the folder name differs, search those roots for \`name: <name>\` in a SKILL.md. Roots: ${roots.dirs.join(', ')}.`
+    : `# Skills\nThese are instructions prepared for specific kinds of task. When the user's request matches one, call the \`skill\` tool with its exact name BEFORE doing anything else, then follow what it returns. If a skill you loaded was missing steps, had wrong commands, or needed pitfalls you discovered, update it with skill_manage before finishing.`;
   const each = Math.floor((budget - intro.length) / skills.length) - 1; // one character per line is its line break
   const line = (s, room) => `- ${s.name}: ${s.description.length > room ? `${s.description.slice(0, room - 1)}…` : s.description}`;
   const shortest = Math.min(...skills.map((s) => each - s.name.length - 4));
@@ -99,7 +102,15 @@ export function skillsSection(skills, contextLimit) {
   return `${intro}\n\n${skills.length} skills are installed — too many to list for this model. Use one when the user names it (they can browse them with /skills).`;
 }
 
-export function buildSystemPrompt({ cwd, model, skills = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768 }) {
+/** Folders the skills come from, as loadSkills reads them, for a model that opens the files itself. */
+function skillRoots(cwd, skillDirs = []) {
+  const expand = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
+  const plugins = path.join(HOME_DIR, 'plugins');
+  const dirs = [...skillDirs.map((d) => path.resolve(cwd, expand(String(d)))), path.join(HOME_DIR, 'skills'), path.join(cwd, '.seeker', 'skills'), plugins];
+  return { plugins, dirs };
+}
+
+export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768 }) {
   const memory = memorySection(cwd, contextLimit);
   const own = memoryBlocks(cwd);
   const where = provider.local
@@ -118,6 +129,7 @@ export function buildSystemPrompt({ cwd, model, skills = [], provider = { label:
       ...instructions.map(({ file, text }) => `# Project instructions (${file})\nThe user wrote these; follow them.\n\n${text}`),
       ...(own ? [`# What you know from earlier sessions\n${own.text}`] : []),
       ...(memory ? [memory.text] : []),
+      ...(skills.length ? [skillsSection(skills, contextLimit, { roots: skillRoots(cwd, skillDirs) })] : []),
     ];
     return { prompt: notes.join('\n\n'), instructionFiles: loaded, contextFiles };
   }
