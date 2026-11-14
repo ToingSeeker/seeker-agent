@@ -370,6 +370,13 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 - **A session** — what the agent is doing right now (thinking, running a tool, writing, waiting for you,
   finished, failed or stopped), every step as it happens with its output, and context, tokens and tool
   counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply.
+- **Sending while it works** — a message sent while the agent is busy asks where it should go. *Queue next*
+  keeps it on the computer (`~/.seeker/queue.json`) and runs it when the current task has completed, in the
+  order sent. *Steer current task* hands it to the running task, which reads it before its next step; that
+  works with Ollama and the API providers, not with Claude Code, which runs a whole task in one request and
+  is offered Queue only. After a task that was stopped or failed, and after `seeker remote` is restarted,
+  nothing waiting starts by itself: the queue is paused until you resume it. Pictures cannot be queued, and
+  a session typed in a terminal has no queue.
 - **Approvals** — each command and each file change waits here. A change is shown as a diff with line
   numbers; a command the safety patterns flag is marked dangerous. One request is one command or one file.
 - **Settings** — connection, model, and which notifications this phone gets: finished tasks, approvals

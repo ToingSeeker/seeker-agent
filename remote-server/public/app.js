@@ -57,6 +57,8 @@ const ICONS = {
   cross: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   play: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>`,
   brain: svg('<path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V7a3 3 0 00-3-3zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/>'),
+  at: svg('<circle cx="12" cy="12" r="3.6"/><path d="M15.6 8.4v4.8a2.6 2.6 0 005.2 0V12a8.8 8.8 0 10-3.6 7.1"/>'),
+  stop: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
 
@@ -88,6 +90,8 @@ const state = {
 let streamAbort = null;
 let reconnecting = false;
 const pings = new Map(); // command id → when it was sent
+const acks = new Map(); // key of an instruction → called with what the Mac answered
+const NO_QUEUE = { items: [], paused: null };
 
 const PAGE = 120; // timeline entries drawn at first; older ones on request
 const PREFS_KEY = 'seeker.push.prefs';
@@ -144,6 +148,24 @@ async function command(type, fields = {}, { id = crypto.randomUUID(), quiet = fa
   return false;
 }
 
+/**
+ * Sends an instruction to a project that is working: 'steer' into the task in progress, 'queue' for after it.
+ * Resolves with what the Mac says became of it — { as: 'queued' | 'steered' | 'started' } or { error }. Nothing
+ * counts as sent before that answer. Sending again with the same `key` cannot make it happen twice.
+ */
+function instruct(ws, text, mode, key) {
+  return new Promise((resolve) => {
+    const finish = (result) => {
+      clearTimeout(timer);
+      acks.delete(key);
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish({ error: 'Your Mac did not confirm it, so it may not have arrived. Try again.' }), 12_000);
+    acks.set(key, finish);
+    command('instruct', { ws, text, mode, key }, { quiet: true }).then((taken) => taken || finish({ error: state.linked && state.online ? 'Could not send it.' : 'Your Mac is not connected. Nothing was sent.' }));
+  });
+}
+
 /** Times the whole path — phone → relay → Mac → relay → phone — with a message the Mac echoes. */
 function ping() {
   if (!state.linked || !state.online) return;
@@ -160,12 +182,12 @@ function apply(event) {
       state.device = event.device;
       state.folders = event.folders ?? [];
       state.approvals = event.approvals ?? [];
-      state.workspaces = new Map(event.workspaces.map(({ items, ...meta }) => [meta.id, { meta, items: items ?? [] }]));
+      state.workspaces = new Map(event.workspaces.map(({ items, queue, ...meta }) => [meta.id, { meta, items: items ?? [], queue: queue ?? NO_QUEUE }]));
       break;
     case 'ws': {
       const existing = state.workspaces.get(event.ws.id);
       if (existing) existing.meta = event.ws;
-      else state.workspaces.set(event.ws.id, { meta: event.ws, items: [] });
+      else state.workspaces.set(event.ws.id, { meta: event.ws, items: [], queue: NO_QUEUE });
       break;
     }
     case 'item':
@@ -179,6 +201,13 @@ function apply(event) {
       if (event.append) item.text = (item.text ?? '') + event.append;
       break;
     }
+    case 'queue':
+      // Always the whole queue as the Mac holds it, so a repeated or late event cannot leave a wrong one behind.
+      if (ws) ws.queue = event.queue ?? NO_QUEUE;
+      break;
+    case 'sent':
+      acks.get(event.key)?.(event);
+      break;
     case 'approval':
       state.approvals = [...state.approvals.filter((a) => a.id !== event.approval.id), event.approval];
       if (navigator.vibrate) navigator.vibrate(120);
@@ -812,6 +841,7 @@ async function addImages(files) {
 }
 
 function showAttachments() {
+  composerState();
   const strip = $('attachments');
   strip.hidden = attachments.length === 0;
   strip.replaceChildren(
@@ -875,18 +905,18 @@ function entryOf(item) {
     const mark = item.state === 'done' ? 'done' : item.state === 'failed' ? 'failed' : 'running';
     const verb = item.state === 'done' ? item.done : item.doing;
     const hasMore = item.output?.length || item.diff;
-    const head = [h('div', { class: 'headline' }, h('span', { class: 'title' }, verb, item.state === 'running' && runningDots()), time), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note)];
+    const head = [h('div', { class: 'headline' }, h('span', { class: 'title' }, verb, item.state === 'running' && runningDots()), time), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note), item.state === 'running' && h('span', { class: 'runbar' })];
     return h(
       'li',
       { class: `ev tool ${mark}` },
-      h('span', { class: 'node' }, mark === 'done' ? h('span', { icon: 'check' }) : mark === 'failed' ? h('span', { icon: 'cross' }) : null),
+      h('span', { class: 'node', icon: mark === 'done' ? 'check' : mark === 'failed' ? 'cross' : 'play' }),
       h('div', { class: 'body' }, hasMore ? expandable(item, head, item.diff && diffView(item.diff, item.summary), item.output?.length ? h('pre', { class: 'out' }, item.output.join('\n')) : null) : head),
     );
   }
   if (item.kind === 'user') {
     // A preview is shown only as an image of a type the Mac recognised; anything else is just named.
     const shots = (item.images ?? []).map((i) => (i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name }) : h('span', { class: 'file' }, i.name)));
-    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), time), h('div', { class: 'said' }, item.text), shots.length ? h('div', { class: 'shots' }, shots) : null));
+    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), h('div', { class: 'said' }, item.text), shots.length ? h('div', { class: 'shots' }, shots) : null));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
@@ -905,6 +935,17 @@ function timeline(ws, items = ws.items, tail = null) {
   ];
 }
 
+/** Says no to a request without opening it. Saying yes is only offered on the review screen, where the whole request is shown. */
+async function rejectFromTimeline(pending) {
+  if (state.deciding.has(pending.id)) return;
+  state.deciding.add(pending.id);
+  render(true);
+  if (!(await command('approve', { id_approval: pending.id, decision: 'deny', note: '' }))) {
+    state.deciding.delete(pending.id);
+    render(true);
+  }
+}
+
 /** The step that is waiting for the user, at the end of the timeline. It opens the review screen, where the whole request is shown. */
 function waitingEntry(pending) {
   const question = pending.kind === 'question';
@@ -912,44 +953,46 @@ function waitingEntry(pending) {
   return h(
     'li',
     { class: 'ev pending' },
-    h('span', { class: 'node' }),
+    h('span', { class: 'node', icon: 'shield' }),
     h(
       'div',
       { class: 'body' },
-      h('span', { class: 'title' }, question ? 'Waiting for your answer' : 'Pending approval'),
+      h('div', { class: 'headline' }, h('span', { class: 'title' }, question ? 'Waiting for your answer' : 'Pending approval'), h('time', { class: 'at' }, clock(pending.at))),
       h('span', { class: 'sub mono' }, what.length > 200 ? `${what.slice(0, 200)}…` : what),
-      h('button', { class: 'btn small approve', onclick: () => go({ name: 'review', id: pending.id, from: state.view }) }, h('span', { icon: question ? 'chevron' : 'shield' }), question ? 'Answer' : 'Review'),
+      h(
+        'div',
+        { class: 'pair' },
+        h('button', { class: 'btn small approve', onclick: () => go({ name: 'review', id: pending.id, from: state.view }) }, h('span', { icon: question ? 'chevron' : 'check' }), question ? 'Answer' : 'Review'),
+        !question && h('button', { class: 'btn small reject', disabled: state.deciding.has(pending.id), onclick: () => rejectFromTimeline(pending) }, h('span', { icon: 'cross' }), 'Reject'),
+      ),
     ),
-    h('time', { class: 'at' }, clock(pending.at)),
   );
 }
 
 /** The banner that says what the agent is doing. Progress is never a percentage: the Mac cannot know one. */
-function statusBanner(ws, pending) {
-  const { meta } = ws;
+/** The step the agent is on right now, when no tool entry shows it: the model thinking, or writing its answer. */
+function workingEntry(meta) {
   const st = agentState(meta);
-  const failure = st.key === 'failed' ? [...ws.items].reverse().find((i) => i.kind === 'notice' && i.level === 'error')?.text : null;
-  const text = {
-    thinking: meta.activity && meta.activity !== 'Thinking' ? `${meta.activity}…` : 'The model is working on its next step…',
-    executing: meta.tools?.running ?? `${meta.activity || 'Running a tool'}…`,
-    responding: 'Writing the answer…',
-    approval: pending ? (pending.kind === 'question' ? pending.title : `${pending.doing} ${pending.summary}`) : 'Waiting for your answer.',
-    completed: `Finished ${ago(meta.lastAt)}.`,
-    failed: failure ?? 'The last task ended with an error.',
-    stopped: 'You stopped the last task.',
-    idle: 'Ready. Ask Seeker to build, fix, or explore.',
-  }[st.key];
-  const icon = { thinking: 'brain', approval: 'shield', completed: 'check', failed: 'cross', idle: 'terminal', stopped: 'terminal' }[st.key] ?? 'bolt';
-  const link = st.key === 'approval' && pending;
+  if (st.key !== 'thinking' && st.key !== 'responding') return null;
+  const thinking = st.key === 'thinking';
+  const what = thinking ? (meta.activity && meta.activity !== 'Thinking' ? `${meta.activity}…` : 'The model is working on its next step…') : 'Writing the answer…';
+  return h('li', { class: `ev now-step ${st.tone}` }, h('span', { class: 'node', icon: thinking ? 'brain' : 'bolt' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'title' }, thinking ? 'Reasoning' : 'Responding', runningDots())), h('span', { class: 'sub' }, what)));
+}
+
+/** What waits for the task in progress to end, at the foot of the timeline. */
+function queuedEntry(queue) {
+  if (!queue?.items.length) return null;
+  const [first] = queue.items;
   return h(
-    link ? 'button' : 'div',
-    { class: `status ${st.tone}`, onclick: link ? () => go({ name: 'review', id: pending.id, from: state.view }) : null },
-    h('span', { class: 'ico', icon }),
-    h('span', { class: 'grow' }, h('span', { class: 'state' }, st.label), h('span', { class: 'what' }, text)),
-    link && h('span', { class: 'chev', icon: 'chevron' }),
-    st.busy && st.key !== 'approval' && h('span', { class: 'bar' }),
+    'li',
+    { class: 'ev queued' },
+    h('span', { class: 'node', icon: 'layers' }),
+    h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'title' }, `Queued next (${queue.items.length})`, queue.paused && ' · paused'), h('time', { class: 'at' }, clock(first.at))), h('span', { class: 'sub' }, first.text.length > 200 ? `${first.text.slice(0, 200)}…` : first.text)),
   );
 }
+
+/** The session's state in a word, for the chip under the title. */
+const STATE_WORD = { thinking: 'Thinking', executing: 'Running', responding: 'Responding', approval: 'Awaiting approval', completed: 'Completed', failed: 'Failed', stopped: 'Stopped', idle: 'Idle' };
 
 function metrics(meta) {
   const pct = meta.limit ? Math.min(100, Math.round((meta.used / meta.limit) * 100)) : null;
@@ -1003,21 +1046,19 @@ function session(ws) {
                 : h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
             ),
           ]
-        : items.length || pending
-          ? timeline(ws, items, pending ? waitingEntry(pending) : null)
+        : items.length || pending || st.busy || ws.queue?.items.length
+          ? timeline(ws, items, [pending ? waitingEntry(pending) : workingEntry(meta), queuedEntry(ws.queue)])
           : [h('div', { class: 'empty' }, 'Nothing has happened in this conversation yet.')];
   return [
     h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.model)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
-    // Connection on the left; on the right, whether this is live and how full the context is.
+    // What the agent is doing on the left; how full its context is on the right.
     h(
       'div',
       { class: 'session-bar' },
-      h('span', { class: 'line' }, h('span', { class: `dot ${up ? 'on' : 'off'}`, role: 'img', 'aria-label': up ? 'connected' : 'not connected' }), ' ', state.device?.name ?? 'Your Mac'),
-      st.busy && up && h('span', { class: 'live' }, h('i'), 'LIVE'),
+      up ? h('span', { class: `state-chip ${st.tone}${st.busy ? ' busy' : ''}` }, h('i'), STATE_WORD[st.key]) : h('span', { class: 'state-chip danger' }, h('i'), 'Offline'),
       h('span', {}, `${kilo(meta.used)} / ${sizeOf(meta.limit)} tokens`),
     ),
-    statusBanner(ws, pending),
-    h('div', { class: 'tabs', role: 'tablist' }, tabButton('activity', 'ACTIVITY'), tabButton('tools', tools.length ? `TOOLS · ${tools.length}` : 'TOOLS'), tabButton('metrics', 'METRICS')),
+    h('div', { class: 'tabs seg', role: 'tablist' }, tabButton('activity', 'Activity'), tabButton('tools', tools.length ? `Tools · ${tools.length}` : 'Tools'), tabButton('metrics', 'Metrics')),
     ...body,
   ];
 }
@@ -1034,10 +1075,9 @@ function controls(ws) {
   const up = state.linked && state.online;
   const lastAsked = [...ws.items].reverse().find((i) => i.kind === 'user')?.text;
   return [
-    st.busy && h('button', { class: 'ctl stop', type: 'button', disabled: !up, onclick: () => command('stop', { ws: meta.id }) }, h('i'), 'Stop'),
     pending.length > 0 && h('button', { class: 'ctl approve', type: 'button', onclick: () => go({ name: 'review', id: pending[0].id, from: state.view }) }, h('span', { icon: 'check' }), pending[0].kind === 'question' ? 'Answer' : `Review${pending.length > 1 ? ` (${pending.length})` : ''}`),
     // After a stop the agent's own history says where it was; "continue" is what it is told to expect.
-    st.key === 'stopped' && h('button', { class: 'ctl resume', type: 'button', disabled: !up, onclick: () => sendText(meta.id, 'continue') }, h('span', { icon: 'play' }), 'Resume'),
+    st.key === 'stopped' && h('button', { class: 'ctl resume', type: 'button', disabled: !up, onclick: () => sendText(meta.id, 'continue') }, h('span', { icon: 'play' }), ws.queue?.paused ? 'Continue task' : 'Resume'),
     st.key === 'failed' && lastAsked && h('button', { class: 'ctl resume', type: 'button', disabled: !up, onclick: () => sendText(meta.id, lastAsked) }, h('span', { icon: 'play' }), 'Retry'),
   ].filter(Boolean);
 }
@@ -1318,22 +1358,12 @@ function draw() {
       $('controls').replaceChildren(...buttons);
       $('controls').dataset.signature = signature;
     }
-    // What the agent is doing, beside Stop: readable at the end of a long conversation without scrolling back to the top.
-    // It is kept apart from the buttons so that a change of state never swaps Stop out from under a finger.
-    let now = $('controls').querySelector('.now');
-    if (st.busy && st.key !== 'approval') {
-      if (!now) $('controls').append((now = h('div', { class: 'now', role: 'status' })));
-      if (now.dataset.key !== st.key) {
-        now.dataset.key = st.key;
-        now.className = `now ${st.tone}`;
-        now.replaceChildren(h('span', { icon: st.key === 'thinking' ? 'brain' : 'bolt' }), h('b', {}, st.label), runningDots());
-      }
-    } else now?.remove();
     $('controls').hidden = buttons.length === 0;
-    // A terminal session takes a picture at any time: it goes into the message being typed there.
-    $('send').disabled = (st.busy && !ws.meta.terminal) || sending || !up;
+    runStatus(ws, st);
+    queuePanel(ws, up);
+    composerState();
     $('tokens').textContent = `${kilo(ws.meta.used)} / ${sizeOf(ws.meta.limit)}`;
-    $('input').placeholder = !up ? 'Not connected…' : st.busy ? (ws.meta.terminal ? 'Working… a picture can still be sent' : 'Seeker is working…') : ws.meta.terminal ? 'Message, or just a picture…' : 'Message or /command…';
+    $('input').placeholder = !up ? 'Not connected…' : st.busy ? (ws.meta.terminal ? 'Working… a picture can still be sent' : ws.meta.can?.queue ? 'Next instruction…' : 'Seeker is working…') : ws.meta.terminal ? 'Message, or just a picture…' : 'Message or /command…';
     // Said aloud once per change, for a reader who cannot see the banner turn colour.
     const say = `${ws.meta.name}: ${st.label.toLowerCase()}`;
     if (say !== announced) $('announce').textContent = announced = say;
@@ -1348,6 +1378,168 @@ function draw() {
   );
   document.title = state.approvals.length ? `(${state.approvals.length}) SEEKER Remote` : 'SEEKER Remote';
   fabs();
+}
+
+// ── above the message box: what the agent is doing, and what waits for it to finish ──
+const RUN_TITLE = { thinking: 'Seeker is thinking', executing: 'Seeker is working', responding: 'Seeker is writing', approval: 'Waiting for your approval' };
+const PAUSED = { stopped: 'Paused: the task was stopped.', failed: 'Paused: the task failed.', restart: 'Paused: SEEKER was restarted on your Mac.' };
+const openQueued = new Set(); // waiting instructions the reader opened to read in full
+let stopAsked = null; // the task a stop was sent for, until the Mac says it is stopping
+
+/** Readable at the end of a long conversation without scrolling up. Redrawn only when what it says changes. */
+function runStatus(ws, st) {
+  const el = $('status');
+  const { meta } = ws;
+  if (!st.busy) {
+    el.hidden = true;
+    el.dataset.key = '';
+    return;
+  }
+  const stopping = Boolean(meta.stopping);
+  const waiting = st.key === 'approval';
+  const key = `${meta.id}|${stopping ? 'stopping' : st.key}|${meta.activity}`;
+  if (el.dataset.key !== key) {
+    el.dataset.key = key;
+    el.className = `run-status ${stopping ? 'muted' : st.tone}`;
+    el.replaceChildren(
+      h('span', { class: 'ico', icon: st.key === 'thinking' ? 'brain' : waiting ? 'shield' : 'bolt' }),
+      h('span', { class: 'grow' }, h('b', {}, stopping ? 'Stopping' : RUN_TITLE[st.key], !waiting && runningDots()), h('span', { class: 'sub line' }, stopping ? 'Waiting for your Mac to confirm' : meta.activity || '')),
+      h('span', { class: 'side' }, h('span', { class: `state-chip ${stopping ? 'muted' : st.tone} busy` }, h('i'), stopping ? 'STOPPING' : waiting ? 'WAITING' : 'RUNNING'), h('time', { class: 'elapsed mono' })),
+    );
+  }
+  el.hidden = false;
+  elapsed();
+}
+
+/** How long the task has been running, counted from when the Mac says it began. */
+function elapsed() {
+  const el = $('status').querySelector('.elapsed');
+  const startedAt = state.workspaces.get(state.view.ws)?.meta.startedAt;
+  if (!el || !startedAt || $('status').hidden) return;
+  const s = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  const two = (n) => String(n).padStart(2, '0');
+  el.textContent = s >= 3600 ? `${Math.floor(s / 3600)}:${two(Math.floor(s / 60) % 60)}:${two(s % 60)}` : `${two(Math.floor(s / 60))}:${two(s % 60)}`;
+}
+setInterval(elapsed, 1000);
+
+/** The instructions waiting on the Mac, in the order they will run. What is shown is what the Mac last reported. */
+function queuePanel(ws, up) {
+  const el = $('queue');
+  const { items, paused } = ws.queue ?? NO_QUEUE;
+  if (!items.length) {
+    el.hidden = true;
+    el.dataset.key = '';
+    return;
+  }
+  const id = ws.meta.id;
+  const key = `${id}|${paused}|${up}|${items.map((i) => `${i.id}${openQueued.has(i.id) ? '+' : ''}`).join(',')}`;
+  el.hidden = false;
+  if (el.dataset.key === key) return;
+  el.dataset.key = key;
+  const parts = [
+    h(
+      'div',
+      { class: 'head' },
+      h('span', { class: 'ico', icon: 'layers' }),
+      h('b', { class: 'grow line' }, paused ? `Queued (${items.length})` : `Queued instructions (${items.length})`),
+      paused && h('button', { class: 'btn small approve', type: 'button', disabled: !up, onclick: () => command('queue_resume', { ws: id }) }, 'Resume queue'),
+      h('button', { class: 'btn small quiet', type: 'button', 'aria-label': 'Clear the queue', disabled: !up, onclick: () => (items.length < 2 || confirm(`Remove all ${items.length} waiting instructions? The task that is running is not stopped.`)) && command('queue_clear', { ws: id }) }, 'Clear'),
+    ),
+    paused && h('div', { class: 'paused' }, PAUSED[paused] ?? 'Paused.'),
+    h(
+      'ol',
+      {},
+      items.map((item, i) =>
+        h(
+          'li',
+          {},
+          h('span', { class: 'n mono' }, `${i + 1}.`),
+          h('button', { class: `text${openQueued.has(item.id) ? ' open' : ''}`, type: 'button', 'aria-label': `Review queue: instruction ${i + 1}`, 'aria-expanded': String(openQueued.has(item.id)), onclick: () => ((openQueued.has(item.id) ? openQueued.delete(item.id) : openQueued.add(item.id)), draw()) }, item.text),
+          h('button', { class: 'x', type: 'button', 'aria-label': 'Remove queued instruction', icon: 'cross', disabled: !up, onclick: () => command('queue_remove', { ws: id, item: item.id }) }),
+        ),
+      ),
+    ),
+  ];
+  el.replaceChildren(...parts.filter(Boolean));
+}
+
+/** Stop and Send, each on its own: Stop only while something runs, Send whenever there is something to send and somewhere for it to go. */
+function composerState() {
+  const ws = state.workspaces.get(state.view.ws);
+  if (!ws) return;
+  const { meta } = ws;
+  const st = agentState(meta);
+  const up = state.linked && state.online;
+  const empty = !input.value.trim() && !attachments.length;
+  // A terminal session takes a picture at any time: it goes into the message being typed there.
+  const nowhere = st.busy && !meta.terminal && !meta.can?.queue;
+  $('send').disabled = sending || !up || nowhere || empty;
+  $('send').classList.toggle('busy', sending);
+  const stoppable = st.busy && meta.can?.stop !== false;
+  $('stop').hidden = !stoppable;
+  $('stop').disabled = !up || Boolean(meta.stopping) || (stopAsked !== null && stopAsked === (meta.turn ?? null));
+  if (!st.busy) stopAsked = null;
+}
+
+/**
+ * Asked when something is sent while the agent works: into the task in progress, or after it.
+ * What was typed stays in the box until the Mac has confirmed where it went.
+ */
+function chooseMode(ws, text) {
+  const { meta } = ws;
+  const key = crypto.randomUUID(); // one per instruction: a retry repeats it, and the Mac then does it once
+  const canSteer = Boolean(meta.can?.steer);
+  const body = h('div', { class: 'mode-sheet' });
+  let mode = 'queue';
+  let busy = false;
+  let error = '';
+  const option = (id, icon, title, about, off = false) =>
+    h(
+      'button',
+      { class: `mode ${id}${mode === id ? ' on' : ''}`, type: 'button', role: 'radio', 'aria-checked': String(mode === id), disabled: off || busy, onclick: () => ((mode = id), show()) },
+      h('span', { class: 'ico', icon }),
+      h('span', { class: 'grow' }, h('b', {}, title), h('span', { class: 'sub' }, about)),
+      h('i', { class: 'radio' }),
+    );
+  const submit = async () => {
+    busy = true;
+    error = '';
+    show();
+    const result = await instruct(meta.id, text, mode, key);
+    busy = false;
+    const open = !$('sheet').hidden && $('sheet').contains(body);
+    if (result.error) {
+      error = result.error;
+      return open ? show() : toast(error);
+    }
+    // Only now is it out of the box — unless something else was typed meanwhile.
+    if (input.value.trim() === text) {
+      input.value = '';
+      grow();
+      suggest();
+      composerState();
+    }
+    if (open) closeSheet();
+    // A queued instruction shows in the queue itself; the other two outcomes have nowhere else to be seen.
+    if (result.as !== 'queued') toast(result.as === 'steered' ? 'Sent into the running task.' : 'The task had just ended, so this started right away.');
+  };
+  const show = () =>
+    body.replaceChildren(
+      ...[
+      h('p', { class: 'muted' }, 'Seeker sedang menjalankan task. Bagaimana instruksi ini dijalankan?'),
+      h('div', { class: 'draft' }, text.length > 220 ? `${text.slice(0, 220)}…` : text),
+      h(
+        'div',
+        { class: 'modes', role: 'radiogroup', 'aria-label': 'Choose execution mode' },
+        option('steer', 'bolt', 'Steer current task', canSteer ? 'Arahkan atau sesuaikan task yang sedang berjalan.' : `Tidak tersedia: ${meta.provider} menjalankan seluruh task dalam satu permintaan, jadi instruksi tidak bisa disisipkan di tengahnya.`, !canSteer),
+        option('queue', 'layers', ['Queue next ', h('span', { class: 'accent' }, '(disarankan)')], 'Jalankan setelah task saat ini selesai.'),
+      ),
+      error && h('div', { class: 'mode-error', role: 'alert' }, error),
+      h('div', { class: 'pair' }, h('button', { class: 'btn', type: 'button', disabled: busy, onclick: closeSheet }, 'Cancel'), h('button', { class: 'btn primary', type: 'button', disabled: busy, onclick: submit }, busy ? 'Mengirim…' : error ? 'Coba lagi' : 'Kirim')),
+      ].filter(Boolean),
+    );
+  show();
+  sheet('Kirim instruksi baru', body);
 }
 
 // ── floating buttons over a long conversation: back (out of thumb reach at the top) and latest ──
@@ -1374,6 +1566,31 @@ $('view').addEventListener('scroll', fabs, { passive: true });
 // ── composer (kept outside the redrawn area so typing is never interrupted) ──
 const input = $('input');
 $('send').innerHTML = ICONS.send;
+$('stop').innerHTML = ICONS.stop;
+$('mention').innerHTML = ICONS.at;
+// Stop ends the task that is running when it is pressed, and only that one.
+$('stop').addEventListener('click', async () => {
+  const ws = state.workspaces.get(state.view.ws);
+  if (!ws) return;
+  const turn = ws.meta.turn ?? null;
+  stopAsked = turn;
+  composerState();
+  if (!(await command('stop', turn ? { ws: ws.meta.id, turn } : { ws: ws.meta.id }))) {
+    stopAsked = null;
+    composerState();
+  }
+});
+// "@" starts a reference to a file: @file:src/app.js is read and attached on the Mac.
+$('mention').addEventListener('click', () => {
+  const at = input.selectionStart ?? input.value.length;
+  const before = input.value.slice(0, at);
+  const insert = `${before && !/\s$/.test(before) ? ' ' : ''}@file:`;
+  input.value = before + insert + input.value.slice(input.selectionEnd ?? at);
+  input.focus();
+  input.selectionStart = input.selectionEnd = at + insert.length;
+  grow();
+  composerState();
+});
 $('attach').innerHTML = ICONS.image;
 $('commands').innerHTML = ICONS.plus;
 let sending = false;
@@ -1405,7 +1622,7 @@ function slashCommands() {
     { name: '/init', about: 'write SEEKER.md for this project', off: busy, run: () => sendText(id, INIT) },
     { name: '/model', about: 'switch the model', off: busy || terminal, run: chooseModel },
     { name: '/new', about: 'start a new conversation', off: busy || terminal, run: () => newConversation(ws.meta) },
-    { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => command('stop', { ws: id }) },
+    { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => $('stop').click() },
     { name: '/image', about: 'attach a photo or screenshot', off: false, run: () => $('file').click() },
     { name: '/yolo', about: terminal ? 'changed in the terminal for this session' : 'run edits and commands without asking (on/off)', off: busy || terminal, run: run('/yolo') },
     { name: '/status', about: 'model, context and approval mode', off: busy, run: run('/status') },
@@ -1448,6 +1665,7 @@ function suggest() {
 input.addEventListener('input', () => {
   grow();
   suggest();
+  composerState();
 });
 $('form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1463,6 +1681,12 @@ $('form').addEventListener('submit', async (e) => {
     return typed.run();
   }
   if ($('send').disabled) return;
+  const ws = state.workspaces.get(state.view.ws);
+  // Sent while the agent works: it is asked whether this goes into the running task or waits for it to end.
+  if (ws && agentState(ws.meta).busy && !ws.meta.terminal) {
+    if (attachments.length) return toast('Pictures cannot wait in the queue yet. Send them when the task has ended.');
+    return chooseMode(ws, text);
+  }
   // A message with pictures takes a moment to upload; a second tap must not send it twice.
   sending = true;
   draw();
