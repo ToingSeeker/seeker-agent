@@ -32,7 +32,8 @@ function h(tag, attrs = {}, ...children) {
 
 const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICONS = {
-  logo: `<svg viewBox="0 0 48 48" fill="currentColor" aria-hidden="true"><path d="M24 2l5 9H19zM24 46l-5-9h10zM2 24l9-5v10zM46 24l-9 5V19z"/><path d="M22.6 17h2.8v5.6H31v2.8h-5.6V31h-2.8v-5.6H17v-2.8h5.6z"/></svg>`,
+  // The robot of the terminal header, on the same 11×8 pixel grid (src/mascot.mjs).
+  logo: `<svg class="robot" viewBox="0 -1.5 11 11" shape-rendering="crispEdges" aria-hidden="true"><path class="o" d="M3 0h1v1H3zM7 0h1v1H7zM3 7h2v1H3zM6 7h2v1H6z"/><path class="c" d="M2 1h7v1H2zM1 2h1v2H1zM9 2h1v2H9zM2 4h7v1H2zM3 5h5v1H3zM3 6h2v1H3zM6 6h2v1H6z"/><path class="b" d="M.5 2H1v2H.5zM10 2h.5v2H10zM2 6h1v1H2zM8 6h1v1H8z"/><path class="k" d="M2 2h7v2H2z"/><path class="y" d="M5 6h1v1H5z"/><path class="eye" shape-rendering="geometricPrecision" d="M4.2 2.5l.6.5-.6.5M6.8 2.5l-.6.5.6.5"/><path class="cur" d="M5.15 3.4h.7v.25h-.7z"/></svg>`,
   laptop: svg('<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>'),
   chevron: svg('<path d="M9 6l6 6-6 6"/>'),
   back: svg('<path d="M15 6l-6 6 6 6"/>'),
@@ -73,6 +74,7 @@ const state = {
   folders: [],
   view: { name: 'home' },
   homeTab: 'control',
+  sessionTab: 'activity', // activity | tools | metrics
   error: '',
   picking: false, // the model sheet is open and waiting for lists from the Mac
   push: 'unknown', // unsupported | off | on | denied
@@ -319,17 +321,18 @@ function ago(at) {
 
 /**
  * What the agent in a workspace is doing, from what the Mac reported: its status and, while it
- * works, its phase. `tone` picks the colour.
+ * works, its phase. `tone` picks the colour: amber waits for the user, purple is the model thinking,
+ * blue is work being done, green finished, red failed.
  */
 function agentState(meta) {
-  if (meta.status === 'approval') return { key: 'approval', label: 'AWAITING APPROVAL', tone: 'amber', busy: true };
+  if (meta.status === 'approval') return { key: 'approval', label: 'AWAITING APPROVAL', tone: 'primary', busy: true };
   if (meta.status === 'working') {
-    if (meta.phase === 'thinking') return { key: 'thinking', label: 'THINKING', tone: 'violet', busy: true };
-    if (meta.phase === 'responding') return { key: 'responding', label: 'RESPONDING', tone: 'cyan', busy: true };
-    return { key: 'executing', label: 'EXECUTING', tone: 'cyan', busy: true };
+    if (meta.phase === 'thinking') return { key: 'thinking', label: 'THINKING', tone: 'reasoning', busy: true };
+    if (meta.phase === 'responding') return { key: 'responding', label: 'RESPONDING', tone: 'execution', busy: true };
+    return { key: 'executing', label: 'EXECUTING', tone: 'execution', busy: true };
   }
-  if (meta.outcome === 'completed') return { key: 'completed', label: 'COMPLETED', tone: 'emerald', busy: false };
-  if (meta.outcome === 'failed') return { key: 'failed', label: 'FAILED', tone: 'red', busy: false };
+  if (meta.outcome === 'completed') return { key: 'completed', label: 'COMPLETED', tone: 'success', busy: false };
+  if (meta.outcome === 'failed') return { key: 'failed', label: 'FAILED', tone: 'danger', busy: false };
   if (meta.outcome === 'stopped') return { key: 'stopped', label: 'STOPPED', tone: 'muted', busy: false };
   return { key: 'idle', label: 'IDLE', tone: 'muted', busy: false };
 }
@@ -563,6 +566,8 @@ function route(link) {
 }
 
 const go = (view) => {
+  // Another conversation opens on its activity; coming back to the same one keeps the tab.
+  if (view.name === 'session' && view.ws !== state.view.ws && view.ws !== state.view.from?.ws) state.sessionTab = 'activity';
   state.view = view;
   render(true);
 };
@@ -587,7 +592,6 @@ function header() {
     'header',
     { class: 'brand' },
     h('span', { class: 'mark', icon: 'logo' }),
-    h('span', { class: 'bar' }),
     h('div', { class: 'grow' }, h('div', { class: 'word' }, 'SEEKER'), h('div', { class: 'sub' }, 'REMOTE')),
     h('button', { class: 'avatar', 'aria-label': `Settings — ${up ? 'connected' : 'not connected'}`, onclick: () => go({ name: 'settings' }) }, initial, h('i', { class: up ? 'on' : 'off' })),
   );
@@ -596,8 +600,8 @@ function header() {
 /** A strip across the top whenever what is on screen may be out of date. */
 function linkBanner() {
   if (!state.secret) return null;
-  if (!state.linked) return h('div', { class: 'banner amber', role: 'status' }, h('i', { class: 'spin' }), 'Reconnecting to the relay…');
-  if (!state.online) return h('div', { class: 'banner red', role: 'status' }, dot('off'), 'Your Mac is offline. Run `seeker remote` on it.');
+  if (!state.linked) return h('div', { class: 'banner warning', role: 'status' }, h('i', { class: 'spin' }), 'Reconnecting to the relay…');
+  if (!state.online) return h('div', { class: 'banner danger', role: 'status' }, dot('off'), 'Your Mac is offline. Run `seeker remote` on it.');
   return null;
 }
 
@@ -660,7 +664,7 @@ function activeCard(ws) {
   const summary = meta.activity ? `${meta.activity}…` : lastAnswer ? lastAnswer.text.replace(/\s+/g, ' ').slice(0, 120) : 'Nothing has run here yet.';
   return h(
     'button',
-    { class: `card session-card ${st.tone}`, onclick: () => go({ name: 'session', ws: meta.id }) },
+    { class: 'card session-card active', onclick: () => go({ name: 'session', ws: meta.id }) },
     h('span', { class: 'ico big', icon: 'folder' }),
     h('span', { class: 'grow' }, h('span', { class: 'title line' }, meta.name), h('span', { class: 'sub mono line' }, meta.branch || 'no git', ' • ', meta.path), h('span', { class: 'sub line' }, meta.model, ' · ', meta.provider), h('span', { class: `summary ${st.busy ? st.tone : ''}` }, summary)),
     h('span', { class: 'chev', icon: 'chevron' }),
@@ -692,7 +696,7 @@ function home() {
       ...workspaces,
       section('ON YOUR MAC'),
       rest.length
-        ? h('div', { class: 'group' }, rest.map((f) => h('button', { class: 'row', disabled: !ready, onclick: () => open(f) }, h('span', { class: 'ico', icon: 'folder' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, f)), h('span', { class: 'chev', icon: 'plus' }))))
+        ? h('div', { class: 'group' }, rest.map((f) => h('button', { class: 'row folder', disabled: !ready, onclick: () => open(f) }, h('span', { class: 'ico', icon: 'folder' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, f)), h('span', { class: 'chev', icon: 'plus' }))))
         : h('div', { class: 'empty' }, ready ? 'Every project folder found on your Mac is already open.' : 'Waiting for your Mac…'),
     ];
   }
@@ -837,11 +841,11 @@ function diffView(diff, file) {
   return h(
     'div',
     { class: 'diff' },
-    h('div', { class: 'file' }, h('span', { class: 'mono line grow' }, file), h('span', { class: 'emerald' }, `+${counts.added}`), h('span', { class: 'red' }, `−${counts.removed}`)),
+    h('div', { class: 'file' }, h('span', { class: 'mono line grow' }, file), h('span', { class: 'success' }, `+${counts.added}`), h('span', { class: 'danger' }, `−${counts.removed}`)),
     h('div', { class: `sides${diff.removed?.length && diff.added?.length ? ' both' : ''}` }, diff.removed?.length ? side(diff.removed, 'del') : null, diff.added?.length ? side(diff.added, 'add') : null),
     // What the lines above do not show by themselves is said in words.
-    Number.isInteger(diff.overwrites) ? h('div', { class: 'more amber' }, `⚠ Replaces the whole file: its ${diff.overwrites} existing line${diff.overwrites === 1 ? '' : 's'} are removed.`) : null,
-    diff.times > 1 ? h('div', { class: 'more amber' }, `⚠ Applied in ${diff.times} places: every occurrence in the file is changed.`) : null,
+    Number.isInteger(diff.overwrites) ? h('div', { class: 'more warning' }, `⚠ Replaces the whole file: its ${diff.overwrites} existing line${diff.overwrites === 1 ? '' : 's'} are removed.`) : null,
+    diff.times > 1 ? h('div', { class: 'more warning' }, `⚠ Applied in ${diff.times} places: every occurrence in the file is changed.`) : null,
     diff.more ? h('div', { class: 'more' }, `… ${diff.more} more line${diff.more > 1 ? 's' : ''} not shown`) : null,
   );
 }
@@ -867,7 +871,7 @@ function entryOf(item) {
     const mark = item.state === 'done' ? 'done' : item.state === 'failed' ? 'failed' : 'running';
     const verb = item.state === 'done' ? item.done : item.doing;
     const hasMore = item.output?.length || item.diff;
-    const head = [h('span', { class: 'title' }, verb, item.state === 'running' && '…'), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'red' : ''}` }, item.note)];
+    const head = [h('span', { class: 'title' }, verb, item.state === 'running' && '…'), item.summary && h('span', { class: 'sub mono' }, item.summary), item.note && h('span', { class: `sub ${item.state === 'failed' ? 'danger' : ''}` }, item.note)];
     return h(
       'li',
       { class: `ev tool ${mark}` },
@@ -888,14 +892,33 @@ function entryOf(item) {
   return h('li', { class: `ev notice ${item.level}` }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'sub' }, item.text)), time);
 }
 
-function timeline(ws) {
-  const { items } = ws;
+/** `items` in the order they happened; `tail` is one more entry to close the list with. */
+function timeline(ws, items = ws.items, tail = null) {
   const shown = state.shown.get(ws.meta.id) ?? PAGE;
   const visible = items.slice(-shown);
   return [
     items.length > visible.length && h('button', { class: 'btn quiet small', onclick: () => (state.shown.set(ws.meta.id, shown + PAGE), render(true)) }, `Show ${Math.min(PAGE, items.length - visible.length)} earlier entries`),
-    h('ol', { class: 'timeline' }, visible.map(entry)),
+    h('ol', { class: 'timeline' }, visible.map(entry), tail),
   ];
+}
+
+/** The step that is waiting for the user, at the end of the timeline. It opens the review screen, where the whole request is shown. */
+function waitingEntry(pending) {
+  const question = pending.kind === 'question';
+  const what = question ? pending.title : `${pending.doing} ${pending.summary}`;
+  return h(
+    'li',
+    { class: 'ev pending' },
+    h('span', { class: 'node' }),
+    h(
+      'div',
+      { class: 'body' },
+      h('span', { class: 'title' }, question ? 'Waiting for your answer' : 'Pending approval'),
+      h('span', { class: 'sub mono' }, what.length > 200 ? `${what.slice(0, 200)}…` : what),
+      h('button', { class: 'btn small approve', onclick: () => go({ name: 'review', id: pending.id, from: state.view }) }, h('span', { icon: question ? 'chevron' : 'shield' }), question ? 'Answer' : 'Review'),
+    ),
+    h('time', { class: 'at' }, clock(pending.at)),
+  );
 }
 
 /** The banner that says what the agent is doing. Progress is never a percentage: the Mac cannot know one. */
@@ -933,7 +956,7 @@ function metrics(meta) {
   return h(
     'div',
     { class: 'metrics' },
-    card('layers', 'CONTEXT', pct == null ? '—' : `${pct}%`, `${kilo(meta.used)} / ${sizeOf(meta.limit)}`, h('div', { class: 'track' }, h('div', { class: `fill${pct > 80 ? ' amber' : ''}`, style: `width:${pct ?? 0}%` }))),
+    card('layers', 'CONTEXT', pct == null ? '—' : `${pct}%`, `${kilo(meta.used)} / ${sizeOf(meta.limit)}`, h('div', { class: 'track' }, h('div', { class: `fill${pct > 80 ? ' warning' : ''}`, style: `width:${pct ?? 0}%` }))),
     // Counted by the provider. Before its first report there is nothing true to show.
     card('cube', 'TOKENS', tokens ? kilo(tokens.totalInput + tokens.totalOutput) : '—', tokens ? `${kilo(tokens.totalInput)} in · ${kilo(tokens.totalOutput)} out` : 'not reported yet'),
     card('bolt', 'TOOLS', t ? String(t.total) : '—', !t ? 'not reported' : t.running ? 'one running' : t.failed ? `${t.failed} failed` : t.total ? 'all succeeded' : 'none yet'),
@@ -951,24 +974,48 @@ function session(ws) {
       h('button', { class: 'row-btn', onclick: () => (closeSheet(), sendText(meta.id, INIT)) }, '/init — write SEEKER.md for this project'),
       // A conversation typed in a terminal is started, ended and given its model there.
       meta.terminal && h('div', { class: 'muted small pad' }, 'This conversation runs in a terminal on your Mac. A new conversation, another model, or closing it are done there.'),
+      !meta.terminal && h('button', { class: 'row-btn', onclick: chooseModel }, '/model — switch the model'),
       !meta.terminal && h('button', { class: 'row-btn', onclick: () => (closeSheet(), newConversation(meta)) }, '/new — start a new conversation'),
-      !meta.terminal && h('button', { class: 'row-btn red', onclick: () => (closeSheet(), confirm(`Close ${meta.name}? Its conversation is saved on your Mac.`) && (command('close', { ws: meta.id }), go({ name: 'home' }))) }, 'Close this project'),
+      !meta.terminal && h('button', { class: 'row-btn danger', onclick: () => (closeSheet(), confirm(`Close ${meta.name}? Its conversation is saved on your Mac.`) && (command('close', { ws: meta.id }), go({ name: 'home' }))) }, 'Close this project'),
     );
   const up = state.linked && state.online;
+  const tab = state.sessionTab;
+  const tabButton = (id, label) => h('button', { class: tab === id ? 'active' : '', role: 'tab', 'aria-selected': String(tab === id), onclick: () => ((state.sessionTab = id), render(true)) }, label);
+  const tools = items.filter((i) => i.kind === 'tool');
+  const body =
+    tab === 'tools'
+      ? tools.length
+        ? timeline(ws, tools)
+        : [h('div', { class: 'empty' }, 'No tool has run in this conversation yet.')]
+      : tab === 'metrics'
+        ? [
+            metrics(meta),
+            section('RUNNING ON'),
+            h(
+              'div',
+              { class: 'group' },
+              row('laptop', state.device?.name ?? 'Your Mac', up ? 'Connected' : 'Offline', { tone: up ? 'success' : 'danger' }),
+              meta.terminal
+                ? h('div', { class: 'row' }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))))
+                : h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
+            ),
+          ]
+        : items.length || pending
+          ? timeline(ws, items, pending ? waitingEntry(pending) : null)
+          : [h('div', { class: 'empty' }, 'Nothing has happened in this conversation yet.')];
   return [
-    h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.path)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
+    h('div', { class: 'topbar' }, h('button', { class: 'back', 'aria-label': 'Back', icon: 'back', onclick: () => go({ name: 'home' }) }), h('div', { class: 'grow' }, h('div', { class: 'name line' }, meta.name), h('div', { class: 'sub mono line' }, meta.terminal ? 'terminal • ' : '', meta.branch || 'no git', ' • ', meta.model)), h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
+    // Connection on the left; on the right, whether this is live and how full the context is.
     h(
       'div',
-      { class: 'group' },
-      row('laptop', state.device?.name ?? 'Your Mac', h('span', { class: `dot ${up ? 'on' : 'off'}`, role: 'img', 'aria-label': up ? 'connected' : 'not connected' })),
-      meta.terminal
-        ? h('div', { class: 'row' }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))))
-        : h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
+      { class: 'session-bar' },
+      h('span', { class: 'line' }, h('span', { class: `dot ${up ? 'on' : 'off'}`, role: 'img', 'aria-label': up ? 'connected' : 'not connected' }), ' ', state.device?.name ?? 'Your Mac'),
+      st.busy && up && h('span', { class: 'live' }, h('i'), 'LIVE'),
+      h('span', {}, `${kilo(meta.used)} / ${sizeOf(meta.limit)} tokens`),
     ),
     statusBanner(ws, pending),
-    section([h('span', { icon: 'list' }), 'ACTIVITY'], st.busy && up && h('span', { class: 'live' }, h('i'), 'LIVE')),
-    items.length ? timeline(ws) : h('div', { class: 'empty' }, 'Nothing has happened in this conversation yet.'),
-    metrics(meta),
+    h('div', { class: 'tabs', role: 'tablist' }, tabButton('activity', 'ACTIVITY'), tabButton('tools', tools.length ? `TOOLS · ${tools.length}` : 'TOOLS'), tabButton('metrics', 'METRICS')),
+    ...body,
   ];
 }
 
@@ -995,7 +1042,7 @@ function controls(ws) {
 // ── approvals ──────────────────────────────────────────────────────────────
 const KIND = { exec: 'COMMAND', write: 'FILE CHANGE', net: 'NETWORK', other: 'TOOL', question: 'QUESTION' };
 const diffCounts = (diff) => diff?.counts ?? (diff ? { added: diff.added?.length ?? 0, removed: diff.removed?.length ?? 0 } : null);
-const plusMinus = (counts) => [h('span', { class: 'emerald' }, `+${counts.added}`), ' ', h('span', { class: 'red' }, `−${counts.removed}`)];
+const plusMinus = (counts) => [h('span', { class: 'success' }, `+${counts.added}`), ' ', h('span', { class: 'danger' }, `−${counts.removed}`)];
 
 function approvalCard(a) {
   const counts = diffCounts(a.diff);
@@ -1005,7 +1052,7 @@ function approvalCard(a) {
     h(
       'span',
       { class: 'grow' },
-      h('span', { class: 'meta' }, h('span', { class: 'tag amber' }, KIND[a.kind] ?? 'TOOL'), a.warning && h('span', { class: 'tag red' }, 'DANGEROUS'), h('span', { class: 'sub grow line' }, a.wsName), h('time', { class: 'sub' }, ago(a.at))),
+      h('span', { class: 'meta' }, h('span', { class: 'tag primary' }, KIND[a.kind] ?? 'TOOL'), a.warning && h('span', { class: 'tag danger' }, 'DANGEROUS'), h('span', { class: 'sub grow line' }, a.wsName), h('time', { class: 'sub' }, ago(a.at))),
       h('span', { class: 'title line' }, a.title),
       h('span', { class: 'sub mono line' }, a.kind === 'question' ? `${a.options?.length ?? 0} suggested answers` : `${a.doing} ${a.summary}`),
       counts && h('span', { class: 'sub' }, '1 file · ', plusMinus(counts)),
@@ -1060,7 +1107,7 @@ function review(approval) {
     top('APPROVAL'),
     h('h2', { class: 'ask' }, isWrite ? 'Apply this change to 1 file?' : approval.title),
     h('p', { class: 'muted' }, `Seeker proposes to ${what}.`, counts && h('span', {}, ' 1 file · ', plusMinus(counts))),
-    approval.warning && h('div', { class: 'banner red' }, '⚠ ', approval.warning),
+    approval.warning && h('div', { class: 'banner danger' }, '⚠ ', approval.warning),
     isWrite ? (diffView(approval.diff, approval.summary) ?? h('div', { class: 'box' }, h('div', { class: 'cmd plain' }, `${approval.doing} ${approval.summary}`))) : h('div', { class: 'box' }, h('div', { class: `cmd${isCommand ? '' : ' plain'}` }, isCommand ? approval.summary : `${approval.doing} ${approval.summary}`)),
     h('div', { class: 'group' }, row('folder', 'Working directory', null, { sub: h('span', { class: 'mono' }, approval.cwd) })),
     h('div', { class: 'actions' }, h('button', { class: 'btn reject', disabled: busy, onclick: () => send('approve', { decision: 'deny', note: note.value }) }, h('span', { icon: 'cross' }), 'Reject'), h('button', { class: 'btn approve', disabled: busy, onclick: () => send('approve', { decision: 'allow' }) }, h('span', { icon: 'check' }), busy ? 'Sending…' : isWrite ? 'Approve change' : 'Approve')),
@@ -1113,8 +1160,8 @@ function settings() {
     h(
       'div',
       { class: 'group' },
-      row('laptop', state.device?.name ?? 'Your Mac', up ? 'Connected' : 'Offline', { tone: up ? 'emerald' : 'red', sub: first ? `${first.provider}${first.local ? ' · runs on the Mac' : ' · cloud'}` : null }),
-      row('wifi', 'Relay', state.linked ? 'Connected' : 'Reconnecting…', { tone: state.linked ? 'emerald' : 'amber', sub: location.host }),
+      row('laptop', state.device?.name ?? 'Your Mac', up ? 'Connected' : 'Offline', { tone: up ? 'success' : 'danger', sub: first ? `${first.provider}${first.local ? ' · runs on the Mac' : ' · cloud'}` : null }),
+      row('wifi', 'Relay', state.linked ? 'Connected' : 'Reconnecting…', { tone: state.linked ? 'success' : 'warning', sub: location.host }),
       row('pulse', 'Round trip to the Mac', state.latency ? `${state.latency.ms} ms` : '—', { sub: state.latency ? `measured ${ago(state.latency.at)} · tap to measure again` : up ? 'measuring…' : 'needs the Mac online', onclick: up ? () => (ping(), toast('Measuring…')) : null }),
       row('terminal', 'Last heard from the Mac', ago(state.lastEntryAt)),
     ),
@@ -1135,20 +1182,20 @@ function settings() {
     h(
       'div',
       { class: 'group' },
-      row('lock', 'End-to-end encryption', 'On', { tone: 'emerald', sub: 'AES-256-GCM between this phone and your Mac' }),
-      row('shield', 'Relay', 'Cannot read', { tone: 'emerald', sub: 'It holds only a hash of the access token' }),
-      row('check', 'This phone', 'Paired', { tone: 'emerald', sub: 'The pairing secret is stored on this device only' }),
+      row('lock', 'End-to-end encryption', 'On', { tone: 'success', sub: 'AES-256-GCM between this phone and your Mac' }),
+      row('shield', 'Relay', 'Cannot read', { tone: 'success', sub: 'It holds only a hash of the access token' }),
+      row('check', 'This phone', 'Paired', { tone: 'success', sub: 'The pairing secret is stored on this device only' }),
     ),
     section('DIAGNOSTICS'),
     h(
       'div',
       { class: 'group' },
-      row('pulse', 'Transport', state.linked ? 'Event stream open' : 'Closed, retrying', { tone: state.linked ? '' : 'amber' }),
+      row('pulse', 'Transport', state.linked ? 'Event stream open' : 'Closed, retrying', { tone: state.linked ? '' : 'warning' }),
       row('layers', 'Context limit', first ? sizeOf(first.limit) : '—'),
       row('terminal', 'Agent version', state.device?.version ? `v${state.device.version}` : '—'),
       row('list', 'Open projects', String(state.workspaces.size)),
     ),
-    h('div', { class: 'actions stack' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect'), h('button', { class: 'btn quiet red', onclick: () => confirm('Remove the pairing from this phone?') && signOut() }, 'Unpair this phone')),
+    h('div', { class: 'actions stack' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect'), h('button', { class: 'btn quiet danger', onclick: () => confirm('Remove the pairing from this phone?') && signOut() }, 'Unpair this phone')),
   ];
 }
 
@@ -1197,10 +1244,10 @@ function login() {
     }
   };
   return [
-    h('header', { class: 'brand' }, h('span', { class: 'mark', icon: 'logo' }), h('span', { class: 'bar' }), h('div', { class: 'grow' }, h('div', { class: 'word' }, 'SEEKER'), h('div', { class: 'sub' }, 'REMOTE'))),
+    h('header', { class: 'brand' }, h('span', { class: 'mark', icon: 'logo' }), h('div', { class: 'grow' }, h('div', { class: 'word' }, 'SEEKER'), h('div', { class: 'sub' }, 'REMOTE'))),
     h('h1', { class: 'hero' }, 'Pair this phone.'),
     h('p', { class: 'muted' }, 'On your Mac, run ', h('code', {}, 'seeker remote --setup'), ' and open the link it prints on this phone — or paste it here.'),
-    state.error && h('p', { class: 'amber' }, state.error),
+    state.error && h('p', { class: 'warning' }, state.error),
     h('form', { onsubmit: submit }, input, h('button', { class: 'btn primary', type: 'submit' }, 'Pair')),
   ];
 }
@@ -1234,7 +1281,7 @@ function draw() {
   const content = !paired ? login() : name === 'session' ? session(ws) : name === 'review' ? review(state.approvals.find((a) => a.id === state.view.id)) : name === 'approvals' ? approvals() : name === 'sessions' ? sessions() : name === 'settings' ? settings() : home();
   const scroll = view.scrollTop;
   const grownFrom = view.scrollHeight;
-  const screen =`${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : ''}`;
+  const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab : ''}`;
   // A field being typed in (an answer, a note) keeps its text and the cursor across a redraw.
   const typing = view.contains(document.activeElement) && document.activeElement.matches('input.field') && view.dataset.screen === screen ? document.activeElement : null;
   // The screen is rebuilt on every event. Starting each looping animation "this long ago" keeps

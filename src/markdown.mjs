@@ -1,20 +1,27 @@
 // Streaming markdown → ANSI. Tokens are printed as they arrive, so this is a
 // character-level state machine; only the first few characters of each line are
 // held back, to tell a heading / bullet / code fence apart from plain text.
+import { sgr, terminalCodes } from './theme.mjs';
 
 const RESET = '\x1b[0m';
 const BOLD_ON = '\x1b[1m';
 const BOLD_OFF = '\x1b[22m';
-const CODE_ON = '\x1b[38;5;222m';
 const CODE_OFF = '\x1b[39m';
 const DIM = '\x1b[2m';
-const HEADING = '\x1b[1m\x1b[38;5;80m';
+// Inline code is a cool tint, so it does not read as the brand colour the headings use.
+const CODE_TINT = '#9CC2FF';
 
 export class MdStream {
-  /** @param {(s: string) => void} write  @param {boolean} enabled false = pass text through untouched */
+  /**
+   * @param {(s: string) => void} write
+   * @param {boolean | number} enabled false or 0 = pass text through untouched; a number is the terminal's colour depth (true = 256)
+   */
   constructor(write, enabled = true) {
+    const depth = enabled === true ? 8 : Number(enabled) || 0;
     this.write = write;
-    this.enabled = enabled;
+    this.enabled = depth > 0;
+    this.heading = `\x1b[${terminalCodes(depth).accentBold}m`;
+    this.codeOn = `\x1b[${depth >= 8 ? sgr(CODE_TINT, depth) : '36'}m`;
     this.out = '';
     this.atLineStart = true;
     this.hold = '';
@@ -79,7 +86,7 @@ export class MdStream {
       return;
     }
     if (this.inFence) {
-      this.out += CODE_ON + held;
+      this.out += this.codeOn + held;
       if (newlineNow) {
         this.out += `${RESET}\n`;
         this.atLineStart = true;
@@ -89,7 +96,7 @@ export class MdStream {
 
     let rest = held;
     if (/^#{1,6}\s/.test(text)) {
-      this.out += HEADING;
+      this.out += this.heading;
       this.styled = true;
       rest = text.replace(/^#{1,6}\s+/, '');
     } else if (/^[-*]\s/.test(text)) {
@@ -119,7 +126,7 @@ export class MdStream {
     }
     if (ch === '`') {
       this.inCode = !this.inCode;
-      this.out += this.inCode ? CODE_ON : CODE_OFF;
+      this.out += this.inCode ? this.codeOn : CODE_OFF;
       return;
     }
     if (ch === '*' && !this.inCode) {

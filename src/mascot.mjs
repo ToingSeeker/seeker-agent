@@ -4,15 +4,18 @@
 // characters (▀ ▄ █). Pixels are written as letters; each letter is a colour
 // (or nothing). The robot's face is the exception: it is one row of real text,
 // a terminal prompt — >_< — on a dark screen.
+import { TOKENS, sgr } from './theme.mjs';
 
 const COLORS = {
-  c: 80, // cyan: head, body
-  b: 31, // blue: ears, arms
-  k: 236, // the dark face
-  w: 255, // eyes
-  o: 209, // orange: antenna, feet
-  y: 221, // antenna lit up, chest light
+  c: TOKENS.primary, // amber: head, body
+  b: TOKENS.primaryDeep, // deep amber: ears, arms
+  k: TOKENS.surfaceElevated, // the dark face
+  w: TOKENS.textPrimary, // eyes
+  o: TOKENS.textSecondary, // grey: antenna, feet
+  y: TOKENS.execution, // blue: antenna lit up while the model works, chest light
 };
+/** `color` is how many colours the terminal shows (see theme.mjs); true means 256, false none. */
+const depthOf = (color) => (color === true ? 8 : Number(color) || 0);
 
 // Antenna and the top of the head; then, under the face, chin, body and feet.
 const TOP = ['...o...o...', '..ccccccc..'];
@@ -43,30 +46,33 @@ export function pose(tick, busy = false) {
 export const RESTING = { eyes: 'open', look: 'center', cursor: true, antenna: false };
 
 /** The face row: ear, rim, the screen with >_< on it, rim, ear. */
-function face({ eyes, look, cursor }, color) {
+function face({ eyes, look, cursor }, depth) {
   const [left, right] = eyes === 'open' ? ['>', '<'] : ['-', '-'];
   const lead = { left: 1, center: 2, right: 3 }[look];
   const pad = (n) => ' '.repeat(n);
-  if (!color) return `▐█${pad(lead)}${left}${cursor ? '_' : ' '}${right}${pad(FACE_WIDTH - lead - 3)}█▌`;
+  if (!depth) return `▐█${pad(lead)}${left}${cursor ? '_' : ' '}${right}${pad(FACE_WIDTH - lead - 3)}█▌`;
   const on = (code, text) => `\x1b[${code}m${text}\x1b[0m`;
-  const screen = `48;5;${COLORS.k}`;
+  const fg = (key) => sgr(COLORS[key], depth);
+  const screen = sgr(COLORS.k, depth, true);
   return (
-    on(`38;5;${COLORS.b}`, '▐') +
-    on(`38;5;${COLORS.c}`, '█') +
+    on(fg('b'), '▐') +
+    on(fg('c'), '█') +
     on(screen, pad(lead)) +
-    on(`1;38;5;${COLORS.w};${screen}`, left) +
-    on(`1;38;5;${COLORS.c};${screen}`, cursor ? '_' : ' ') +
-    on(`1;38;5;${COLORS.w};${screen}`, right) +
+    on(`1;${fg('w')};${screen}`, left) +
+    on(`1;${fg('c')};${screen}`, cursor ? '_' : ' ') +
+    on(`1;${fg('w')};${screen}`, right) +
     on(screen, pad(FACE_WIDTH - lead - 3)) +
-    on(`38;5;${COLORS.c}`, '█') +
-    on(`38;5;${COLORS.b}`, '▌')
+    on(fg('c'), '█') +
+    on(fg('b'), '▌')
   );
 }
 
 /** Turns a pixel grid (an even number of rows) into text rows. Without colour, the dark face is left empty. */
-function paint(grid, color) {
+function paint(grid, depth) {
   const rows = [];
+  const color = depth > 0;
   const code = (p) => (color ? (COLORS[p] ?? null) : p === '.' || p === 'k' ? null : 1);
+  const fg = (hex) => sgr(hex, depth);
   for (let y = 0; y < grid.length; y += 2) {
     let row = '';
     for (let x = 0; x < grid[y].length; x++) {
@@ -74,10 +80,10 @@ function paint(grid, color) {
       const bottom = code(grid[y + 1][x]);
       if (top === null && bottom === null) row += ' ';
       else if (!color) row += top === null ? '▄' : bottom === null ? '▀' : '█';
-      else if (top === bottom) row += `\x1b[38;5;${top}m█\x1b[0m`;
-      else if (bottom === null) row += `\x1b[38;5;${top}m▀\x1b[0m`;
-      else if (top === null) row += `\x1b[38;5;${bottom}m▄\x1b[0m`;
-      else row += `\x1b[38;5;${top};48;5;${bottom}m▀\x1b[0m`;
+      else if (top === bottom) row += `\x1b[${fg(top)}m█\x1b[0m`;
+      else if (bottom === null) row += `\x1b[${fg(top)}m▀\x1b[0m`;
+      else if (top === null) row += `\x1b[${fg(bottom)}m▄\x1b[0m`;
+      else row += `\x1b[${fg(top)};${sgr(bottom, depth, true)}m▀\x1b[0m`;
     }
     rows.push(row);
   }
@@ -88,8 +94,9 @@ export const ROBOT_WIDTH = TOP[0].length;
 
 /** The robot as four text rows, each ROBOT_WIDTH columns wide. */
 export function robotRows(state = RESTING, color = true) {
+  const depth = depthOf(color);
   const top = state.antenna ? [TOP[0].replaceAll('o', 'y'), TOP[1]] : TOP;
-  return [...paint(top.map((row) => [...row]), color), face(state, color), ...paint(BOTTOM.map((row) => [...row]), color)];
+  return [...paint(top.map((row) => [...row]), depth), face(state, depth), ...paint(BOTTOM.map((row) => [...row]), depth)];
 }
 
 const GLYPHS = {
@@ -103,5 +110,5 @@ const GLYPHS = {
 export function wordmarkRows(word = 'SEEKER') {
   const grid = [0, 1, 2, 3, 4].map((y) => [...[...word].map((ch) => GLYPHS[ch][y]).join('.')]);
   grid.unshift(new Array(grid[0].length).fill('.'));
-  return paint(grid, false);
+  return paint(grid, 0);
 }
