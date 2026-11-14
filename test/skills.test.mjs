@@ -37,6 +37,32 @@ test('skills load from extra dirs and the project, project winning on a clash', 
   assert.match(renderSkill(skills[1], 'src/app.js'), /project body\n\nArguments from the user: src\/app\.js$/);
 });
 
+test('bundled skills load first, and a skill of the same name from anywhere else replaces them', () => {
+  const bundled = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-bundled-'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-cwd-'));
+  write(path.join(bundled, 'deploy-check/SKILL.md'), '---\nname: deploy-check\ndescription: shipped\n---\nshipped body');
+  write(path.join(bundled, 'seo-audit/SKILL.md'), '---\nname: seo-audit\ndescription: shipped\n---\nshipped body');
+  write(path.join(cwd, '.seeker/skills/seo-audit/SKILL.md'), '---\ndescription: mine\n---\nmy body');
+  const skills = loadSkills(cwd, [], { bundledDir: bundled });
+  const by = Object.fromEntries(skills.map((s) => [s.name, s]));
+  assert.equal(by['deploy-check'].source, 'bundled');
+  assert.equal(by['seo-audit'].source, 'project');
+  assert.equal(by['seo-audit'].description, 'mine');
+});
+
+test('every skill in the repository is well formed', () => {
+  const dir = path.resolve('skills');
+  for (const name of fs.readdirSync(dir).filter((n) => !n.startsWith('.'))) {
+    const file = path.join(dir, name, 'SKILL.md');
+    assert.ok(fs.existsSync(file), `${name} has a SKILL.md`);
+    const { meta, body } = parseSkillFile(fs.readFileSync(file, 'utf8'));
+    assert.equal(meta.name, name, `${name}: frontmatter name matches the folder`);
+    assert.ok(meta.description && meta.description.length <= 300, `${name}: description present and at most 300 characters`);
+    assert.ok(body.split(/\s+/).length >= 200, `${name}: has a real body`);
+    assert.doesNotMatch(body, /\/Users\/|\/home\/[a-z]/, `${name}: no personal paths`);
+  }
+});
+
 test('skills are listed in the system prompt and loaded by the skill tool', async () => {
   const skills = [{ name: 'review', description: 'Review code', body: 'Check the diff.', dir: '/x', source: 'user' }];
   const { prompt } = buildSystemPrompt({ cwd: os.tmpdir(), model: 'm', skills });
@@ -48,7 +74,7 @@ test('skills are listed in the system prompt and loaded by the skill tool', asyn
   const claude = buildSystemPrompt({ cwd: '/work/app', model: 'opus', skills, skillDirs: ['/extra'], provider: { label: 'Claude Code', ownTools: true }, contextLimit: 200_000 }).prompt;
   assert.match(claude, /# SEEKER skills[\s\S]*- review: Review code/);
   assert.match(claude, /read its SKILL\.md/);
-  assert.match(claude, /Roots: \/extra, .*skills, \/work\/app\/\.seeker\/skills, .*plugins\./);
+  assert.match(claude, /Roots: \/extra, .*skills, \/work\/app\/\.seeker\/skills, .*plugins, .*skills\./);
   assert.doesNotMatch(claude, /`skill` tool|skill_manage|Check the diff/);
   assert.doesNotMatch(buildSystemPrompt({ cwd: os.tmpdir(), model: 'm', provider: { label: 'Claude Code', ownTools: true } }).prompt, /# SEEKER skills/);
 
@@ -143,7 +169,7 @@ test('plugin skills are namespaced, and the skill list shrinks to fit the contex
   write(path.join(home, 'skills/forecast/SKILL.md'), '---\ndescription: my own forecast\n---\nMine');
   const script = `
     import { loadSkills } from ${JSON.stringify(path.resolve('src/skills.mjs'))};
-    console.log(JSON.stringify(loadSkills('/nowhere').map((s) => [s.name, s.source])));`;
+    console.log(JSON.stringify(loadSkills('/nowhere', [], { bundled: false }).map((s) => [s.name, s.source])));`;
   const { execFileSync } = await import('node:child_process');
   const names = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, SEEKER_HOME: home }, encoding: 'utf8' }));
   assert.deepEqual(names, [['forecast', 'user'], ['sales:deal-review', 'plugin'], ['sales:forecast', 'plugin']]);
