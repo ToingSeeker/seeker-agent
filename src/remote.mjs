@@ -72,6 +72,7 @@ export class WebUI {
     this.c = new Proxy({}, { get: () => (s) => String(s) });
     this.showThinking = false;
     this.tool = null;
+    this.running = []; // tool rows shown as running; several at once when a provider runs tools in parallel
     this.count = 0;
     this.answer = null; // { id, pending } — the assistant message being streamed
     this.timer = null;
@@ -101,6 +102,7 @@ export class WebUI {
     this.#flushAnswer();
     this.answer = null;
     this.tool = null;
+    this.running = [];
   }
 
   answerStart() {
@@ -135,11 +137,27 @@ export class WebUI {
   toolStart(doing, done, summary = '') {
     this.#flushAnswer();
     const text = plain(summary).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400);
-    // The same step can be announced twice (once to ask approval, once when it starts).
-    if (this.tool && !this.tool.finished && this.tool.doing === doing && this.tool.summary === text) return;
+    // The same step can be announced again: once to ask approval and once when it starts, or — when a
+    // provider runs several tools at once — again when it finishes after another one started. It is the
+    // row already shown, not a new one; a new row would leave the first one "running" for good.
+    const shown = this.running.find((t) => t.doing === doing && t.summary === text);
+    if (shown) {
+      this.tool = shown;
+      return;
+    }
     const item = this.#item({ kind: 'tool', state: 'running', doing, done, summary: text });
     this.tool = { id: item.id, doing, done, summary: text, open: false, finished: false, diff: null };
+    this.running.push(this.tool);
     this.#activity('executing', `${doing} ${text}`.trim());
+  }
+
+  #finish(patch) {
+    const { tool } = this;
+    this.emit({ t: 'patch', id: tool.id, patch });
+    tool.finished = true;
+    this.running = this.running.filter((t) => t !== tool);
+    this.tool = null;
+    this.onStep();
   }
 
   toolOpen() {
@@ -161,18 +179,12 @@ export class WebUI {
   toolDone(note, display, maxLines = 4) {
     if (!this.tool) return;
     const output = String(display ?? '').split('\n').filter((l) => l.trim()).slice(0, Math.max(maxLines, 12)).map((l) => l.slice(0, 300));
-    this.emit({ t: 'patch', id: this.tool.id, patch: { state: 'done', note: note ?? '', output } });
-    this.tool.finished = true;
-    this.tool = null;
-    this.onStep();
+    this.#finish({ state: 'done', note: note ?? '', output });
   }
 
   toolFail(message) {
     if (!this.tool) return;
-    this.emit({ t: 'patch', id: this.tool.id, patch: { state: 'failed', note: plain(message).split('\n')[0] } });
-    this.tool.finished = true;
-    this.tool = null;
-    this.onStep();
+    this.#finish({ state: 'failed', note: plain(message).split('\n')[0] });
   }
 
   notice(text) {

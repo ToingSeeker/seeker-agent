@@ -384,6 +384,12 @@ export class Agent {
       ui.stopSpinner();
       if (phase === 'think') ui.thinkEnd();
       answer.flush();
+      // A provider's own tool that never reported back (the stream broke, the turn was stopped) would otherwise stay "running".
+      for (const { about, finished } of this.external.values()) {
+        if (finished) continue;
+        ui.toolStart(about.verbs[0], about.verbs[1], about.summary);
+        ui.toolFail('interrupted');
+      }
       this.external.clear();
     }
     if (!toolCalls.length && content.includes('<tool_call>')) toolCalls.push(...parseTextToolCalls(content));
