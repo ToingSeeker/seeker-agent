@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
+import { STATUSES } from '../remote-server/public/sessions.js';
 import { TOKENS, colorDepth, cssName, sgr, terminalCodes, terminalPalette } from '../src/theme.mjs';
 
 const read = (file) => fs.readFileSync(new URL(`../remote-server/public/${file}`, import.meta.url), 'utf8');
@@ -28,8 +29,12 @@ test('the stylesheet takes every colour from a token', () => {
   const app = read('app.js');
   for (const tone of ['primary', 'execution', 'reasoning', 'success', 'danger']) {
     assert.ok(app.includes(`tone: '${tone}'`), `${tone} is a state of the agent`);
-    assert.ok(css.includes(`.state-chip.${tone}`) && css.includes(`.session-card.${tone}`), `${tone} is styled`);
+    assert.ok(css.includes(`.state-chip.${tone}`), `${tone} is styled`);
   }
+  // The Sessions list says a state with a small pill; no row carries a coloured edge any more.
+  const states = Object.values(STATUSES).map((s) => s.tone);
+  for (const tone of new Set(states)) assert.ok(css.includes(`.pill.${tone}`), `a ${tone} pill is styled`);
+  assert.ok(!/\.session-card[^{]*\{[^}]*border-left/.test(css) && !/\.s-row[^{]*\{[^}]*border-left/.test(css), 'no status-coloured left border');
 });
 
 test('how many colours a terminal shows is read from its environment', () => {

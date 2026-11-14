@@ -505,29 +505,9 @@ button.row:active {
   margin-bottom: 3px;
 }
 
-/* The left edge says what state the session is in, before anything is read. */
-.session-card {
-  border-left: 3px solid var(--sk-border);
-}
-.session-card.execution {
-  border-left-color: var(--sk-execution);
-}
-.session-card.reasoning {
-  border-left-color: var(--sk-reasoning);
-}
-.session-card.primary {
-  border-left-color: var(--sk-primary);
-}
-.session-card.success {
-  border-left-color: var(--sk-success);
-}
-.session-card.danger {
-  border-left-color: var(--sk-danger);
-}
-/* The session put up front on Home is the selected one: amber edge, whatever its state (the chip says that). */
+/* The session put up front on Home is the selected one: an amber outline, whatever its state (the chip says that). */
 .session-card.active {
   border-color: color-mix(in srgb, var(--sk-primary) 45%, var(--sk-border));
-  border-left-color: var(--sk-primary);
   background: var(--sk-surface-hover);
 }
 .session-card .summary {
@@ -694,6 +674,293 @@ button.row:active {
   border: 2px solid currentColor;
   border-top-color: transparent;
   animation: spin 0.9s linear infinite;
+}
+
+/* ── sessions list ── */
+/* One surface, rows parted by hairlines. Colour is spent only on the folder (the brand) and on the
+   small status pill; the project name stays neutral and no row carries a coloured edge. */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 2px 0;
+}
+.page-head h1 {
+  margin: 0;
+  font: 700 24px/1.2 var(--sans);
+  letter-spacing: -0.01em;
+}
+.page-sub {
+  margin: 2px 2px 14px;
+  font-size: 13.5px;
+  color: var(--sk-text-secondary);
+}
+.icon-btn {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 11px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
+  color: var(--sk-text-secondary);
+  transition: color var(--sk-motion-fast), background var(--sk-motion-fast), border-color var(--sk-motion-fast);
+}
+.icon-btn:active {
+  background: var(--sk-surface-hover);
+}
+.icon-btn.on {
+  color: var(--sk-primary);
+  border-color: color-mix(in srgb, var(--sk-primary) 55%, var(--sk-border));
+}
+.field.search {
+  margin: 0 0 12px;
+  min-height: 44px;
+}
+.filters {
+  display: flex;
+  gap: 8px;
+  margin: 0 -16px 12px;
+  padding: 2px 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.filters::-webkit-scrollbar {
+  display: none;
+}
+.filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--sk-border);
+  border-radius: 22px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--sk-text-secondary);
+  white-space: nowrap;
+  transition: color var(--sk-motion-fast), background var(--sk-motion-fast), border-color var(--sk-motion-fast);
+}
+.filters .n {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--sk-surface-elevated);
+  font: 600 11.5px/1.5 var(--mono);
+  text-align: center;
+  color: var(--sk-text-secondary);
+}
+.filters button.on {
+  border-color: var(--sk-primary);
+  background: var(--sk-primary-soft);
+  color: var(--sk-text-primary);
+  font-weight: 650;
+}
+.filters button.on .n {
+  background: var(--sk-primary-soft);
+  color: var(--sk-primary);
+}
+.stale {
+  margin: 0 2px 10px;
+  font-size: 12.5px;
+  color: var(--sk-warning);
+}
+.s-list {
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-surface);
+  overflow: hidden;
+}
+.s-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 80px;
+  padding: 13px 10px 13px 14px;
+  transition: background var(--sk-motion-fast);
+}
+.s-row + .s-row {
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.s-row:active {
+  background: var(--sk-surface-hover);
+}
+@media (hover: hover) {
+  .s-row:hover,
+  .icon-btn:hover,
+  .filters button:not(.on):hover {
+    background: var(--sk-surface-hover);
+  }
+}
+/* The session opened last: amber, because it is the selected one — not because of what it is doing. */
+.s-row.selected {
+  background: color-mix(in srgb, var(--sk-primary) 8%, var(--sk-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sk-primary) 50%, transparent);
+}
+.s-row.selected:first-child {
+  border-radius: calc(var(--sk-radius-lg) - 1px) calc(var(--sk-radius-lg) - 1px) 0 0;
+}
+.s-row.selected:last-child {
+  border-radius: 0 0 calc(var(--sk-radius-lg) - 1px) calc(var(--sk-radius-lg) - 1px);
+}
+.s-row.selected:only-child {
+  border-radius: calc(var(--sk-radius-lg) - 1px);
+}
+.s-row:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--sk-radius-md);
+}
+.s-row .ico {
+  margin-top: 1px;
+  color: var(--sk-primary);
+}
+.s-row .chev {
+  align-self: center;
+}
+.s-row .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.s-row .top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.s-row .name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 650;
+  font-size: 15.5px;
+  color: var(--sk-text-primary);
+}
+.s-row .task {
+  font-size: 13.5px;
+  color: var(--sk-text-secondary);
+}
+.s-row .task.none {
+  color: var(--sk-text-muted);
+}
+.s-row .meta {
+  font-size: 12px;
+  color: var(--sk-text-muted);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 55%;
+  padding: 2px 9px 2px 8px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pill i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pill i.live {
+  animation: pulse 1.6s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.pill.execution {
+  color: var(--sk-execution);
+}
+.pill.success {
+  color: var(--sk-success);
+}
+.pill.primary {
+  color: var(--sk-primary);
+}
+.pill.warning {
+  color: var(--sk-warning);
+}
+.pill.danger {
+  color: var(--sk-danger);
+}
+.pill.muted {
+  color: var(--sk-text-secondary);
+  background: none;
+  border-color: var(--sk-border-strong);
+}
+.s-row.skeleton {
+  pointer-events: none;
+}
+.s-row.skeleton .ico {
+  border-radius: 6px;
+  background: var(--sk-surface-elevated);
+}
+.s-row.skeleton .grow {
+  gap: 9px;
+  padding-top: 3px;
+}
+.s-row.skeleton i {
+  height: 10px;
+  width: 70%;
+  border-radius: 5px;
+  background: var(--sk-surface-elevated);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.s-row.skeleton i:first-child {
+  width: 40%;
+}
+.s-row.skeleton i:last-child {
+  width: 52%;
+}
+.s-list + .btn {
+  margin-top: 12px;
+}
+.empty b {
+  color: var(--sk-text-primary);
+  font-size: 15px;
+}
+.empty .btn {
+  width: auto;
+  margin-top: 6px;
+  padding: 0 18px;
+}
+.row-btn.pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.row-btn.pick.on {
+  color: var(--sk-primary);
+}
+.row-btn .tick {
+  width: 18px;
+  height: 18px;
+}
+@media (max-width: 350px) {
+  .s-row .top {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .pill {
+    max-width: 100%;
+  }
+  /* The time is the last thing on the line: on a narrow phone it goes to a second line rather than being cut off. */
+  .s-row .meta {
+    white-space: normal;
+  }
 }
 
 /* ── session ── */
