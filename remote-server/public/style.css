@@ -1,30 +1,58 @@
 /* SEEKER Remote — a command center for a coding agent, on a phone.
-   Colour carries meaning: cyan is the brand and what can be tapped, violet is the model
-   thinking, emerald is done or connected, amber wants an answer, red went wrong. */
+   Charcoal surfaces, and colour only where it means something: amber is the brand, what is
+   selected and an approval that is waiting; blue is a tool at work; purple is the model
+   thinking; green is done or connected; red went wrong.
+   These are the colours the terminal draws with too (src/theme.mjs); a test keeps the two equal. */
 :root {
-  --bg: #060d19;
-  --surface: #0d192a;
-  --raised: #122238;
-  --line: #273d57;
-  --line-soft: #1a2b42;
-  --cyan: #55dde8;
-  --cyan-ink: #04202a;
-  --violet: #a78bfa;
-  --emerald: #62de9a;
-  --amber: #f5ba4f;
-  --red: #f16d76;
-  --text: #e5edf7;
-  --muted: #879ab5;
+  /* Core backgrounds */
+  --sk-bg: #0B0D10;
+  --sk-bg-secondary: #101216;
+  --sk-surface: #15171B;
+  --sk-surface-hover: #1C1F24;
+  --sk-surface-elevated: #22252B;
+  /* Borders */
+  --sk-border: #2B2E34;
+  --sk-border-subtle: #22252A;
+  --sk-border-strong: #40444C;
+  /* Typography */
+  --sk-text-primary: #F2F3F5;
+  --sk-text-secondary: #A1A5AE;
+  --sk-text-muted: #717680;
+  /* Brand */
+  --sk-primary: #FF8A00;
+  --sk-primary-hover: #FF9F2E;
+  --sk-primary-deep: #B35F00;
+  --sk-primary-soft: rgba(255, 138, 0, 0.12);
+  --sk-on-primary: #1A0E00;
+  /* Execution */
+  --sk-execution: #4188FF;
+  --sk-execution-soft: rgba(65, 136, 255, 0.12);
+  /* Success */
+  --sk-success: #50D15F;
+  --sk-success-soft: rgba(80, 209, 95, 0.12);
+  /* AI reasoning */
+  --sk-reasoning: #9C6BEB;
+  --sk-reasoning-soft: rgba(156, 107, 235, 0.12);
+  /* Error */
+  --sk-danger: #F16D76;
+  --sk-danger-soft: rgba(241, 109, 118, 0.12);
+  /* Warning */
+  --sk-warning: #FFB547;
+  --sk-warning-soft: rgba(255, 181, 71, 0.1);
+  /* Geometry */
+  --sk-radius-sm: 8px;
+  --sk-radius-md: 12px;
+  --sk-radius-lg: 16px;
+  /* Motion */
+  --sk-motion-fast: 150ms;
+  --sk-motion-normal: 220ms;
+  --sk-motion-slow: 320ms;
   /* No font files are shipped (the page may load nothing from elsewhere): these are used where installed. */
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --sans: Inter, Geist, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  --r-card: 14px;
-  --r-btn: 11px;
   --nav-h: 62px;
   /* The home indicator needs only the lowest part of the safe area; the rest is ours to use. */
   --safe-b: max(0px, env(safe-area-inset-bottom) - 16px);
-  --fast: 160ms;
-  --slow: 300ms;
   color-scheme: dark;
 }
 
@@ -37,8 +65,8 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: var(--bg);
-  color: var(--text);
+  background: var(--sk-bg);
+  color: var(--sk-text-primary);
   font: 15px/1.45 var(--sans);
   overscroll-behavior: none;
   -webkit-text-size-adjust: 100%;
@@ -65,7 +93,7 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--cyan);
+  outline: 2px solid var(--sk-primary);
   outline-offset: 2px;
 }
 
@@ -125,7 +153,7 @@ svg {
   font-family: var(--mono);
 }
 .muted {
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
 .small {
   font-size: 12.5px;
@@ -134,20 +162,23 @@ svg {
   padding: 10px 2px 4px;
 }
 .accent,
-.cyan {
-  color: var(--cyan);
+.primary {
+  color: var(--sk-primary);
 }
-.violet {
-  color: var(--violet);
+.execution {
+  color: var(--sk-execution);
 }
-.emerald {
-  color: var(--emerald);
+.reasoning {
+  color: var(--sk-reasoning);
 }
-.amber {
-  color: var(--amber);
+.success {
+  color: var(--sk-success);
 }
-.red {
-  color: var(--red);
+.warning {
+  color: var(--sk-warning);
+}
+.danger {
+  color: var(--sk-danger);
 }
 .grow {
   flex: 1;
@@ -163,7 +194,7 @@ svg {
 code {
   font-family: var(--mono);
   font-size: 0.92em;
-  background: var(--raised);
+  background: var(--sk-surface-elevated);
   border-radius: 5px;
   padding: 1px 5px;
 }
@@ -178,25 +209,28 @@ code {
 .brand .mark {
   width: 34px;
   height: 34px;
-  color: var(--cyan);
+  color: var(--sk-primary);
   flex: none;
 }
-.brand .bar {
-  width: 1px;
-  height: 30px;
-  background: var(--line);
-}
+/* The robot from the terminal header (src/mascot.mjs), pixel for pixel. */
+.robot .c { fill: var(--sk-primary); }
+.robot .b { fill: var(--sk-primary-deep); }
+.robot .k { fill: var(--sk-surface-elevated); }
+.robot .o { fill: var(--sk-text-secondary); }
+.robot .y { fill: var(--sk-execution); }
+.robot .eye { fill: none; stroke: var(--sk-text-primary); stroke-width: 0.3; }
+.robot .cur { fill: var(--sk-primary); }
 .brand .word {
   font-size: 21px;
   font-weight: 800;
   letter-spacing: 0.1em;
   line-height: 1.05;
-  color: var(--cyan);
+  color: var(--sk-text-primary);
 }
 .brand .sub {
   font-size: 10.5px;
   letter-spacing: 0.42em;
-  color: var(--muted);
+  color: var(--sk-text-muted);
 }
 .avatar {
   position: relative;
@@ -204,8 +238,8 @@ code {
   height: 44px;
   flex: none;
   border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--surface);
+  border: 1px solid var(--sk-border);
+  background: var(--sk-surface);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -217,14 +251,14 @@ code {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  border: 2px solid var(--bg);
-  background: var(--muted);
+  border: 2px solid var(--sk-bg);
+  background: var(--sk-text-secondary);
 }
 .avatar i.on {
-  background: var(--emerald);
+  background: var(--sk-success);
 }
 .avatar i.off {
-  background: var(--red);
+  background: var(--sk-danger);
 }
 
 /* ── dots, chips, tags ── */
@@ -233,15 +267,15 @@ code {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--sk-text-secondary);
   flex: none;
 }
 .dot.on {
-  background: var(--emerald);
-  box-shadow: 0 0 0 3px rgba(98, 222, 154, 0.16);
+  background: var(--sk-success);
+  box-shadow: 0 0 0 3px var(--sk-success-soft);
 }
 .dot.off {
-  background: var(--red);
+  background: var(--sk-danger);
 }
 .title .dot {
   margin-right: 9px;
@@ -257,30 +291,30 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 8px;
   padding: 5px 11px;
   font: 600 11.5px/1.3 var(--mono);
   letter-spacing: 0.06em;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
 .chip i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--sk-text-secondary);
 }
 .chip.on {
-  color: var(--cyan);
+  color: var(--sk-text-primary);
 }
 .chip.on i {
-  background: var(--emerald);
+  background: var(--sk-success);
 }
 .chip.warn {
-  color: var(--amber);
+  color: var(--sk-warning);
 }
 .chip.warn i {
-  background: var(--amber);
+  background: var(--sk-warning);
 }
 
 .chip-state,
@@ -291,6 +325,7 @@ code {
   flex: none;
   border: 1px solid currentColor;
   border-radius: 6px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
   padding: 2px 7px;
   font: 700 10.5px/1.5 var(--mono);
   letter-spacing: 0.07em;
@@ -312,8 +347,8 @@ code {
   height: 19px;
   padding: 0 5px;
   border-radius: 10px;
-  background: var(--amber);
-  color: #241400;
+  background: var(--sk-primary);
+  color: var(--sk-on-primary);
   font: 700 11.5px/19px var(--sans);
   text-align: center;
 }
@@ -328,7 +363,7 @@ code {
   margin: 20px 2px 8px;
   font: 700 12px/1 var(--mono);
   letter-spacing: 0.12em;
-  color: var(--cyan);
+  color: var(--sk-text-secondary);
 }
 .section .with-ico {
   display: inline-flex;
@@ -344,13 +379,14 @@ code {
   height: 44px;
   margin: -8px -10px -8px 0;
   padding: 12px;
-  color: var(--cyan);
+  color: var(--sk-primary);
 }
-.live {
+/* The LIVE mark. (The dot inside a state chip is also called "live"; it keeps the chip's own colour.) */
+span.live {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--emerald);
+  color: var(--sk-success);
   letter-spacing: 0.1em;
 }
 .live i {
@@ -363,27 +399,28 @@ code {
 /* ── tabs ── */
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   gap: 4px;
   padding: 4px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--r-btn);
-  background: var(--surface);
+  border: 1px solid var(--sk-border-subtle);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
 }
 .tabs button {
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 8px;
   border: 1px solid transparent;
   text-align: center;
   font: 700 11.5px/1 var(--mono);
   letter-spacing: 0.1em;
-  color: var(--muted);
-  transition: color var(--fast), background var(--fast), border-color var(--fast);
+  color: var(--sk-text-secondary);
+  transition: color var(--sk-motion-fast), background var(--sk-motion-fast), border-color var(--sk-motion-fast);
 }
 .tabs button.active {
-  color: var(--cyan);
-  background: rgba(85, 221, 232, 0.08);
-  border-color: var(--cyan);
+  color: var(--sk-primary);
+  background: var(--sk-primary-soft);
+  border-color: var(--sk-primary);
 }
 
 /* ── cards and grouped rows ── */
@@ -394,18 +431,37 @@ code {
   width: 100%;
   min-height: 64px;
   padding: 13px 12px 13px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  background: var(--surface);
-  transition: border-color var(--fast), background var(--fast);
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-surface);
+  transition: border-color var(--sk-motion-fast), background var(--sk-motion-fast);
 }
 .card + .card {
   margin-top: 10px;
 }
 button.card:active,
-button.row:active,
+button.row:active {
+  background: var(--sk-surface-hover);
+}
 .tile:active {
-  background: var(--raised);
+  background: var(--sk-surface-hover);
+  border-color: var(--sk-primary);
+}
+@media (hover: hover) {
+  button.card:hover,
+  button.row:hover,
+  .tile:hover,
+  .btn:hover,
+  .ctl:hover {
+    background: var(--sk-surface-hover);
+  }
+  .tile:hover {
+    border-color: var(--sk-primary);
+  }
+  .btn.primary:hover,
+  .send:hover {
+    background: var(--sk-primary-hover);
+  }
 }
 .card .grow,
 .row .grow {
@@ -418,14 +474,19 @@ button.row:active,
   font-size: 16px;
 }
 .sub {
-  color: var(--muted);
+  color: var(--sk-text-secondary);
   font-size: 12.5px;
 }
 .ico {
   width: 22px;
   height: 22px;
   flex: none;
-  color: var(--cyan);
+  color: var(--sk-text-secondary);
+}
+.card .ico,
+.row.ws .ico,
+.row.folder .ico {
+  color: var(--sk-primary);
 }
 .ico.big {
   width: 30px;
@@ -435,7 +496,7 @@ button.row:active,
   width: 18px;
   height: 18px;
   flex: none;
-  color: var(--muted);
+  color: var(--sk-text-muted);
 }
 .card .meta {
   display: flex;
@@ -446,40 +507,46 @@ button.row:active,
 
 /* The left edge says what state the session is in, before anything is read. */
 .session-card {
-  border-left: 3px solid var(--line);
+  border-left: 3px solid var(--sk-border);
 }
-.session-card.cyan {
-  border-left-color: var(--cyan);
+.session-card.execution {
+  border-left-color: var(--sk-execution);
 }
-.session-card.violet {
-  border-left-color: var(--violet);
+.session-card.reasoning {
+  border-left-color: var(--sk-reasoning);
 }
-.session-card.amber {
-  border-left-color: var(--amber);
+.session-card.primary {
+  border-left-color: var(--sk-primary);
 }
-.session-card.emerald {
-  border-left-color: var(--emerald);
+.session-card.success {
+  border-left-color: var(--sk-success);
 }
-.session-card.red {
-  border-left-color: var(--red);
+.session-card.danger {
+  border-left-color: var(--sk-danger);
+}
+/* The session put up front on Home is the selected one: amber edge, whatever its state (the chip says that). */
+.session-card.active {
+  border-color: color-mix(in srgb, var(--sk-primary) 45%, var(--sk-border));
+  border-left-color: var(--sk-primary);
+  background: var(--sk-surface-hover);
 }
 .session-card .summary {
   margin-top: 5px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 .card.approval {
-  border-left: 3px solid var(--amber);
+  border-left: 3px solid var(--sk-primary);
 }
 
 .group {
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  background: var(--surface);
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-surface);
   overflow: hidden;
 }
 .group + .group,
@@ -495,7 +562,7 @@ button.row:active,
   padding: 9px 12px 9px 14px;
 }
 .row + .row {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--sk-border-subtle);
 }
 .row .label {
   font-size: 14.5px;
@@ -507,23 +574,23 @@ button.row:active,
   flex: none;
   max-width: 55%;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
   text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.row .value.emerald {
-  color: var(--emerald);
+.row .value.success {
+  color: var(--sk-success);
 }
-.row .value.amber {
-  color: var(--amber);
+.row .value.warning {
+  color: var(--sk-warning);
 }
-.row .value.red {
-  color: var(--red);
+.row .value.danger {
+  color: var(--sk-danger);
 }
 .row.ws.attention {
-  background: rgba(245, 186, 79, 0.06);
+  background: var(--sk-primary-soft);
 }
 .row.check {
   padding-left: 48px;
@@ -532,7 +599,7 @@ button.row:active,
 .row.check input {
   width: 20px;
   height: 20px;
-  accent-color: var(--cyan);
+  accent-color: var(--sk-primary);
 }
 
 .switch {
@@ -541,8 +608,8 @@ button.row:active,
   width: 50px;
   height: 30px;
   border-radius: 15px;
-  background: var(--line);
-  transition: background var(--fast);
+  background: var(--sk-border);
+  transition: background var(--sk-motion-fast);
 }
 .switch i {
   position: absolute;
@@ -551,8 +618,8 @@ button.row:active,
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--text);
-  transition: transform var(--fast);
+  background: var(--sk-text-primary);
+  transition: transform var(--sk-motion-fast);
 }
 /* The switch is drawn small; this makes the area that takes a tap a full 44 px. */
 .switch::after {
@@ -561,7 +628,7 @@ button.row:active,
   inset: -7px 0;
 }
 .switch.on {
-  background: var(--emerald);
+  background: var(--sk-primary);
 }
 .switch.on i {
   transform: translateX(20px);
@@ -579,10 +646,10 @@ button.row:active,
   justify-content: center;
   gap: 8px;
   min-height: 76px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  background: var(--surface);
-  color: var(--cyan);
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-surface);
+  color: var(--sk-primary);
   font-size: 13px;
 }
 .tile > span:first-child {
@@ -596,13 +663,13 @@ button.row:active,
   align-items: center;
   gap: 8px;
   padding: 26px 18px;
-  border: 1px dashed var(--line);
-  border-radius: var(--r-card);
-  color: var(--muted);
+  border: 1px dashed var(--sk-border);
+  border-radius: var(--sk-radius-lg);
+  color: var(--sk-text-secondary);
   text-align: center;
 }
 .empty .ico {
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
 
 .banner {
@@ -611,13 +678,13 @@ button.row:active,
   gap: 10px;
   margin-bottom: 12px;
   padding: 10px 12px;
-  border-radius: var(--r-btn);
+  border-radius: var(--sk-radius-md);
   border: 1px solid currentColor;
-  background: rgba(241, 109, 118, 0.07);
+  background: var(--sk-danger-soft);
   font-size: 13.5px;
 }
-.banner.amber {
-  background: rgba(245, 186, 79, 0.07);
+.banner.warning {
+  background: var(--sk-warning-soft);
 }
 .spin {
   width: 14px;
@@ -630,6 +697,39 @@ button.row:active,
 }
 
 /* ── session ── */
+/* One line under the title: what the agent is doing, and how full its context is. */
+.session-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 12px;
+  font: 12px/1.4 var(--mono);
+  color: var(--sk-text-secondary);
+}
+.status + .tabs {
+  margin-top: 12px;
+}
+.tabs + .timeline,
+.tabs + .empty,
+.tabs + .btn {
+  margin-top: 12px;
+}
+.session-bar .dot {
+  margin-right: 6px;
+}
+/* A step that waits for the user, at the end of the timeline. */
+.ev.pending .node {
+  border-color: var(--sk-primary);
+}
+.ev.pending .title {
+  color: var(--sk-primary);
+}
+.ev.pending .btn {
+  width: auto;
+  align-self: flex-start;
+  margin-top: 6px;
+}
 .topbar {
   display: flex;
   align-items: center;
@@ -642,13 +742,13 @@ button.row:active,
   height: 44px;
   flex: none;
   padding: 11px;
-  color: var(--text);
+  color: var(--sk-text-primary);
 }
 .topbar .more {
   padding: 0;
   text-align: center;
   letter-spacing: 2px;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
 .topbar .name {
   font-size: 19px;
@@ -664,28 +764,28 @@ button.row:active,
   margin-top: 10px;
   padding: 13px 14px;
   border: 1px solid currentColor;
-  border-radius: var(--r-card);
-  background: var(--surface);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-surface);
   overflow: hidden;
-  transition: color var(--slow), border-color var(--slow);
+  transition: color var(--sk-motion-slow), border-color var(--sk-motion-slow);
 }
 .status.muted {
-  border-color: var(--line);
+  border-color: var(--sk-border);
 }
-.status.violet {
-  background: rgba(167, 139, 250, 0.09);
+.status.reasoning {
+  background: var(--sk-reasoning-soft);
 }
-.status.cyan {
-  background: rgba(85, 221, 232, 0.07);
+.status.execution {
+  background: var(--sk-execution-soft);
 }
-.status.amber {
-  background: rgba(245, 186, 79, 0.08);
+.status.primary {
+  background: var(--sk-primary-soft);
 }
-.status.emerald {
-  background: rgba(98, 222, 154, 0.06);
+.status.success {
+  background: var(--sk-success-soft);
 }
-.status.red {
-  background: rgba(241, 109, 118, 0.07);
+.status.danger {
+  background: var(--sk-danger-soft);
 }
 .status .ico {
   width: 26px;
@@ -702,7 +802,7 @@ button.row:active,
   letter-spacing: 0.1em;
 }
 .status .what {
-  color: var(--text);
+  color: var(--sk-text-primary);
   opacity: 0.86;
   font-size: 13px;
   word-break: break-word;
@@ -720,7 +820,7 @@ button.row:active,
   background: currentColor;
   animation: slide 1.6s ease-in-out infinite;
 }
-.status.violet .ico {
+.status.reasoning .ico {
   animation: pulse 1.8s ease-in-out infinite;
 }
 
@@ -737,7 +837,7 @@ button.row:active,
   padding: 9px 0;
 }
 .ev.fresh {
-  animation: enter var(--slow) ease-out;
+  animation: enter var(--sk-motion-slow) ease-out;
 }
 .ev::before {
   content: '';
@@ -746,7 +846,7 @@ button.row:active,
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--line);
+  background: var(--sk-border);
 }
 .ev:first-child::before {
   top: 16px;
@@ -761,41 +861,41 @@ button.row:active,
   height: 18px;
   margin: 2px 2px 0;
   border-radius: 50%;
-  border: 2px solid var(--line);
-  background: var(--bg);
-  color: var(--bg);
+  border: 2px solid var(--sk-border);
+  background: var(--sk-bg);
+  color: var(--sk-bg);
   padding: 2px;
 }
 .ev .node svg {
   stroke-width: 3.2;
 }
 .ev.tool.done .node {
-  background: var(--emerald);
-  border-color: var(--emerald);
+  background: var(--sk-success);
+  border-color: var(--sk-success);
 }
 .ev.tool.failed .node {
-  background: var(--red);
-  border-color: var(--red);
+  background: var(--sk-danger);
+  border-color: var(--sk-danger);
 }
 .ev.tool.running .node {
-  border-color: var(--cyan);
+  border-color: var(--sk-execution);
   border-top-color: transparent;
   animation: spin 0.9s linear infinite;
 }
 .ev.user .node {
-  border-color: var(--cyan);
+  border-color: var(--sk-primary);
 }
 .ev.assistant .node {
-  border-color: var(--violet);
+  border-color: var(--sk-border-strong);
 }
 .ev.notice.warn .node {
-  border-color: var(--amber);
+  border-color: var(--sk-warning);
 }
 .ev.notice.error .node {
-  border-color: var(--red);
+  border-color: var(--sk-danger);
 }
 .ev.notice.error .sub {
-  color: var(--red);
+  color: var(--sk-danger);
 }
 .ev .body {
   min-width: 0;
@@ -811,18 +911,18 @@ button.row:active,
 }
 .ev .at {
   font: 11px/22px var(--mono);
-  color: var(--muted);
+  color: var(--sk-text-muted);
 }
 .ev .who {
   font: 700 10.5px/1.6 var(--mono);
   letter-spacing: 0.12em;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
 .ev.user .who {
-  color: var(--cyan);
+  color: var(--sk-primary);
 }
 .ev.assistant .who {
-  color: var(--violet);
+  color: var(--sk-text-primary);
 }
 .said {
   white-space: pre-wrap;
@@ -845,9 +945,9 @@ button.row:active,
 pre {
   margin: 6px 0;
   padding: 10px 12px;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--sk-border-subtle);
   border-radius: 10px;
-  background: #081220;
+  background: var(--sk-bg-secondary);
   font: 12.5px/1.5 var(--mono);
   white-space: pre;
   overflow-x: auto;
@@ -874,10 +974,10 @@ pre {
   top: 7px;
   width: 7px;
   height: 7px;
-  border-right: 1.7px solid var(--muted);
-  border-bottom: 1.7px solid var(--muted);
+  border-right: 1.7px solid var(--sk-text-secondary);
+  border-bottom: 1.7px solid var(--sk-text-secondary);
   transform: rotate(45deg);
-  transition: transform var(--fast);
+  transition: transform var(--sk-motion-fast);
 }
 .more-box[open] summary::after {
   transform: rotate(-135deg);
@@ -888,12 +988,12 @@ pre {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 .metric {
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--sk-surface);
   padding: 10px 10px 11px;
   min-width: 0;
 }
@@ -903,12 +1003,12 @@ pre {
   gap: 6px;
   font: 700 10px/1 var(--mono);
   letter-spacing: 0.08em;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
 .metric .head span {
   width: 14px;
   height: 14px;
-  color: var(--cyan);
+  color: var(--sk-text-secondary);
 }
 .metric .big {
   margin-top: 8px;
@@ -917,7 +1017,7 @@ pre {
 .metric .small {
   margin-top: 3px;
   font: 11px/1.3 var(--mono);
-  color: var(--muted);
+  color: var(--sk-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -926,24 +1026,24 @@ pre {
   height: 3px;
   margin-top: 8px;
   border-radius: 2px;
-  background: var(--line-soft);
+  background: var(--sk-border-subtle);
   overflow: hidden;
 }
 .track .fill {
   height: 100%;
-  background: var(--cyan);
-  transition: width var(--slow);
+  background: var(--sk-primary);
+  transition: width var(--sk-motion-slow);
 }
-.track .fill.amber {
-  background: var(--amber);
+.track .fill.warning {
+  background: var(--sk-warning);
 }
 
 /* ── diff ── */
 .diff {
   margin: 8px 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 12px;
-  background: #081220;
+  background: var(--sk-bg-secondary);
   overflow: hidden;
 }
 .diff .file {
@@ -951,8 +1051,8 @@ pre {
   align-items: center;
   gap: 10px;
   padding: 9px 12px;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--surface);
+  border-bottom: 1px solid var(--sk-border-subtle);
+  background: var(--sk-surface);
   font: 12.5px/1.4 var(--mono);
 }
 .diff .sides {
@@ -968,46 +1068,46 @@ pre {
   white-space: pre;
 }
 .diff .ln.del {
-  background: rgba(241, 109, 118, 0.14);
+  background: var(--sk-danger-soft);
 }
 .diff .ln.add {
-  background: rgba(98, 222, 154, 0.12);
+  background: var(--sk-success-soft);
 }
 .diff .no {
   padding-right: 8px;
   text-align: right;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
   user-select: none;
 }
 .diff .ln.del .sign {
-  color: var(--red);
+  color: var(--sk-danger);
 }
 .diff .ln.add .sign {
-  color: var(--emerald);
+  color: var(--sk-success);
 }
 .diff .src {
   padding-right: 12px;
 }
-.diff .more.amber {
-  color: var(--amber);
+.diff .more.warning {
+  color: var(--sk-warning);
 }
 .diff .more {
   padding: 6px 12px;
-  border-top: 1px solid var(--line-soft);
-  color: var(--muted);
+  border-top: 1px solid var(--sk-border-subtle);
+  color: var(--sk-text-secondary);
   font: 12px/1.4 var(--mono);
 }
 .tok-k {
-  color: var(--violet);
+  color: var(--sk-reasoning);
 }
 .tok-s {
-  color: var(--emerald);
+  color: var(--sk-success);
 }
 .tok-n {
-  color: var(--amber);
+  color: var(--sk-warning);
 }
 .tok-c {
-  color: var(--muted);
+  color: var(--sk-text-secondary);
   font-style: italic;
 }
 /* Old on the left, new on the right — only where both fit. */
@@ -1025,7 +1125,7 @@ pre {
     min-width: 0;
   }
   .screen-review .diff .sides.both .side + .side {
-    border-left: 1px solid var(--line-soft);
+    border-left: 1px solid var(--sk-border-subtle);
   }
 }
 
@@ -1040,9 +1140,9 @@ pre {
 }
 .box {
   margin: 8px 0 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 12px;
-  background: #081220;
+  background: var(--sk-bg-secondary);
   padding: 12px;
 }
 .cmd {
@@ -1052,7 +1152,7 @@ pre {
 }
 .cmd:not(.plain)::before {
   content: '$ ';
-  color: var(--cyan);
+  color: var(--sk-primary);
 }
 
 .actions {
@@ -1075,12 +1175,12 @@ pre {
   min-height: 48px;
   margin-top: 10px;
   padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-btn);
-  background: var(--surface);
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
   font-weight: 650;
   text-align: center;
-  transition: background var(--fast), border-color var(--fast);
+  transition: background var(--sk-motion-fast), border-color var(--sk-motion-fast);
 }
 .actions .btn {
   margin-top: 0;
@@ -1091,27 +1191,27 @@ pre {
   flex: none;
 }
 .btn.primary {
-  background: var(--cyan);
-  border-color: var(--cyan);
-  color: var(--cyan-ink);
+  background: var(--sk-primary);
+  border-color: var(--sk-primary);
+  color: var(--sk-on-primary);
 }
 .btn.approve {
-  border-color: var(--emerald);
-  color: var(--emerald);
-  background: rgba(98, 222, 154, 0.1);
+  border-color: var(--sk-primary);
+  color: var(--sk-primary);
+  background: var(--sk-primary-soft);
 }
 .btn.reject {
-  color: var(--text);
+  color: var(--sk-text-primary);
 }
 .btn.quiet {
   background: none;
-  color: var(--muted);
+  color: var(--sk-text-secondary);
 }
-.btn.quiet.red {
-  color: var(--red);
+.btn.quiet.danger {
+  color: var(--sk-danger);
 }
 .btn.small {
-  min-height: 40px;
+  min-height: 44px;
   font-size: 13px;
 }
 
@@ -1120,14 +1220,14 @@ pre {
   min-height: 48px;
   margin-top: 10px;
   padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-btn);
-  background: var(--surface);
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
   outline: 0;
   font-size: 16px; /* below 16px iOS zooms the page on focus */
 }
 .field:focus {
-  border-color: var(--cyan);
+  border-color: var(--sk-primary);
 }
 
 .hero {
@@ -1139,8 +1239,8 @@ pre {
 #composer {
   position: relative;
   padding: 8px 16px calc(8px + var(--safe-b));
-  border-top: 1px solid var(--line-soft);
-  background: var(--bg);
+  border-top: 1px solid var(--sk-border-subtle);
+  background: var(--sk-bg);
 }
 .keyboard #composer {
   padding-bottom: 8px;
@@ -1158,9 +1258,9 @@ pre {
   flex: 1;
   min-height: 44px;
   padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-btn);
-  background: var(--surface);
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
   font-weight: 650;
 }
 .ctl > span {
@@ -1174,24 +1274,24 @@ pre {
   width: 11px;
   height: 11px;
   border-radius: 2px;
-  background: var(--red);
+  background: var(--sk-danger);
 }
 .ctl.approve {
-  border-color: var(--amber);
-  color: var(--amber);
-  background: rgba(245, 186, 79, 0.08);
+  border-color: var(--sk-primary);
+  color: var(--sk-primary);
+  background: var(--sk-primary-soft);
   animation: nudge 600ms ease-out;
 }
 .ctl.resume {
-  border-color: var(--cyan);
-  color: var(--cyan);
+  border-color: var(--sk-primary);
+  color: var(--sk-primary);
 }
 
 .suggest {
   margin-bottom: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--sk-surface);
   overflow: hidden;
 }
 .suggest button {
@@ -1203,7 +1303,7 @@ pre {
   padding: 10px 14px;
 }
 .suggest button + button {
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--sk-border-subtle);
 }
 
 .composer-box {
@@ -1212,13 +1312,14 @@ pre {
   gap: 2px;
   margin: 0;
   padding: 4px 6px 4px 4px;
-  border: 1.5px solid var(--cyan);
-  border-radius: var(--r-card);
-  background: var(--surface);
-  transition: box-shadow var(--fast);
+  border: 1.5px solid var(--sk-border-strong);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-surface-elevated);
+  transition: border-color var(--sk-motion-fast), box-shadow var(--sk-motion-fast);
 }
 .composer-box:focus-within {
-  box-shadow: 0 0 0 3px rgba(85, 221, 232, 0.14);
+  border-color: var(--sk-primary);
+  box-shadow: 0 0 0 3px var(--sk-primary-soft);
 }
 .composer-box textarea {
   flex: 1;
@@ -1233,7 +1334,7 @@ pre {
   line-height: 1.4;
 }
 .composer-box textarea::placeholder {
-  color: var(--muted);
+  color: var(--sk-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1243,7 +1344,7 @@ pre {
   height: 44px;
   flex: none;
   padding: 11px 9px;
-  color: var(--cyan);
+  color: var(--sk-text-secondary);
 }
 .send {
   width: 44px;
@@ -1251,10 +1352,10 @@ pre {
   margin: 2px 0;
   flex: none;
   border-radius: 10px;
-  background: var(--cyan);
-  color: var(--cyan-ink);
+  background: var(--sk-primary);
+  color: var(--sk-on-primary);
   padding: 9px 11px;
-  transition: opacity var(--fast);
+  transition: opacity var(--sk-motion-fast);
 }
 /* Over a long conversation: back to the projects in the top-left corner, once the top bar has
    scrolled away, and down to the newest message above the message box. Each shows only when it helps. */
@@ -1274,9 +1375,9 @@ pre {
   height: 44px;
   padding: 11px;
   border-radius: 50%;
-  border: 1px solid var(--line);
-  background: var(--raised);
-  color: var(--text);
+  border: 1px solid var(--sk-border);
+  background: var(--sk-surface-elevated);
+  color: var(--sk-text-primary);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
 }
@@ -1288,7 +1389,7 @@ pre {
 }
 #fab-latest {
   margin-left: auto;
-  color: var(--cyan);
+  color: var(--sk-primary);
 }
 #fab-latest.unseen::after {
   content: '';
@@ -1298,15 +1399,15 @@ pre {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--cyan);
-  border: 2px solid var(--raised);
+  background: var(--sk-primary);
+  border: 2px solid var(--sk-surface-elevated);
 }
 .composer-foot {
   display: flex;
   justify-content: space-between;
   margin-top: 6px;
   font: 11px/1.4 var(--mono);
-  color: var(--muted);
+  color: var(--sk-text-muted);
 }
 
 /* ── images: waiting in the composer, and in a sent message ── */
@@ -1328,7 +1429,7 @@ pre {
   height: 72px;
   object-fit: cover;
   border-radius: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
 }
 .shot button {
   position: absolute;
@@ -1337,8 +1438,8 @@ pre {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: var(--raised);
-  border: 1px solid var(--line);
+  background: var(--sk-surface-elevated);
+  border: 1px solid var(--sk-border);
   font-size: 16px;
   line-height: 1;
   text-align: center;
@@ -1350,7 +1451,7 @@ pre {
   margin-top: 8px;
 }
 .shots .file {
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 8px;
   padding: 4px 8px;
   font-size: 12px;
@@ -1362,8 +1463,8 @@ pre {
   grid-template-columns: repeat(4, 1fr);
   height: calc(var(--nav-h) + var(--safe-b));
   padding-bottom: var(--safe-b);
-  border-top: 1px solid var(--line-soft);
-  background: var(--bg);
+  border-top: 1px solid var(--sk-border-subtle);
+  background: var(--sk-bg);
 }
 #nav button {
   display: flex;
@@ -1372,15 +1473,15 @@ pre {
   justify-content: center;
   gap: 4px;
   font-size: 11.5px;
-  color: var(--muted);
-  transition: color var(--fast);
+  color: var(--sk-text-secondary);
+  transition: color var(--sk-motion-fast);
 }
 #nav .ico {
   position: relative;
   color: inherit;
 }
 #nav button.active {
-  color: var(--cyan);
+  color: var(--sk-primary);
 }
 #nav .count {
   position: absolute;
@@ -1396,8 +1497,8 @@ pre {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  background: rgba(2, 6, 14, 0.66);
-  animation: fade var(--fast) ease-out;
+  background: rgba(0, 0, 0, 0.62);
+  animation: fade var(--sk-motion-fast) ease-out;
 }
 #sheet .panel {
   width: 100%;
@@ -1405,18 +1506,18 @@ pre {
   max-height: 82dvh;
   overflow-y: auto;
   padding: 8px 16px calc(18px + env(safe-area-inset-bottom));
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-bottom: 0;
   border-radius: 18px 18px 0 0;
-  background: var(--surface);
-  animation: rise var(--slow) cubic-bezier(0.2, 0.8, 0.2, 1);
+  background: var(--sk-surface);
+  animation: rise var(--sk-motion-slow) cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 #sheet .grip {
   width: 38px;
   height: 4px;
   margin: 2px auto 10px;
   border-radius: 2px;
-  background: var(--line);
+  background: var(--sk-border);
 }
 #sheet h3 {
   margin: 0 0 8px;
@@ -1427,10 +1528,10 @@ pre {
   width: 100%;
   min-height: 48px;
   padding: 12px 4px;
-  border-top: 1px solid var(--line-soft);
+  border-top: 1px solid var(--sk-border-subtle);
 }
-.row-btn.red {
-  color: var(--red);
+.row-btn.danger {
+  color: var(--sk-danger);
 }
 
 #toast {
@@ -1441,12 +1542,12 @@ pre {
   transform: translateX(-50%);
   max-width: min(90vw, 480px);
   padding: 10px 16px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--sk-border);
   border-radius: 12px;
-  background: var(--raised);
+  background: var(--sk-surface-elevated);
   font-size: 14px;
   text-align: center;
-  animation: enter var(--fast) ease-out;
+  animation: enter var(--sk-motion-fast) ease-out;
 }
 
 /* ── motion ── */
@@ -1454,7 +1555,7 @@ pre {
 .chip-state i.live,
 .live i,
 .status .bar,
-.status.violet .ico,
+.status.reasoning .ico,
 .ev.tool.running .node,
 .spin {
   animation-delay: var(--t, 0s);
@@ -1496,10 +1597,10 @@ pre {
 }
 @keyframes nudge {
   0% {
-    box-shadow: 0 0 0 0 rgba(245, 186, 79, 0.5);
+    box-shadow: 0 0 0 0 rgba(255, 138, 0, 0.5);
   }
   100% {
-    box-shadow: 0 0 0 10px rgba(245, 186, 79, 0);
+    box-shadow: 0 0 0 10px rgba(255, 138, 0, 0);
   }
 }
 @media (prefers-reduced-motion: reduce) {

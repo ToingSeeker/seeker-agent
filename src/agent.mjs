@@ -303,7 +303,7 @@ export class Agent {
     let phase = null;
     let blocks = null;
     const toolCalls = [];
-    ui.startSpinner(this.usedTokens || this.provider.kind !== 'ollama' ? 'Working' : 'Loading model');
+    ui.startSpinner(this.usedTokens || this.provider.kind !== 'ollama' ? 'Working' : 'Loading model', undefined, 'purple');
     try {
       for await (const chunk of this.#request(this.messages, { tools: true, think: this.config.think, signal })) {
         if (chunk.activity) {
@@ -374,7 +374,7 @@ export class Agent {
     if (ok) ui.toolDone(about.note?.(output), about.display?.(output), about.displayLines);
     else ui.toolFail(output.trim() || 'failed');
     this.external.delete(id);
-    ui.startSpinner('Working');
+    ui.startSpinner('Working', undefined, 'purple');
   }
 
   /** Asked by a provider before one of its own tools does something that needs approval. */
@@ -663,7 +663,7 @@ export class Agent {
     // The newest real request; after an earlier summary it is the one that summary carried along.
     const latest = [...this.messages].reverse().find((m) => m.role === 'user');
     const task = (latest?.compacted ? latest.task : latest?.content) ?? '';
-    ui.startSpinner('Summarising the conversation');
+    ui.startSpinner('Summarising the conversation', undefined, 'purple');
     let summary = '';
     try {
       const prompt = compactPrompt(task);

@@ -7,25 +7,9 @@ import { MdStream } from './markdown.mjs';
 import { VERSION } from './config.mjs';
 import { ANSI, padEnd, truncate, truncateStart, visibleLength } from './text.mjs';
 import { RESTING, ROBOT_WIDTH, pose, robotRows, wordmarkRows } from './mascot.mjs';
+import { colorDepth, terminalPalette } from './theme.mjs';
 
 export { padEnd, truncate, truncateStart, visibleLength };
-
-const CODES = {
-  dim: '2',
-  bold: '1',
-  accent: '38;5;80',
-  accentBold: '1;38;5;80',
-  green: '38;5;114',
-  yellow: '38;5;214',
-  red: '38;5;203',
-  chip: '48;5;236;38;5;80',
-};
-
-function palette(enabled) {
-  const p = {};
-  for (const [name, code] of Object.entries(CODES)) p[name] = (s) => (enabled ? `\x1b[${code}m${s}\x1b[0m` : String(s));
-  return p;
-}
 
 export const tildify = (p) => (p === os.homedir() || p.startsWith(`${os.homedir()}/`) ? `~${p.slice(os.homedir().length)}` : p);
 export const kilo = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -57,10 +41,11 @@ export class UI {
     this.mascot = RESTING;
     this.mascotTimer = null;
     this.activity = print ? process.stderr : process.stdout;
-    const colors = !process.env.NO_COLOR;
-    this.colors = colors && Boolean(this.activity.isTTY);
-    this.c = palette(this.colors);
-    this.answerMarkdown = colors && Boolean(process.stdout.isTTY);
+    // How many colours this terminal shows decides how the palette is written: 24-bit, 256, sixteen, or none.
+    this.depth = colorDepth(process.env, Boolean(this.activity.isTTY));
+    this.colors = this.depth > 0;
+    this.c = terminalPalette(this.depth);
+    this.answerMarkdown = colorDepth(process.env, Boolean(process.stdout.isTTY));
     this.atLineStart = true;
     this.timer = null;
     this.marked = false;
@@ -109,7 +94,8 @@ export class UI {
     }, this.answerMarkdown);
   }
 
-  startSpinner(label, prefix = '  ') {
+  /** `tone` says what is going on: blue for a tool at work, purple for the model thinking. */
+  startSpinner(label, prefix = '  ', tone = 'blue') {
     this.stopSpinner();
     if (!this.screen && !this.activity.isTTY) return;
     const started = Date.now();
@@ -117,7 +103,7 @@ export class UI {
     let frame = 0;
     const draw = () => {
       const secs = Math.floor((Date.now() - started) / 1000);
-      const row = `${prefix}${this.c.yellow(SPINNER[frame++ % SPINNER.length])} ${text}… ${this.c.dim(`${secs}s`)}`;
+      const row = `${prefix}${this.c[tone](SPINNER[frame++ % SPINNER.length])} ${text}… ${this.c.dim(`${secs}s`)}`;
       if (this.screen) this.screen.setLive([row]);
       else this.activity.write(`\r\x1b[K${row}`);
     };
@@ -160,11 +146,11 @@ export class UI {
   headerRows(width, { ready, provider }) {
     const { c } = this;
     const bar = c.dim('│');
-    const robot = robotRows(this.mascot, this.colors);
-    const dot = c.accent('•');
+    const robot = robotRows(this.mascot, this.depth);
+    const dot = c.dim('•');
     // A cloud model sees the code it is given; the badge must not claim otherwise.
     const where = provider.local ? `LOCAL ${dot} PRIVATE` : `${c.yellow('CLOUD')} ${dot} ${provider.label.toUpperCase()}`;
-    const badge = `${where} ${dot} ${ready ? 'READY' : c.yellow('CHAT ONLY')}`;
+    const badge = `${where} ${dot} ${ready ? c.green('● READY') : c.yellow('CHAT ONLY')}`;
     const room = width - visibleLength(badge);
     const build = (wordmark) => {
       const rows = wordmark.map((word, i) => ` ${robot[i]} ${bar}  ${c.accentBold(word)}`);
@@ -196,7 +182,7 @@ export class UI {
       yolo ? 'YOLO: edits and commands run without asking' : null,
     ].filter(Boolean);
     const left = [
-      c.accentBold('Build something remarkable.'),
+      c.bold('Build something remarkable.'),
       'Describe a task. Seeker handles the next step.',
       '',
       `${chip('/init')}  Set up project context`,
@@ -210,15 +196,15 @@ export class UI {
     const barWidth = Math.min(26, rightWidth - 2);
     const filled = Math.min(barWidth, Math.round((used / limit) * barWidth));
     const right = [
-      c.accentBold('WORKSPACE'),
-      truncateStart(tildify(cwd), rightWidth),
+      c.dim('WORKSPACE'),
+      c.accent(truncateStart(tildify(cwd), rightWidth)),
       git ? `${truncate(git.branch, rightWidth - 12)}${tree}` : c.dim('not a git repository'),
       '',
-      c.accentBold('MODEL'),
+      c.dim('MODEL'),
       c.bold(truncate(model, rightWidth)),
       `${truncate(provider.label, rightWidth - 14)} ${dot} ${c.green('connected')}`,
       `Context  ${kilo(used)} / ${contextSize(limit)}`,
-      `[${c.accent('•'.repeat(filled))}${c.dim('.'.repeat(barWidth - filled))}]`,
+      `[${(used / limit > 0.8 ? c.yellow : c.accent)('•'.repeat(filled))}${c.dim('.'.repeat(barWidth - filled))}]`,
     ];
 
     if (twoColumns) {
@@ -238,8 +224,9 @@ export class UI {
     const [first, ...rest] = text.split('\n');
     this.ensureNewline();
     this.line();
-    this.line(`${this.c.accent('›')} ${this.c.accent(first)}`);
-    for (const row of rest) this.line(`  ${this.c.accent(row)}`);
+    // The prompt mark is the brand colour; what was typed stays the terminal's own text colour.
+    this.line(`${this.c.accent('›')} ${this.c.bold(first)}`);
+    for (const row of rest) this.line(`  ${this.c.bold(row)}`);
     this.line();
   }
 
@@ -269,8 +256,8 @@ export class UI {
   thinkStart() {
     if (!this.marked) this.#mark(false);
     this.ensureNewline();
-    if (this.showThinking) this.line(this.c.dim('  ✻ thinking'));
-    else this.startSpinner('Thinking');
+    if (this.showThinking) this.line(`  ${this.c.purple('◇')} ${this.c.dim('thinking')}`);
+    else this.startSpinner('Thinking', '  ', 'purple');
     this.last = 'think';
   }
 
@@ -306,7 +293,7 @@ export class UI {
   toolOpen() {
     const { tool } = this;
     if (!tool || tool.open) return;
-    this.line(`${this.#branch()}${this.c.accent('●')} ${`${tool.doing} ${tool.summary}`.trim()}`);
+    this.line(`${this.#branch()}${this.c.blue('▸')} ${`${tool.doing} ${tool.summary}`.trim()}`);
     tool.open = true;
   }
 
