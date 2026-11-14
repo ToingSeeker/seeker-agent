@@ -1282,6 +1282,29 @@ pre {
   border-radius: 2px;
   background: var(--sk-danger);
 }
+.now {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 0 6px;
+  font: 800 12.5px/1 var(--mono);
+  letter-spacing: 0.1em;
+}
+.now > span:first-child {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.now.reasoning > span:first-child {
+  animation: pulse 1.8s ease-in-out infinite;
+}
+.now b {
+  font-weight: inherit;
+}
+.now .dots {
+  margin-left: -6px;
+}
 .ctl.approve {
   border-color: var(--sk-primary);
   color: var(--sk-primary);
