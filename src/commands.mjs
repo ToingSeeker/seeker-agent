@@ -535,3 +535,92 @@ export async function runCommand(input, ctx) {
     }
   }
 }
+
+// ── Typed on the phone ──────────────────────────────────────────────────────
+//
+// The phone has no picker and no hidden prompt, so what needs one is done on its own screens
+// (/model, /new, the settings tab). And a phone may be lost or borrowed: nothing here approves
+// code to run (shell hooks, a project's MCP server), restores files, runs a shell line or quits.
+
+/** A /command or /skill, not a message that merely starts with a path such as /Users/me/shot.png. */
+export const isSlashCommand = (text) => /^\/[^\s/]+(\s|$)/.test(text);
+
+export const PHONE_COMMANDS = [
+  ['/yolo', 'Toggle running edits and commands without asking'],
+  ['/status', 'Show model, context and approval mode'],
+  ['/compact', 'Summarise the conversation to free up context'],
+  ['/think', 'Toggle thinking mode'],
+  ['/config', '/config <setting> <value> — e.g. /config permissionMode auto'],
+  ['/skills', 'List skills (/skills <word> filters) — run one with /<name>'],
+  ['/memory', 'Show what SEEKER remembers across sessions'],
+  ['/cron', 'Scheduled jobs: list them, pause, resume or remove one'],
+  ['/goal', 'Set a goal SEEKER keeps working on until it is done'],
+  ['/loop', 'Re-run a prompt: /loop 5m check the deploy'],
+  ['/heartbeat', 'Re-enter this session when idle: /heartbeat every 10m <instruction>'],
+  ['/help', 'Show the commands that work from the phone'],
+];
+
+const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat']);
+const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
+const PHONE_ELSEWHERE = {
+  model: 'Type /model on its own: the app opens its model list.',
+  provider: 'Type /model on its own: the app opens its model list.',
+  key: 'API keys are entered in the app: Settings → model.',
+  new: 'Type /new on its own.',
+  clear: 'Type /new on its own.',
+};
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+
+/**
+ * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).
+ * @param {object} ctx  as for runCommand, with `term` null, plus:
+ *   `terminal`  the conversation belongs to a terminal on the Mac: its settings are changed there, not here;
+ *   `configure(key, raw)`  saves a /config setting for every project opened from the phone.
+ */
+export async function runPhoneCommand(input, ctx) {
+  const { agent, ui, config, permissions } = ctx;
+  const [word = '', ...rest] = input.slice(1).trim().split(/\s+/);
+  const name = word.toLowerCase();
+  const arg = rest.join(' ');
+
+  if (!BUILT_IN.has(name) || PHONE_SAFE.has(name)) return runCommand(input, { ...ctx, term: null });
+  if (name === 'help' || name === '?') {
+    for (const [cmd, text] of PHONE_COMMANDS) ui.notice(`  ${cmd.padEnd(11)} ${text}`);
+    return ui.notice('  /<skill> runs a skill, e.g. /code-review. /init, /model, /new, /stop and /image are in the app’s / menu.');
+  }
+  if (name === 'skill' || name === 'skills') {
+    agent.reload();
+    const words = arg.toLowerCase().split(/\s+/).filter(Boolean);
+    const found = agent.skills.filter((s) => words.every((w) => `${s.name} ${s.description}`.toLowerCase().includes(w)));
+    if (!found.length) return ui.notice(words.length ? `  No skill matches "${arg}".` : '  No skills yet.');
+    const shown = found.slice(0, 60);
+    ui.notice(`  ${found.length} skill${found.length > 1 ? 's' : ''}${words.length ? ` matching "${arg}"` : ''} — run one with /<name>:\n${shown.map((s) => `  /${s.name}`).join('\n')}${found.length > shown.length ? `\n  … ${found.length - shown.length} more; narrow it with /skills <word>` : ''}`);
+    return;
+  }
+  if (PHONE_ELSEWHERE[name]) return ui.notice(`  ${PHONE_ELSEWHERE[name]}`);
+  if (PHONE_SETTINGS.has(name)) {
+    if (name === 'ctx' && !arg) return runCommand('/status', { ...ctx, term: null });
+    if (ctx.terminal) return ui.warn(`  This conversation runs in a terminal on your Mac; /${name} is changed there.`);
+    if (!ctx.configure) return ui.warn(`  /${name} cannot be changed from here.`);
+    if (name === 'yolo') {
+      const mode = permissions.mode === 'auto' ? 'ask' : 'auto';
+      ctx.configure('permissionMode', mode);
+      return ui.notice(
+        mode === 'auto'
+          ? '  YOLO on for the projects opened from the phone, and saved: edits and commands run without asking (risky commands are still confirmed).'
+          : '  YOLO off: SEEKER asks before editing files or running commands.',
+      );
+    }
+    if (name === 'think') {
+      if (!agent.caps.thinking) return ui.warn(`  ${agent.model} has no thinking mode`);
+      ctx.configure('think', String(!config.think));
+      return ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
+    }
+    const [key, ...valueParts] = name === 'ctx' ? ['numCtx', arg] : rest;
+    if (!key || !valueParts.length) return ui.notice(`  /config <setting> <value>. Settings: ${Object.keys(SETTINGS).filter((k) => k !== 'model').join(', ')}. The app’s Settings tab has them too.`);
+    if (key === 'model') return ui.notice(`  ${PHONE_ELSEWHERE.model}`);
+    ctx.configure(key, valueParts.join(' '));
+    return ui.notice(`  ${key} = ${valueParts.join(' ')} (saved)`);
+  }
+  ui.warn(`  /${name} works only in the terminal on your Mac.`);
+}
