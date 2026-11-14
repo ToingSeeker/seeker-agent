@@ -1293,18 +1293,38 @@ const grow = () => {
   input.style.height = input.value ? `${Math.min(input.scrollHeight, 140)}px` : '';
 };
 
-/** What "/" offers. Each entry does the real thing; none is text passed to the model. */
+/**
+ * What "/" offers. Each entry does the real thing; none is text passed to the model. The ones below the
+ * first five are run by SEEKER on the computer, as typed in its terminal; so is any /<skill> typed in full.
+ */
 function slashCommands() {
   const id = state.view.ws;
   const ws = state.workspaces.get(id);
   if (!ws) return [];
   const busy = agentState(ws.meta).busy;
+  const terminal = Boolean(ws.meta.terminal);
+  const run = (text) => () => sendText(id, text);
+  // Needs more after the name: put it in the box to finish typing.
+  const fill = (text) => () => {
+    input.value = `${text} `;
+    grow();
+    input.focus();
+  };
   return [
     { name: '/init', about: 'write SEEKER.md for this project', off: busy, run: () => sendText(id, INIT) },
-    { name: '/model', about: 'switch the model', off: busy || ws.meta.terminal, run: chooseModel },
-    { name: '/new', about: 'start a new conversation', off: busy || ws.meta.terminal, run: () => newConversation(ws.meta) },
+    { name: '/model', about: 'switch the model', off: busy || terminal, run: chooseModel },
+    { name: '/new', about: 'start a new conversation', off: busy || terminal, run: () => newConversation(ws.meta) },
     { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => command('stop', { ws: id }) },
     { name: '/image', about: 'attach a photo or screenshot', off: false, run: () => $('file').click() },
+    { name: '/yolo', about: terminal ? 'changed in the terminal for this session' : 'run edits and commands without asking (on/off)', off: busy || terminal, run: run('/yolo') },
+    { name: '/status', about: 'model, context and approval mode', off: busy, run: run('/status') },
+    { name: '/skills', about: 'list skills; run one with /<name>', off: busy, run: run('/skills') },
+    { name: '/compact', about: 'summarise to free up context', off: busy, run: run('/compact') },
+    { name: '/think', about: 'thinking mode on/off', off: busy || terminal, run: run('/think') },
+    { name: '/config', about: '/config <setting> <value>', off: busy || terminal, run: fill('/config') },
+    { name: '/memory', about: 'what SEEKER remembers', off: busy, run: run('/memory') },
+    { name: '/goal', about: 'keep working until a goal is done', off: busy || !terminal, run: fill('/goal') },
+    { name: '/help', about: 'commands that work from here', off: busy, run: run('/help') },
   ];
 }
 

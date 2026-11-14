@@ -390,8 +390,13 @@ running, the terminal works exactly as before.
 - **A picture from the phone** — send a screenshot with no text and its path is put into the message you are
   typing in the terminal, as if you had dragged the file in. Finish the sentence and press Enter.
 - **A message from the phone** — one with words runs as a turn of its own when the terminal is free. What
-  you had half typed is back in the box afterwards. It is always a message for the model: `!` shell lines
-  and `/commands` are not run from the phone.
+  you had half typed is back in the box afterwards. `!` shell lines are not run from the phone.
+- **Commands and skills from the phone** — `/status`, `/compact`, `/skills`, `/memory`, `/cron`, `/goal`,
+  `/loop`, `/help` and any `/<skill>` run as they would typed in the terminal (in a project opened from the
+  phone too). Settings (`/yolo`, `/think`, `/config`) change only projects opened from the phone, and are saved
+  like the Settings tab; a terminal session's own settings are changed in that terminal. What needs a picker or
+  must not come from a lost phone stays in the terminal: `/hooks`, `/mcp`, `/rollback`, `/resume`, `/key`,
+  `/paste`, `/exit`.
 - **Approvals** — asked in both places; the first answer decides and the other one closes.
 - **Not from the phone** — a new conversation, another model, and closing the session are done in the
   terminal. A session started with `--yolo` shows on the phone but takes no tasks from it.

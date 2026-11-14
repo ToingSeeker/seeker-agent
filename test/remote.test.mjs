@@ -872,3 +872,93 @@ test('remote: the phone changes the settings /config holds, they take effect at 
   await toasted(/does not look like an API key/);
   assert.equal(config.providers.openai.apiKey, apiKey);
 });
+
+test('remote: /commands and /skills typed on the phone run on the Mac, not as messages for the model', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-slash-'));
+  fs.mkdirSync(path.join(cwd, '.seeker/skills/greet'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.seeker/skills/greet/SKILL.md'), '---\nname: greet\ndescription: Say hello to someone\n---\n\nGreet the person warmly.\n');
+  const secret = 'an-eighth-long-secret-for-the-slash-test-1';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([[done('Hello, Bob!')], [call('write_file', { path: 'y.txt', content: 'yolo' }), { done: true }], [done('Written.')], [done('A path, not a command.')]]);
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret }, bundledSkills: false };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  });
+  await until(() => me.state.device?.settings && me.state.workspaces.size === 1);
+  const [ws] = [...me.state.workspaces.keys()];
+  const items = () => me.state.workspaces.get(ws).items;
+  const agent = daemon.workspaces.get(ws).agent;
+  const said = (pattern) => until(() => items().some((i) => i.kind === 'notice' && pattern.test(i.text)));
+  const idle = () => until(() => me.state.workspaces.get(ws).status === 'idle');
+
+  // A command prints its output into the transcript; the model is not asked anything.
+  await me.send('message', { ws, text: '/status' });
+  await said(/approval\s+ask first/);
+  await idle();
+  assert.equal(agent.messages.length, 0);
+  assert.ok(items().some((i) => i.kind === 'user' && i.text === '/status'));
+
+  // A skill becomes the message, as in the terminal; the transcript shows what was typed, not the skill's body.
+  await me.send('message', { ws, text: '/greet Bob' });
+  await until(() => items().some((i) => i.kind === 'assistant' && /Hello, Bob/.test(i.text)));
+  await idle();
+  assert.match(agent.messages[0].content, /Greet the person warmly/);
+  assert.match(agent.messages[0].content, /Bob/);
+  assert.equal(items().some((i) => i.kind === 'user' && /Greet the person/.test(i.text)), false);
+
+  // /yolo is the approval switch of the settings tab: saved, in force at once, and the edit runs without a request.
+  await me.send('message', { ws, text: '/yolo' });
+  await until(() => me.state.device.settings.permissionMode === 'auto');
+  assert.equal(agent.permissions.mode, 'auto');
+  await me.send('message', { ws, text: 'write y' });
+  await until(() => fs.existsSync(path.join(cwd, 'y.txt')));
+  await idle();
+  assert.equal(me.state.approvals.length, 0);
+  await me.send('message', { ws, text: '/config permissionMode ask' });
+  await until(() => me.state.device.settings.permissionMode === 'ask');
+  await me.send('message', { ws, text: '/config numCtx 12' });
+  await said(/Not a valid value for numCtx/);
+
+  // What needs the terminal, or must not come from a phone, is refused there and then.
+  for (const text of ['/hooks', '/mcp', '/rollback 1', '/exit']) {
+    await me.send('message', { ws, text });
+    await said(new RegExp(`/${text.slice(1).split(' ')[0]} works only in the terminal`));
+  }
+  await me.send('message', { ws, text: '/nosuchskill' });
+  await said(/Unknown command: \/nosuchskill/);
+  await me.send('message', { ws, text: '/skills greet' });
+  await said(/1 skill matching "greet"[\s\S]*\/greet/);
+
+  // A message that starts with a path is still a message.
+  await me.send('message', { ws, text: '/tmp/shot.png what is this' });
+  await until(() => items().some((i) => i.kind === 'assistant' && /A path/.test(i.text)));
+  assert.equal(agent.messages.filter((m) => m.role === 'user').length, 3);
+});
+
+test('remote: in a session that runs in a terminal, the phone cannot change its settings', async () => {
+  const { runPhoneCommand } = await import('../src/commands.mjs');
+  const notes = [];
+  const ui = { c: new Proxy({}, { get: () => (s) => String(s) }), notice: (x) => notes.push(['notice', x]), warn: (x) => notes.push(['warn', x]), line: (x) => notes.push(['line', x]) };
+  const permissions = { mode: 'ask' };
+  const config = { ...DEFAULTS };
+  let configured = 0;
+  const ctx = { agent: { skills: [], caps: {}, model: 'm' }, ui, term: null, config, permissions, terminal: true, configure: () => configured++ };
+  for (const text of ['/yolo', '/config permissionMode auto', '/think']) await runPhoneCommand(text, ctx);
+  assert.equal(permissions.mode, 'ask');
+  assert.equal(configured, 0);
+  assert.equal(notes.filter(([kind, x]) => kind === 'warn' && /runs in a terminal/.test(x)).length, 3);
+});
