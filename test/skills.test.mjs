@@ -44,6 +44,14 @@ test('skills are listed in the system prompt and loaded by the skill tool', asyn
   assert.doesNotMatch(prompt, /Check the diff/, 'the body stays out until loaded');
   assert.doesNotMatch(buildSystemPrompt({ cwd: os.tmpdir(), model: 'm' }).prompt, /# Skills/);
 
+  // Claude Code has its own tools and no `skill` tool: the list still reaches it, with where to read each file.
+  const claude = buildSystemPrompt({ cwd: '/work/app', model: 'opus', skills, skillDirs: ['/extra'], provider: { label: 'Claude Code', ownTools: true }, contextLimit: 200_000 }).prompt;
+  assert.match(claude, /# SEEKER skills[\s\S]*- review: Review code/);
+  assert.match(claude, /read its SKILL\.md/);
+  assert.match(claude, /Roots: \/extra, .*skills, \/work\/app\/\.seeker\/skills, .*plugins\./);
+  assert.doesNotMatch(claude, /`skill` tool|skill_manage|Check the diff/);
+  assert.doesNotMatch(buildSystemPrompt({ cwd: os.tmpdir(), model: 'm', provider: { label: 'Claude Code', ownTools: true } }).prompt, /# SEEKER skills/);
+
   const tool = TOOL_BY_NAME.get('skill');
   assert.match((await tool.run({ name: '/Review' }, { skills })).output, /Check the diff\./);
   await assert.rejects(tool.run({ name: 'nope' }, { skills }), /No skill named "nope". Available: review/);
