@@ -367,6 +367,10 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   connected computer with the measured round trip to it, your open projects, and `/init` `/model` `/resume`.
   The **+** opens a folder on the computer, or makes a new one for a new project. A new folder can only be
   made inside your home folder, and never in a hidden one.
+- **Sessions** — every open project as one compact row: its name, the latest instruction, a small status pill
+  (Executing, Approval needed, Queued, Failed, Stopped, Completed, Idle), the model, tool runs and when it was
+  last active. Search by project, instruction or model; filter by status (the counts are live); sort by
+  activity, name or status. The session you opened last is marked in amber.
 - **A session** — what the agent is doing right now (thinking, running a tool, writing, waiting for you,
   finished, failed or stopped), every step as it happens with its output, and context, tokens and tool
   counts as the computer reports them. Stop, Review, Resume and Retry appear only when they apply.
