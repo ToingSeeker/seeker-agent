@@ -25,7 +25,9 @@ seeker --yolo                # tanpa tanya izin (perintah berbahaya tetap ditany
 ```
 
 Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/help`, `/exit`, dan `!perintah`.
-Ketik `/` untuk melihat saran perintah, Tab untuk melengkapi, Alt+Enter untuk baris baru, ↑↓ untuk riwayat pesan.
+Ketik `/` untuk daftar perintah dan skill: ↑↓ berpindah di dalamnya, Tab melengkapi yang disorot, Enter
+menjalankannya, Esc menutup daftar. Mengetik mempersempit daftar (`/rev` juga menemukan `/code-review`). Alt+Enter
+untuk baris baru; saat daftar tertutup, ↑↓ menelusuri pesan sebelumnya.
 Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya.
 
 ## Model dan penyedia
