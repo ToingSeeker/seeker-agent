@@ -133,6 +133,8 @@ export class Permissions {
     // Plan mode: SEEKER looks and proposes, and nothing is changed or run until the plan is approved.
     // It sits beside `mode`, which is how approvals work once the plan is being carried out.
     this.planning = false;
+    // Set for the length of one turn that may only look (a review): the reason given to a tool that would change something.
+    this.lookOnly = null;
     this.bashPrefixes = new Set();
     this.hosts = new Set();
     this.toolNames = new Set();
@@ -159,11 +161,12 @@ export class Permissions {
   /** @returns {Promise<{ ok: true } | { ok: false, reason: string }>} */
   async check(tool, args) {
     if (tool.risk === 'read') return { ok: true };
-    if (this.planning) {
+    const refusal = this.planning ? PLANNING : this.lookOnly;
+    if (refusal) {
       // Looking around is part of planning: the short list of commands that only read still runs.
       // A page to read is asked about as usual. Anything that changes something waits for the plan.
       const looks = tool.risk === 'exec' && !isDangerous(String(args.command ?? '')) && parse(String(args.command ?? ''))?.every((words) => isSafeCommand(words));
-      if (!looks && tool.risk !== 'net') return { ok: false, reason: PLANNING };
+      if (!looks && tool.risk !== 'net') return { ok: false, reason: refusal };
       if (looks) return { ok: true };
     }
 
