@@ -173,8 +173,11 @@ const ago = (date) => {
  * /rollback 2 src/a.js restore one file from it
  * /rollback diff 2     show what changed since it
  */
-async function rollback(words, { agent, ui, term }) {
+async function rollback(given, { agent, ui, term }) {
   const { c } = ui;
+  // --files: restore the files and leave the conversation as it is.
+  const keepChat = given.includes('--files');
+  const words = given.filter((w) => w !== '--files');
   if (agent.config.checkpoints === false) return ui.notice('  Checkpoints are off ("checkpoints": false in ~/.seeker/config.json).');
   const checkpoints = await import('./checkpoints.mjs');
   const all = await checkpoints.list(agent.cwd);
@@ -198,7 +201,7 @@ async function rollback(words, { agent, ui, term }) {
   let cp = numbered(words[0]);
   const file = cp ? words.slice(1).join(' ') || null : null;
   if (!cp) {
-    if (words.length) return ui.warn(`  /rollback <number> [file] — there are ${all.length} checkpoints; /rollback alone lists them`);
+    if (words.length) return ui.warn(`  /rollback <number> [file] — there are ${all.length} checkpoints; /rollback alone lists them. Add --files to keep the conversation.`);
     const at = await pickList({ term, ui, title: 'Restore the folder to how it was…', items: all.map((x, i) => ({ label: `${i + 1}. ${x.reason}`, hint: describe(x) })) });
     if (at === -1) return;
     cp = all[at];
@@ -207,6 +210,26 @@ async function rollback(words, { agent, ui, term }) {
   if (!result.ok) return ui.warn(`  ${result.error}`);
   ui.notice(`  ↩ Restored ${file ?? 'the folder'} to checkpoint ${cp.short} (${cp.reason}, ${ago(cp.when)}).${result.removed.length ? ` Removed ${result.removed.length} file${result.removed.length > 1 ? 's' : ''} created since.` : ''}`);
   if (result.saved) ui.notice('  The state from just before this rollback is now the newest checkpoint, so it can be undone with /rollback 1.');
+
+  // Undoing a rollback gives back the part of the conversation that rollback took away.
+  if (!file && agent.rewound?.id === cp.id) {
+    agent.messages.push(...agent.rewound.messages);
+    ui.notice(`  The conversation is back as well (${agent.rewound.messages.length} message${agent.rewound.messages.length === 1 ? '' : 's'}).`);
+    agent.rewound = null;
+    agent.usedTokens = 0;
+    return;
+  }
+  // The whole folder went back to before a message: so does the conversation, to before that message,
+  // unless it was asked to stay. The model then no longer remembers changes that no longer exist.
+  const at = file || keepChat ? -1 : agent.messages.findLastIndex((m) => m.role === 'user' && m.checkpoint === cp.id);
+  if (at >= 0) {
+    const removed = agent.messages.splice(at);
+    agent.rewound = result.saved ? { id: result.saved, messages: removed } : null;
+    agent.usedTokens = 0;
+    const asked = removed[0].content.replace(/\s+/g, ' ').trim();
+    ui.notice(`  The conversation went back too, to before "${asked.length > 60 ? `${asked.slice(0, 60)}…` : asked}" (${removed.length} message${removed.length === 1 ? '' : 's'}). /rollback ${cp ? all.indexOf(cp) + 1 : ''} --files keeps the conversation.`);
+    return;
+  }
   // The model still believes what it read and wrote after that point; it is told otherwise.
   if (agent.messages.length) {
     agent.messages.push(
