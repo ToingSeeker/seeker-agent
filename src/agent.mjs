@@ -1,6 +1,6 @@
 // The agent loop: send the conversation to the model, run whatever tools it
 // asks for, feed the results back, repeat until it answers without a tool call.
-import { TOOLS, ToolError, clip, toolSpecs, validateArgs } from './tools.mjs';
+import { MAX_HELPERS, TOOLS, ToolError, clip, toolSpecs, validateArgs } from './tools.mjs';
 import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
@@ -684,7 +684,21 @@ export class Agent {
       ui.toolLine(`${status === 'completed' ? ui.c.green('✓') : ui.c.yellow('!')} ${tag} ${status} in ${Math.round((Date.now() - started) / 1000)}s — ${task.description}`);
       return { description: task.description, status: report ? status : status === 'completed' ? 'failed' : status, report };
     };
-    const results = await Promise.all(tasks.map(run));
+    // As many at once as `maxHelpers` allows; the rest start as places come free. The reports
+    // come back in the order the tasks were given, whichever finished first.
+    const atOnce = Math.max(1, Math.min(MAX_HELPERS, Math.floor(Number(this.config.maxHelpers)) || MAX_HELPERS, tasks.length));
+    if (atOnce < tasks.length) ui.toolLine(ui.c.dim(`${tasks.length} helpers, ${atOnce} at a time`));
+    const results = new Array(tasks.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < tasks.length && !this.controller?.signal.aborted) {
+        const index = next++;
+        results[index] = await run(tasks[index], index);
+      }
+    };
+    await Promise.all(Array.from({ length: atOnce }, worker));
+    // A task the user interrupted before it could start is said to be that, not left out.
+    for (let i = 0; i < tasks.length; i++) results[i] ??= { description: tasks[i].description, status: 'interrupted', report: '' };
     ui.toolStart('Delegating', 'Delegated', `${tasks.length} tasks in parallel`);
     return results;
   }

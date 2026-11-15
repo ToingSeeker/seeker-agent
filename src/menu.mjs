@@ -10,6 +10,7 @@ export const CHOICES = {
   permissionMode: ['ask', 'auto'],
   maxSteps: [30, 60, 100, 200],
   effort: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
+  maxHelpers: [1, 3, 5, 10, 20],
   compactAt: [0, 150_000, 300_000, 500_000],
   cacheTtl: ['5m', '1h'],
   keepAlive: ['5m', '30m', '2h', '24h'],

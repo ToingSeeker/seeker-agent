@@ -53,6 +53,9 @@ export const DEFAULTS = {
   // How hard an Anthropic model works on a reply: low, medium, high, xhigh or max. Empty: the model's own
   // default. Lower is cheaper and faster; it applies where the model has such a setting.
   effort: '',
+  // How many helper agents run side by side (1 to 20). A `task` call may hand out up to 20 jobs; beyond this
+  // number they wait their turn. Lower it for a local model, or a provider with tight rate limits.
+  maxHelpers: 20,
   // The model helper agents (the task tool) and the unattended review run on: "model" on the provider
   // in use, or "provider:model". Empty: the same model as the conversation.
   subagentModel: '',
@@ -83,6 +86,7 @@ export const SETTINGS = {
   sandboxNetwork: { parse: bool, help: 'let sandboxed commands reach the network (package installs, git push)' },
   sandboxWrite: { parse: (v) => (['none', 'off', '-', ''].includes(v.toLowerCase()) ? [] : v.split(',').map((p) => p.trim()).filter(Boolean)), help: 'extra folders sandboxed commands may write to, comma separated ("none" to clear)' },
   effort: { parse: (v) => (['', 'default', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : ['low', 'medium', 'high', 'xhigh', 'max'].includes(v.toLowerCase()) ? v.toLowerCase() : undefined), help: 'how hard Anthropic models work on a reply: low, medium, high, xhigh, max ("default" to clear)' },
+  maxHelpers: { parse: (v) => (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 20 ? Number(v) : undefined), help: 'helper agents that run side by side (1 to 20)' },
   subagentModel: { parse: (v) => (['same', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : v), help: 'model for helper agents and the review: "model" or "provider:model" ("same" to clear)' },
   compactAt: { parse: int(0), help: 'summarise the conversation at this many tokens (0: only when the window is full)' },
   cacheTtl: { parse: (v) => (['5m', '1h'].includes(v) ? v : undefined), help: 'how long Anthropic keeps the conversation cached: 5m or 1h' },
