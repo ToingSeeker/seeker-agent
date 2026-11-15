@@ -14,10 +14,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { isSlashCommand, runPhoneCommand } from './commands.mjs';
 import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
-import { fullImage, previewOf, receivedImages } from './images.mjs';
+import { fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
+import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, receiveFile, sendFile } from './transfer.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -191,6 +192,11 @@ export class WebUI {
       return { name: path.basename(String(image.name ?? 'image')), mime: preview?.mime ?? null, thumb: preview?.data ?? null, ...file };
     });
     this.#finish({ state: 'done', note: note ?? '', output, ...(shown.length ? { images: shown } : {}) });
+  }
+
+  /** Files an answer named that the phone can download: `{ name, mime, bytes, file }`, `file` being where it is here. */
+  offer(id, files) {
+    this.emit({ t: 'patch', id, patch: { files } });
   }
 
   toolFail(message) {
@@ -415,6 +421,7 @@ export class Workspace {
     try {
       await this.agent.runTurn(text, { images, references });
       this.ui.answerStream().flush();
+      this.#offerFiles(started);
       this.session.save(this.agent.messages, this.agent.model);
     } finally {
       this.status = 'idle';
@@ -433,6 +440,15 @@ export class Workspace {
     } else if (this.outcome === 'completed' && Date.now() - started >= this.daemon.notifyAfter) {
       const last = [...this.items].reverse().find((i) => i.kind === 'assistant' && i.text);
       this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'done');
+    }
+  }
+
+  /** A video or other file an answer of this turn names, and that exists here, gets a download button on the phone. */
+  #offerFiles(since) {
+    for (const item of this.items) {
+      if (item.kind !== 'assistant' || item.at < since || !item.text || item.files) continue;
+      const files = filesNamed(item.text, this.cwd);
+      if (files.length) this.ui.offer(item.id, files);
     }
   }
 
@@ -602,7 +618,8 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX }) {
+    this.inbox = inbox; // where files sent from the phone are saved
     // Instructions waiting for a project's current task to end: workspace id → { cwd, items, paused }.
     // Kept on disk, so they outlive this process; what was waiting when it last ended comes back paused.
     this.queueFile = queueFile;
@@ -1016,6 +1033,61 @@ export class RemoteDaemon {
     return this.send({ t: 'file', req, name: image.name, bytes: image.bytes, smaller: image.smaller });
   }
 
+  /**
+   * Takes the files a message announced, saves them in the inbox, and then hands the message on with
+   * where they are, so the agent can work on them. Each file arrives through the relay in pieces.
+   */
+  async #receive(command, workspace, images, files) {
+    const said = typeof command.text === 'string' ? command.text.trim() : '';
+    if (!workspace.linked && (workspace.status !== 'idle' || workspace.receiving)) return this.send({ t: 'toast', text: `${workspace.name} is still working. Send the files when it has finished.` });
+    const total = files.reduce((sum, f) => sum + f.bytes, 0);
+    this.log(`${workspace.name} ← ${files.length} file${files.length > 1 ? 's' : ''} (${kilobytes(total)})`);
+    workspace.receiving = true;
+    const saved = [];
+    try {
+      for (const file of files) saved.push({ path: await receiveFile({ url: this.url, headers: this.#headers(), key: this.keys.key, file, dir: this.inbox }), bytes: file.bytes });
+    } catch (err) {
+      this.log(`${workspace.name}: ${err.message}`);
+      return this.send({ t: 'toast', text: `${err.message} Nothing was sent to the agent.` });
+    } finally {
+      workspace.receiving = false;
+    }
+    if (!this.running || !this.workspaces.has(workspace.id)) return;
+    const list = saved.map((f) => `- ${f.path} (${kilobytes(f.bytes)})`).join('\n');
+    const text = `${said || `Here ${saved.length > 1 ? 'are the files' : 'is a file'} I sent from my phone.`}\n\n[Sent from the phone, saved on this Mac:]\n${list}`;
+    this.send({ t: 'toast', text: `Your Mac has ${saved.length > 1 ? `the ${saved.length} files` : saved[0].path.split(path.sep).pop()}.` });
+    if (workspace.linked) return workspace.message(text, images);
+    if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} started something else meanwhile. The files are in ${tildify(this.inbox)}.` });
+    this.#dispatch(workspace, text, images);
+  }
+
+  /**
+   * Sends the phone a file an answer offered. The phone names the answer and the file's place in its
+   * list, never a path: only what an answer in this transcript named can be downloaded.
+   */
+  async #download(command, workspace) {
+    const req = String(command.req ?? '');
+    if (!FILE_ID.test(req)) return;
+    const fail = (error) => this.send({ t: 'download', req, error });
+    const offered = workspace?.items.find((i) => i.id === command.item && i.kind === 'assistant')?.files?.[Number(command.index)];
+    if (typeof offered?.file !== 'string' || !path.isAbsolute(offered.file)) return fail('That file can no longer be downloaded.');
+    let stat;
+    try {
+      stat = fs.statSync(offered.file);
+    } catch {
+      return fail(`${offered.name} is no longer on the Mac.`);
+    }
+    if (!stat.isFile() || stat.size === 0 || stat.size > MAX_TRANSFER_BYTES) return fail(`${offered.name} can no longer be downloaded.`);
+    const chunks = Math.ceil(stat.size / CHUNK_BYTES);
+    this.send({ t: 'download', req, name: offered.name, mime: offered.mime, bytes: stat.size, chunks });
+    try {
+      await sendFile({ url: this.url, headers: this.#headers(), key: this.keys.key, id: req, file: offered.file });
+      this.log(`${workspace.name} → ${offered.name} (${kilobytes(stat.size)})`);
+    } catch (err) {
+      this.log(`${workspace.name}: ${err.message}`);
+    }
+  }
+
   #remember() {
     if (!this.remember) return;
     this.config.remote = { ...this.config.remote, workspaces: [...this.workspaces.values()].filter((w) => !w.linked).map((w) => w.cwd) };
@@ -1043,6 +1115,9 @@ export class RemoteDaemon {
         case 'message': {
           if (!workspace) return;
           const images = receivedImages(command.images);
+          const files = announcedFiles(command.files);
+          // A file comes in pieces after the message: taking them must not hold up the commands behind it (a stop, an approval).
+          if (files.length) return void this.#receive(command, workspace, images, files).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
           if (workspace.linked) {
             // The terminal decides what to do with it: it knows whether someone is typing there.
             const said = typeof command.text === 'string' ? command.text.trim() : '';
@@ -1052,7 +1127,7 @@ export class RemoteDaemon {
           }
           const text = (typeof command.text === 'string' ? command.text.trim() : '') || (images.length ? `Look at ${images.length > 1 ? 'these images' : 'this image'}.` : '');
           if (!text) return;
-          if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} is still working. Queue it, or stop it first.` });
+          if (workspace.status !== 'idle' || workspace.receiving) return this.send({ t: 'toast', text: `${workspace.name} is still working. Queue it, or stop it first.` });
           this.log(`${workspace.name} ← ${text.split('\n')[0].slice(0, 70)}${images.length ? ` (+${images.length} image${images.length > 1 ? 's' : ''})` : ''}`);
           return this.#dispatch(workspace, text, images);
         }
@@ -1095,6 +1170,8 @@ export class RemoteDaemon {
           return this.#answer(command.id_approval, String(command.answer ?? '').trim() || null);
         case 'file':
           return await this.#sendFile(command, workspace);
+        case 'download':
+          return void this.#download(command, workspace).catch((err) => this.log(`download: ${err.message}`));
         case 'ping':
           // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
           return this.send({ t: 'pong', id: command.id });

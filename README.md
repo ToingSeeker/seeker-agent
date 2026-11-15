@@ -78,6 +78,24 @@ a path, so only pictures a tool step already showed can be fetched. The picture 
 encrypted, beside the event log rather than in it, and is held there for ten minutes. A file over 2 MB
 is sent as a smaller JPEG on macOS and refused elsewhere.
 
+### Videos and other whole files
+
+The same button takes a video too, and `/file` sends any file as it is. A video or file is not shown to
+the model: it is sent whole, in encrypted 2 MB pieces, and saved on the Mac in `~/Downloads/SEEKER/`
+(never over a file already there). The message goes to the agent once the file has arrived, with where
+it was saved, so the agent can work on it. Keep the phone app open while it uploads; the bar under the
+message box shows how far it is. Up to four files of at most 300 MB each per message.
+
+When an answer names a file that exists on the Mac (a video, audio, a picture, a PDF, a zip or `.srt`,
+written as a path, `~/…` or relative to the project), the phone shows it under the answer with a
+download button. Tapping it fetches the file in pieces, plays a video in place, and **Save** opens the
+share sheet, where "Save Video" and "Save to Files" are. As with pictures, the phone names the answer,
+never a path. Each piece is sealed together with its file and its place in it, so the relay cannot swap
+or reorder them, and it is deleted from the relay as soon as the other side has taken it. The relay
+holds at most 40 MB in each direction at a time and tells the sender to wait beyond that. The Mac gives
+up on a transfer when nothing has moved for two minutes. An existing relay has to be deployed again for
+this.
+
 ## Install
 
 Needs Node ≥ 22. For local use, also Ollama and a model that supports tool calling.
@@ -604,6 +622,7 @@ plain Node.
 | `src/ui.mjs`, `src/markdown.mjs`, `src/text.mjs` | rendering: header, panels, tool-step tree, status bar; measuring and wrapping coloured text |
 | `src/theme.mjs` | the one palette for the terminal and the phone app (amber brand, blue tool at work, purple thinking, green done, red failed); written as 24-bit, 256 or 16 colours depending on the terminal, none with `NO_COLOR` |
 | `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone |
+| `src/transfer.mjs` | whole files between the phone and the Mac: encrypted pieces through the relay, the inbox, the files an answer offers for download |
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
 
