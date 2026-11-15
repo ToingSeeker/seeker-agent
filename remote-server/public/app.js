@@ -902,7 +902,7 @@ function controlCenter(model) {
   );
 
   // The Mac's ledger counts by calendar day, so this one says "today" inside a panel about the last 24 hours.
-  const tokensMetric = () => h('button', { class: 'stat tap', 'aria-label': `Tokens today: ${spent(state.usage.today).toLocaleString()}. Show token usage`, onclick: showUsage }, h('span', { class: 'ico', icon: 'cube' }), h('b', {}, kilo(spent(state.usage.today))), h('span', {}, 'Tokens today', h('span', { class: 'chev', icon: 'chevron' })));
+  const tokensMetric = () => h('button', { class: 'stat tap', 'aria-label': `Tokens today: ${spent(state.usage.today).toLocaleString()}. Show token usage`, onclick: showUsage }, h('span', { class: 'ico', icon: 'cube' }), h('b', {}, big(spent(state.usage.today))), h('span', {}, 'Tokens today', h('span', { class: 'chev', icon: 'chevron' })));
   const metric = (icon, value, label) => h('div', { class: 'stat' }, h('span', { class: 'ico', icon }), h('b', {}, value), h('span', {}, label));
   const statsPanel =
     state.loaded &&
