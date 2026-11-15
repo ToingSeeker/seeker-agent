@@ -208,6 +208,11 @@ export class WebUI {
     this.#item({ kind: 'notice', level: 'info', text: plain(text).trim() });
   }
 
+  /** A list for the phone to offer as boxes to tick; what is ticked comes back as a message. */
+  choose({ skill, title, items }) {
+    this.emit({ t: 'choose', skill, title, items: items.map(({ value, description }) => ({ value, description })) });
+  }
+
   warn(text) {
     this.#item({ kind: 'notice', level: 'warn', text: plain(text).trim() });
   }
@@ -470,7 +475,9 @@ export class Workspace {
     let result;
     try {
       const { agent, session } = this;
-      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure });
+      // A skill with a list to choose from is answered with that list: the phone shows it to tick.
+      const choose = (list) => this.ui.choose(list);
+      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose });
     } catch (err) {
       this.ui.warn(`  ${err.message}`);
     } finally {
