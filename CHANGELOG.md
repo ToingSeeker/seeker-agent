@@ -7,6 +7,8 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 - **Sandbox for shell commands (macOS).** `/sandbox on` runs the commands SEEKER starts under Seatbelt:
   they write only in the project, the temporary folders and the package caches, and cannot read SEEKER's
   settings file. `sandboxWrite` allows more folders; `sandboxNetwork off` cuts the network.
+- **Agents of your own.** A file in `~/.seeker/agents` or `.seeker/agents` gives a helper a role, and
+  optionally its own model and set of tools. The `task` tool hands work to one by name; `/agents` lists them.
 
 ## 0.2.0 — 2026-11-15
 
