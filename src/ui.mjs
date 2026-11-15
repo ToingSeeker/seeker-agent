@@ -298,12 +298,31 @@ export class UI {
   }
 
   /** What a write is about to do: removed lines in red, added in green. */
-  diff({ removed = [], added = [], more = 0, overwrites = null, times = 1 }) {
+  diff({ removed = [], added = [], more = 0, overwrites = null, times = 1, hunk = null }) {
     this.toolOpen();
     const width = this.cols() - 12;
-    for (const l of removed) this.line(`${this.#stem()}${this.c.red(`- ${truncate(l, width)}`)}`);
-    for (const l of added) this.line(`${this.#stem()}${this.c.green(`+ ${truncate(l, width)}`)}`);
-    if (more) this.line(`${this.#stem()}${this.c.dim(`… +${more} lines`)}`);
+    if (hunk?.rows.length) {
+      // Each line with its number in the file; a removed line on red, an added one on green, across the width.
+      const { c } = this;
+      const digits = Math.max(3, ...hunk.rows.map((r) => String(r.n ?? '').length));
+      const room = Math.max(10, width - digits - 3);
+      this.line(`${this.#stem()}${c.green(`+${hunk.added}`)} ${c.red(`−${hunk.removed}`)}`);
+      for (const row of hunk.rows) {
+        if (row.gap) {
+          this.line(`${this.#stem()}${c.dim('...')}`);
+          continue;
+        }
+        const text = truncate(row.text.replace(/\t/g, '  '), room);
+        const body = `${String(row.n).padStart(digits)} ${row.kind} ${text}`;
+        if (row.kind === ' ') this.line(`${this.#stem()}${c.dim(String(row.n).padStart(digits))}   ${text}`);
+        else this.line(`${this.#stem()}${(row.kind === '+' ? c.added : c.removed)(body + ' '.repeat(Math.max(0, room - visibleLength(text))))}`);
+      }
+      if (hunk.hidden) this.line(`${this.#stem()}${c.dim(`… +${hunk.hidden} changed lines`)}`);
+    } else {
+      for (const l of removed) this.line(`${this.#stem()}${this.c.red(`- ${truncate(l, width)}`)}`);
+      for (const l of added) this.line(`${this.#stem()}${this.c.green(`+ ${truncate(l, width)}`)}`);
+      if (more) this.line(`${this.#stem()}${this.c.dim(`… +${more} lines`)}`);
+    }
     // What the shown lines do not say by themselves.
     if (Number.isInteger(overwrites)) this.line(`${this.#stem()}${this.c.yellow(`⚠ replaces the whole file (${overwrites} existing line${overwrites === 1 ? '' : 's'})`)}`);
     if (times > 1) this.line(`${this.#stem()}${this.c.yellow(`⚠ applied in ${times} places`)}`);

@@ -1,6 +1,7 @@
 // The tools SEEKER can call. Each one declares a `risk` that the permission
 // layer keys off: 'read' runs freely, 'write' / 'exec' / 'net' need approval.
 import { spawn, spawnSync } from 'node:child_process';
+import { hunkRows } from './hunks.mjs';
 import fs from 'node:fs';
 import dns from 'node:dns';
 import fsp from 'node:fs/promises';
@@ -400,12 +401,16 @@ export const TOOLS = [
       const lines = args.content.split('\n');
       // Writing over a file that exists removes all of it: the reviewer must see that, not just what is added.
       let replaced = null;
+      let old = [];
       try {
-        if (fs.statSync(file).isFile()) replaced = fs.readFileSync(file, 'utf8').split('\n').length;
+        if (fs.statSync(file).isFile()) {
+          old = fs.readFileSync(file, 'utf8').split('\n');
+          replaced = old.length;
+        }
       } catch {
         // No such file yet: this creates it.
       }
-      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: replaced ?? 0 }, overwrites: replaced };
+      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: replaced ?? 0 }, overwrites: replaced, hunk: hunkRows(old, lines) };
     },
     async run(args, { cwd }) {
       const file = resolvePath(pathArg(args), cwd);
@@ -451,7 +456,14 @@ export const TOOLS = [
         throw new ToolError(`old_string occurs ${count} times. Add surrounding lines to make it unique, or set replace_all.`);
       const removed = from.split('\n');
       const added = to.split('\n');
+      // The first place it applies, as whole lines of the file with a few lines around them.
+      const start = pieces[0].split('\n').length;
+      const was = (pieces[0] + from + pieces.slice(1).join(from)).split('\n');
+      const will = (pieces[0] + to + pieces.slice(1).join(from)).split('\n');
+      const head = Math.max(0, start - 1 - 3);
+      const hunk = hunkRows(was.slice(head, start - 1 + removed.length + 3), will.slice(head, start - 1 + added.length + 3), { first: head + 1 });
       return {
+        hunk,
         removed: removed.slice(0, 12),
         added: added.slice(0, 12),
         more: Math.max(0, removed.length - 12) + Math.max(0, added.length - 12),
