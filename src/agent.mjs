@@ -668,7 +668,7 @@ export class Agent {
       if (name === 'memory') this.turnsSinceMemory = 0;
       if (name === 'skill_manage') this.stepsSinceSkill = 0;
       const maxChars = Math.min(24_000, Math.floor(this.contextLimit() * 0.25 * CHARS_PER_TOKEN));
-      ui.toolDone(result.note, result.display, result.displayLines);
+      ui.toolDone(result.note, result.display, result.displayLines, result.images);
       // Instructions kept in the folder this call first worked in come along with its result.
       const output = clip(result.output, maxChars) + this.hints.collect(name, args);
       return result.images?.length ? { content: output, images: result.images } : output;

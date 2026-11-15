@@ -272,6 +272,12 @@ Dari aplikasi HP, tombol gambar di samping kotak pesan melampirkan sampai empat 
 Gambarnya dikecilkan di HP, lalu dienkripsi seperti semua yang dikirimnya. (Relay yang sudah ada perlu
 di-deploy ulang sekali supaya mendapat aplikasi yang baru.)
 
+Sebaliknya juga bisa: saat agen membuka gambar lewat `read_file` (screenshot yang baru diambilnya, foto
+dari zip yang diekstraknya), HP menampilkan pratinjaunya di bawah langkah itu. Pratinjau dibuat di Mac
+(dengan `sips` di macOS; di sistem lain hanya gambar yang sudah cukup kecil yang ditampilkan) dan
+dienkripsi seperti yang lain. Saat HP memuat ulang, hanya enam pratinjau terakhir per proyek yang
+disimpan; langkah yang lebih lama tetap menampilkan nama filenya.
+
 ## Pasang
 
 Butuh Node ≥ 22 dan Ollama dengan model yang mendukung tool calling.
@@ -484,7 +490,7 @@ rantainya.
 | `src/skills.mjs` | skill: bawaan di `skills/` repo ini (kalah oleh skill milikmu yang bernama sama; matikan dengan `/config bundledSkills off`), `~/.seeker/skills/<nama>/SKILL.md`, `.seeker/skills/<nama>/SKILL.md`, dan skill plugin `~/.seeker/plugins/<plugin>/skills/…` yang dipanggil sebagai `/plugin:nama` |
 | `src/ui.mjs`, `src/markdown.mjs` | tampilan: header, panel, pohon langkah tool, status bar |
 | `src/theme.mjs` | satu palet untuk terminal dan aplikasi HP (amber merek, biru tool bekerja, ungu berpikir, hijau selesai, merah gagal); ditulis sebagai warna 24-bit, 256 atau 16 sesuai terminal, tanpa warna jika `NO_COLOR` diisi |
-| `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard |
+| `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau untuk HP |
 | `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
 | `src/screen.mjs` | tata letak layar penuh: header menempel di atas, kotak input di bawah, percakapan di tengah (baris lama masuk scrollback terminal) |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |
