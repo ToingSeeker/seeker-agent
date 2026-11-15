@@ -2,25 +2,50 @@
 
 What changed in SEEKER, newest first. Versions follow the number in `package.json`.
 
-## Unreleased
+## 0.4.0 — 2026-11-16
 
-- **Up to 20 helpers.** One `task` call may hand out 20 jobs (it was 3). `maxHelpers` says how many run
-  side by side; the rest wait their turn.
-- **Six more hook events**, all observe-only: `on_approval_request`, `pre_compact`, `post_compact`,
-  `subagent_start`, `subagent_stop`, `on_error`.
-- **`seeker -p … --output json`** (or `--json`) prints the answer, the steps, the token counts and whether
-  the run succeeded as one JSON object; `stream-json` prints an object per line as things happen.
-- **`/review`** reads a change from git — since the last commit, staged, one commit, or against a branch —
-  and reports what is wrong with it. The turn can only look: edits and commands that change something are
-  refused, also with `--yolo`.
+Closing gaps found by comparing SEEKER with other terminal agents, and two things to do with video.
+
+### Guards
+
 - **The sandbox works on Linux**, with bubblewrap (`bwrap`), under the same rules as on macOS.
 - **A sandboxed command no longer reaches the network** beyond this machine unless `sandboxNetwork` is on.
   This is a change for anyone who already had the sandbox on: `npm install` and `git push` inside it now
   need `/config sandboxNetwork on`. A server on `127.0.0.1` still works.
+- **`/review`** reads a change from git — since the last commit, staged, one commit, or against a branch —
+  and reports what is wrong with it. The turn can only look: edits and commands that change something are
+  refused, also with `--yolo`. A skill of your own named `review` is run in its place.
+
+### Automation
+
+- **`seeker -p … --output json`** (or `--json`) prints the answer, the steps, the token counts and whether
+  the run succeeded as one JSON object; `stream-json` prints an object per line as things happen. The exit
+  code is 1 when the run failed.
+- **Six more hook events**, all observe-only: `on_approval_request`, `pre_compact`, `post_compact`,
+  `subagent_start`, `subagent_stop`, `on_error`.
+- **Up to 20 helpers.** One `task` call may hand out 20 jobs (it was 3). `maxHelpers` says how many run
+  side by side; the rest wait their turn.
+
+### Video and files
 
 - **Video editing.** A bundled `video-editing` skill with a Python script on top of ffmpeg: trim, join,
   reframe, change speed, cut out silences, burn in captions or a title, level or replace the sound, add music,
   make a GIF, compress to a size. Each edit writes a new file and reports what it made.
+- **Files and videos between the phone and the Mac.** They travel encrypted through the relay in chunks:
+  up to four files per message, at most 300 MB each.
+
+### Known limits
+
+- The Linux sandbox was tried on Debian in a container, as an ordinary user. Other distributions were not
+  tried, and run as root it cannot cut off the network: there, commands are refused until `sandboxNetwork`
+  is on. Windows has no sandbox.
+- `/review`, twenty helpers at once and the video skill were tested against a scripted model. The quality
+  of a review's findings, behaviour under a provider's real rate limits, and the video skill driven by a
+  model were not observed.
+- The video script was run on clips made for the purpose, not on real footage (rotated phone video, long
+  files, variable frame rate). It does not transcribe speech.
+- A compiled Python file went in with the video skill and was removed in the next change; it remains in the
+  history of `main`.
 
 ## 0.3.0 — 2026-11-15
 
