@@ -1188,10 +1188,13 @@ export class RemoteDaemon {
     if (!this.linkFile) return;
     try {
       this.linkServer = await listenLink(this.linkFile, (socket) => this.#joined(socket));
-      if (!this.linkServer) this.log('another `seeker remote` is already taking terminal sessions; this one will not');
     } catch (err) {
       this.log(`terminal sessions cannot join (${err.code ?? err.message})`);
+      return;
     }
+    // The relay keeps one connection per machine. A second daemon would take it from the first, and
+    // the first would take it back, once a second, for as long as both run.
+    if (!this.linkServer) throw new Error('`seeker remote` is already running on this machine. Stop that one first (Ctrl+C where it runs, or `kill -INT` its process), then start it again.');
   }
 
   #joined(socket) {
