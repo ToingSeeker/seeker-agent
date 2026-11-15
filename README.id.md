@@ -368,6 +368,12 @@ SEEKER memotret folder. `/rollback` menampilkan daftar potret, `/rollback 2` men
 `/rollback 2 src/app.js` satu file saja, dan `/rollback diff 2` menunjukkan apa yang berubah sejak itu. Rollback
 sendiri dipotret dulu, jadi bisa dibatalkan.
 
+Mengembalikan seluruh folder juga memundurkan percakapan, ke sebelum pesan yang menyebabkan perubahan itu:
+model tidak lagi mengingat pekerjaan yang sudah tidak ada di disk. Membatalkan rollback itu mengembalikan
+percakapan bersama file-nya. `/rollback 2 --files` mengembalikan file dan membiarkan percakapan apa adanya,
+dan mengembalikan satu file tidak pernah menyentuh percakapan. Potret dari sesi sebelumnya, atau dari sebelum
+percakapan diringkas, hanya mengembalikan file dan memberi tahu model.
+
 Potret disimpan di repositori git terpisah di `~/.seeker/checkpoints`; tidak ada yang ditulis ke `.git` proyek.
 `node_modules`, hasil build, file `.env`, dan file di atas 10 MB tidak ikut dipotret, jadi tidak ikut dikembalikan.
 Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.

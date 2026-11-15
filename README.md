@@ -213,6 +213,12 @@ SEEKER snapshots the folder. `/rollback` lists the snapshots, `/rollback 2` rest
 `/rollback 2 src/app.js` one file from it, and `/rollback diff 2` shows what changed since. A rollback is
 itself snapshotted first, so it can be undone.
 
+Restoring the whole folder also takes the conversation back, to before the message that led to the change:
+the model no longer remembers work that is no longer on disk. Undoing that rollback gives the conversation
+back with the files. `/rollback 2 --files` restores the files and leaves the conversation as it is, and
+restoring a single file never touches it. A checkpoint from an earlier session, or from before the
+conversation was summarised, restores the files only and tells the model so.
+
 Snapshots live in a separate git repository under `~/.seeker/checkpoints`; nothing is written into the
 project's own `.git`. `node_modules`, build output, `.env` files and files over 10 MB are left out, and so
 are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints off`.
