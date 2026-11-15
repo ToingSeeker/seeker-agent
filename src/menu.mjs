@@ -1,15 +1,16 @@
 // Arrow-key screens: the settings menu behind /config and the list picker
 // used by /model and /resume.
-import { SETTINGS, configPath } from './config.mjs';
+import { DEFAULTS, SETTINGS, configPath } from './config.mjs';
 import { truncate } from './ui.mjs';
 
-const CHOICES = {
+/** The values ←→ and Enter step through. Every on/off setting is in here, so none is left that cannot be switched. */
+export const CHOICES = {
+  ...Object.fromEntries(Object.keys(SETTINGS).filter((key) => typeof DEFAULTS[key] === 'boolean').map((key) => [key, [true, false]])),
   numCtx: [8192, 16384, 32768, 65536, 131072],
-  think: [true, false],
-  showThinking: [true, false],
-  animation: [true, false],
   permissionMode: ['ask', 'auto'],
   maxSteps: [30, 60, 100, 200],
+  compactAt: [0, 150_000, 300_000, 500_000],
+  cacheTtl: ['5m', '1h'],
   keepAlive: ['5m', '30m', '2h', '24h'],
 };
 

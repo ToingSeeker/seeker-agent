@@ -190,3 +190,11 @@ test('replayed reasoning can be taken out of a Claude history, and the new setti
   assert.equal(SETTINGS.subagentModel.parse('same'), '');
   assert.deepEqual([DEFAULTS.cacheTtl, DEFAULTS.compactAt, DEFAULTS.subagentModel], ['1h', 300_000, '']);
 });
+
+test('every on/off setting can be switched in the /config list', async () => {
+  const { CHOICES } = await import('../src/menu.mjs');
+  const switches = Object.keys(SETTINGS).filter((key) => typeof DEFAULTS[key] === 'boolean');
+  assert.ok(switches.includes('autoLearn') && switches.includes('review'));
+  for (const key of switches) assert.deepEqual(CHOICES[key], [true, false], key);
+  for (const [key, values] of Object.entries(CHOICES)) for (const value of values) assert.notEqual(SETTINGS[key].parse(String(value)), undefined, `${key} ${value}`);
+});
