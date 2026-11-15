@@ -30,6 +30,7 @@ export const COMMANDS = [
   ['/clear', 'Start a new conversation'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/status', 'Show model and context usage'],
+  ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
   ['/agents', 'Agents of your own: helpers with a role, a model and a set of tools'],
   ['/sandbox', 'Run shell commands in a sandbox that writes only in the project: on · off'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
@@ -48,10 +49,16 @@ export function resolveModel(name, models) {
   return models.find((m) => m.name === name) ?? models.find((m) => m.name.split(':')[0] === name) ?? null;
 }
 
+// Commands that step aside for a skill of the user's own with the same name: someone who already has
+// a `review` skill keeps it.
+const OVERRIDABLE = new Set(['review']);
+
 /** Commands and skills whose name starts with what has been typed so far. */
 export function matchCommands(text, skills) {
   if (!/^\/\S*$/.test(text)) return [];
-  const all = [...COMMANDS, ...skills.map((s) => [`/${s.name}`, s.description])];
+  // A skill of the user's own named like a command that gives way to one (see OVERRIDABLE) is listed in its place.
+  const replaced = new Set(skills.filter((s) => OVERRIDABLE.has(s.name) && s.source !== 'bundled').map((s) => `/${s.name}`));
+  const all = [...COMMANDS.filter(([name]) => !replaced.has(name)), ...skills.map((s) => [`/${s.name}`, s.description])];
   const typed = text.toLowerCase();
   // The name itself first, then names that begin with what is typed, then names that contain it.
   const rank = ([name]) => (name === typed ? 0 : name.startsWith(typed) ? 1 : typed.length > 2 && name.includes(typed.slice(1)) ? 2 : 3);
@@ -314,6 +321,23 @@ export async function runCommand(input, ctx) {
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
       return;
+
+    case 'review': {
+      // A skill of your own named review replaces the built-in one.
+      const own = agent.skills.find((s) => s.name === 'review' && s.source !== 'bundled');
+      if (own) {
+        import('./skill-manage.mjs').then((m) => m.recordUse(own.name), () => {});
+        return { prompt: renderSkill(own, arg), label: `/review${arg ? ` ${arg}` : ''}` };
+      }
+      const { REVIEWING, reviewPrompt, reviewTarget } = await import('./code-review.mjs');
+      const target = await reviewTarget(agent.cwd, rest);
+      if (target.error) return ui.notice(`  ${target.error}`);
+      const lines = target.diff.split('\n').filter((l) => /^[+-](?![+-]{2} )/.test(l)).length;
+      ui.notice(`  Reviewing ${target.label}: ${lines} changed line${lines === 1 ? '' : 's'}${target.untracked.length ? `, ${target.untracked.length} new file${target.untracked.length === 1 ? '' : 's'}` : ''}. Nothing will be changed.`);
+      // The turn that follows may only look, whatever the approval mode is.
+      agent.lookOnlyNext = REVIEWING;
+      return { prompt: reviewPrompt(target), label: `/review${arg ? ` ${arg}` : ''}` };
+    }
 
     case 'agents': {
       const { AGENTS_DIR, loadAgents, projectAgentsDir } = await import('./agents.mjs');
@@ -694,6 +718,7 @@ export const PHONE_COMMANDS = [
   ['/yolo', 'Toggle running edits and commands without asking'],
   ['/plan', 'Plan first, change nothing: /plan · /plan go carries it out · /plan off'],
   ['/status', 'Show model, context and approval mode'],
+  ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
   ['/context', 'What fills the context, part by part'],
   ['/usage', 'Tokens used: total, cached share, the last 7 days'],
   ['/compact', 'Summarise the conversation to free up context'],
@@ -708,7 +733,7 @@ export const PHONE_COMMANDS = [
   ['/help', 'Show the commands that work from the phone'],
 ];
 
-const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage', 'agents']);
+const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage', 'agents', 'review']);
 const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
 const PHONE_ELSEWHERE = {
   model: 'Type /model on its own: the app opens its model list.',
@@ -717,7 +742,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'agents', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).

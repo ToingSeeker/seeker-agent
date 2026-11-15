@@ -404,6 +404,23 @@ Tulis salah satu ini di pesan dan isinya ikut dilampirkan:
 Path harus berada di dalam folder kerja, dan file kredensial tidak pernah dilampirkan. Lampiran di atas seperempat
 konteks diberi peringatan; di atas setengah, ditolak.
 
+## Mereview perubahan
+
+`/review` membuat SEEKER membaca sebuah perubahan dan melaporkan apa yang salah, yang terparah dulu, masing-masing
+dengan file dan baris serta satu kasus di mana ia salah. Tidak ada yang diubah: selama giliran itu, edit dan
+perintah yang mengubah sesuatu ditolak apa pun mode persetujuannya, juga dengan `--yolo`.
+
+| Perintah | Yang direview |
+| --- | --- |
+| `/review` | semua yang berubah sejak commit terakhir, baik sudah di-stage atau belum, dan file baru |
+| `/review staged` | yang sudah di-stage |
+| `/review commit <sha>` | satu commit |
+| `/review main` | yang ditambahkan branch ini di atas `main` (branch atau ref apa pun) |
+
+Kata-kata sesudahnya menyebutkan apa yang perlu diperhatikan: `/review staged penanganan error`. Bisa juga dari
+HP. Perubahan yang terlalu besar diberikan sebagian, dan SEEKER membaca file-nya untuk sisanya. Kalau kamu punya
+skill sendiri bernama `review`, `/review` menjalankan skill itu.
+
 ## Membatalkan perubahan
 
 Sebelum perubahan pertama dalam satu pesan (file ditulis atau diedit, atau perintah shell yang bisa merusak file),
