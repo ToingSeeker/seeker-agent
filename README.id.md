@@ -70,7 +70,8 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
   isinya seperti prompt injection tidak dimuat.
 - `~/.seeker/SEEKER.md` — aturan kerja yang berlaku di semua proyek.
 - `~/.seeker/usage.json` — jumlah token yang dipakai SEEKER: hitungan per hari dan total berjalan, tidak ada
-  yang lain. Tetap di mesin ini dan ditampilkan di Home pada HP.
+  yang lain. Tetap di mesin ini dan ditampilkan di Home pada HP: total, input baru dan input dari cache, output,
+  grafik per hari, dan riwayatnya. Hari sebelum penghitungan dimulai ditampilkan sebagai tidak tercatat, bukan nol.
 - `~/.seeker/memory/` — catatan dari sesi-sesi sebelumnya; `MEMORY.md` adalah indeksnya (satu baris per catatan).
 - `~/.seeker/memory/projects/<folder>/` — catatan khusus satu proyek, dimuat saat SEEKER dijalankan di folder itu.
 
