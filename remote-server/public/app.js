@@ -1001,13 +1001,14 @@ function showUsage() {
   const { usage } = state;
   if (!usage) return;
   const line = (label, value, sub) => h('div', { class: 'u-row' }, h('span', { class: 'grow' }, h('span', {}, label), sub && h('span', { class: 'sub' }, sub)), h('b', { class: 'mono', title: value.toLocaleString() }, value.toLocaleString()));
-  const detail = (c) => `${big(c.input)} in${c.cached ? ` (${big(c.cached)} from cache)` : ''} · ${big(c.output)} out`;
+  // What was read from the provider's cache costs a small fraction of what was sent new; the two are told apart.
+  const detail = (c) => `${c.cached ? `${big(Math.max(0, c.input - c.cached))} new + ${big(c.cached)} from cache in` : `${big(c.input)} in`} · ${big(c.output)} out`;
   const dayName = (day, i) => (i === 0 ? 'Today' : i === 1 ? 'Yesterday' : new Date(`${day}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }));
   sheet(
     'Token usage',
     h('div', { class: 'u-total' }, h('span', { class: 'cap' }, usage.since ? `SINCE ${new Date(usage.since).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()}` : 'TOTAL'), h('b', {}, spent(usage.total).toLocaleString()), h('span', { class: 'sub' }, `${detail(usage.total)} · ${usage.total.replies.toLocaleString()} model repl${usage.total.replies === 1 ? 'y' : 'ies'}`)),
     h('div', { class: 'u-list' }, usage.week.map((d, i) => line(dayName(d.day, i), spent(d), spent(d) ? detail(d) : null))),
-    h('p', { class: 'muted small' }, 'Counted on your Mac, in its own settings folder, from the day this counter was added. Earlier use was not recorded. Input includes what the provider read from its cache.'),
+    h('p', { class: 'muted small' }, 'Counted on your Mac, in its own settings folder, from the day this counter was added. Earlier use was not recorded. Input read from the provider\'s cache is billed at a fraction of new input.'),
   );
 }
 
