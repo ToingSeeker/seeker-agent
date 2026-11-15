@@ -9,7 +9,10 @@
 //   Mac    ←  GET  /agent/stream     encrypted commands from the phone (SSE)
 //   phone  ←  GET  /api/stream       the log since ?since=N, then live (SSE)
 //   phone  →  POST /api/command      one encrypted command for the Mac
+//   Mac    →  POST /agent/blob       one large encrypted file the phone asked for
+//   phone  ←  GET  /api/blob?id=     that file, for a few minutes
 //
+// Files go beside the log, not into it: one picture would push hundreds of events out.
 // Nothing is stored on disk; after a restart the Mac sends a fresh snapshot.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -25,6 +28,9 @@ const MAX_BODY = 4 * 1024 * 1024;
 const FAILURES_ALLOWED = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const MAX_TRACKED = 10_000; // addresses remembered for the lockout
+const BLOB_TTL_MS = 10 * 60 * 1000;
+const MAX_BLOB_BYTES = 24 * 1024 * 1024; // all files held at once
+const BLOB_ID = /^[A-Za-z0-9_-]{8,64}$/;
 const OVERFLOW = '(everyone else)';
 
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest();
@@ -43,6 +49,19 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
   let agent = null; // the Mac's open command stream
   const phones = new Set();
   const failures = new Map(); // ip → { count, until }
+  const blobs = new Map(); // id → { c, at } — encrypted files the phone asked for, oldest first
+
+  function keepBlob(id, c) {
+    blobs.delete(id);
+    blobs.set(id, { c, at: Date.now() });
+    let total = 0;
+    for (const blob of blobs.values()) total += blob.c.length;
+    for (const [key, blob] of blobs) {
+      if (total <= MAX_BLOB_BYTES && Date.now() - blob.at < BLOB_TTL_MS) continue;
+      total -= blob.c.length;
+      blobs.delete(key);
+    }
+  }
 
   // x-forwarded-for is whatever the caller sent unless a proxy in front rewrites it, so it is believed
   // only when told such a proxy exists (`trustProxy`). Railway's does: the first address is the caller.
@@ -134,7 +153,7 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
     res.writeHead(200, {
       'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream',
       'cache-control': 'no-cache',
-      'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
       'strict-transport-security': 'max-age=31536000',
@@ -174,6 +193,17 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
         if (typeof body.c !== 'string') return json(res, 400, { error: 'missing c' });
         if (!agent) return json(res, 503, { error: 'The Mac is not connected.' });
         send(agent, 'command', { c: body.c });
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && pathname === '/api/blob') {
+        const blob = blobs.get(searchParams.get('id') ?? '');
+        if (!blob || Date.now() - blob.at >= BLOB_TTL_MS) return json(res, 404, { error: 'That file is no longer here. Ask for it again.' });
+        return json(res, 200, { c: blob.c });
+      }
+      if (req.method === 'POST' && pathname === '/agent/blob') {
+        const body = await readBody(req);
+        if (typeof body.id !== 'string' || !BLOB_ID.test(body.id) || typeof body.c !== 'string') return json(res, 400, { error: 'bad blob' });
+        keepBlob(body.id, body.c);
         return json(res, 200, { ok: true });
       }
       if (req.method === 'GET' && pathname === '/agent/stream') {

@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { isSlashCommand, runPhoneCommand } from './commands.mjs';
 import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
-import { previewOf, receivedImages } from './images.mjs';
+import { fullImage, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
@@ -187,7 +187,9 @@ export class WebUI {
     const output = String(display ?? '').split('\n').filter((l) => l.trim()).slice(0, Math.max(maxLines, 12)).map((l) => l.slice(0, 300));
     const shown = (Array.isArray(images) ? images : []).slice(0, PREVIEWS_PER_STEP).map((image) => {
       const preview = previewOf(image);
-      return { name: path.basename(String(image.name ?? 'image')), mime: preview?.mime ?? null, thumb: preview?.data ?? null };
+      // Where the picture is on this machine, so the phone can ask for the whole of it later.
+      const file = typeof image.file === 'string' && path.isAbsolute(image.file) ? { file: image.file } : {};
+      return { name: path.basename(String(image.name ?? 'image')), mime: preview?.mime ?? null, thumb: preview?.data ?? null, ...file };
     });
     this.#finish({ state: 'done', note: note ?? '', output, ...(shown.length ? { images: shown } : {}) });
   }
@@ -240,7 +242,7 @@ export function keepRecentPreviews(items, keep = PREVIEWS_KEPT) {
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
     if (item.kind !== 'tool' || !item.images?.some((image) => image.thumb)) continue;
-    if (++seen > keep) item.images = item.images.map(({ name }) => ({ name, mime: null, thumb: null }));
+    if (++seen > keep) item.images = item.images.map(({ name, file }) => ({ name, mime: null, thumb: null, ...(file ? { file } : {}) }));
   }
 }
 
@@ -987,6 +989,34 @@ export class RemoteDaemon {
     return workspace;
   }
 
+  /**
+   * Sends the phone the whole of a picture a tool step showed. The phone names the step and the
+   * picture, never a path: only files already shown in this transcript can be fetched this way.
+   */
+  async #sendFile(command, workspace) {
+    const req = String(command.req ?? '');
+    if (!/^[A-Za-z0-9_-]{8,64}$/.test(req)) return;
+    const fail = (error) => this.send({ t: 'file', req, error });
+    const item = workspace?.items.find((i) => i.id === command.item && i.kind === 'tool');
+    const file = item?.images?.[Number(command.index)]?.file;
+    if (typeof file !== 'string' || !path.isAbsolute(file)) return fail('That picture can no longer be fetched.');
+    let image;
+    try {
+      image = fullImage(file);
+    } catch (err) {
+      return fail(err.message);
+    }
+    const res = await fetch(`${this.url}/agent/blob`, {
+      method: 'POST',
+      headers: this.#headers(),
+      body: JSON.stringify({ id: req, c: seal(this.keys.key, { name: image.name, mime: image.mime, data: image.data }) }),
+      signal: AbortSignal.timeout(60_000),
+    }).catch((err) => ({ ok: false, status: err.cause?.code ?? err.message }));
+    if (!res.ok) return fail(`Could not upload ${image.name} (${res.status}).`);
+    this.log(`${workspace.name} → ${image.name} (${Math.round(image.bytes / 1000)} KB)`);
+    return this.send({ t: 'file', req, name: image.name, bytes: image.bytes, smaller: image.smaller });
+  }
+
   #remember() {
     if (!this.remember) return;
     this.config.remote = { ...this.config.remote, workspaces: [...this.workspaces.values()].filter((w) => !w.linked).map((w) => w.cwd) };
@@ -1064,6 +1094,8 @@ export class RemoteDaemon {
         }
         case 'answer':
           return this.#answer(command.id_approval, String(command.answer ?? '').trim() || null);
+        case 'file':
+          return await this.#sendFile(command, workspace);
         case 'ping':
           // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
           return this.send({ t: 'pong', id: command.id });

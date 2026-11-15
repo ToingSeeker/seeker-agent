@@ -552,8 +552,37 @@ test('remote control: a picture the agent opens with read_file is previewed on t
   await until(() => me.state.workspaces.get(ws.id).items.some((i) => i.kind === 'assistant' && i.text === 'Seen 1.'));
   const step = me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'tool');
   assert.equal(step.state, 'done');
-  assert.deepEqual(step.images, [{ name: 'shot.png', mime: 'image/png', thumb: png.toString('base64') }], 'the phone gets a preview of the picture the tool opened');
+  const { file, ...preview } = step.images[0];
+  assert.deepEqual(preview, { name: 'shot.png', mime: 'image/png', thumb: png.toString('base64') }, 'the phone gets a preview of the picture the tool opened');
+  assert.ok(path.isAbsolute(file) && file.endsWith(`${path.sep}shot.png`), 'and where it is, so it can ask for the whole of it');
   await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+
+  // Tapped on the phone: the whole picture comes through the relay's blob store, not the event log.
+  const { key } = deriveKeys(secret);
+  const fileEvent = (req) => until(() => me.state.events.find((e) => e.t === 'file' && e.req === req));
+  await me.send('file', { ws: ws.id, item: step.id, index: 0, req: 'want-picture-1' });
+  const arrived = await fileEvent('want-picture-1');
+  assert.equal(arrived.error, undefined);
+  assert.equal(arrived.name, 'shot.png');
+  const blob = await fetch(`${url}/api/blob?id=want-picture-1`, { headers: me.headers });
+  assert.equal(blob.status, 200);
+  const picture = unseal(key, (await blob.json()).c);
+  assert.deepEqual([picture.name, picture.mime, picture.data], ['shot.png', 'image/png', png.toString('base64')], 'the phone gets the file itself');
+  assert.equal((await fetch(`${url}/api/blob?id=want-picture-1`)).status, 401, 'only with the token');
+  assert.equal((await fetch(`${url}/api/blob?id=never-asked-for`, { headers: me.headers })).status, 404);
+  const post = (body) => fetch(`${url}/agent/blob`, { method: 'POST', headers: me.headers, body: JSON.stringify(body) });
+  assert.equal((await post({ id: '../x', c: 'abc' })).status, 400, 'a blob id is a plain token');
+
+  // Only a picture a tool step showed can be fetched; the phone names the step, never a path.
+  await me.send('file', { ws: ws.id, item: step.id, index: 3, req: 'want-picture-2' });
+  assert.match((await fileEvent('want-picture-2')).error, /no longer be fetched/);
+  const userItem = me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'user');
+  await me.send('file', { ws: ws.id, item: userItem.id, index: 0, req: 'want-picture-3', file: '/etc/passwd' });
+  assert.match((await fileEvent('want-picture-3')).error, /no longer be fetched/);
+  fs.rmSync(path.join(cwd, 'shot.png'));
+  await me.send('file', { ws: ws.id, item: step.id, index: 0, req: 'want-picture-4' });
+  assert.match((await fileEvent('want-picture-4')).error, /no longer on the Mac/);
+  fs.writeFileSync(path.join(cwd, 'shot.png'), png);
 
   for (let i = 2; i <= 8; i++) {
     await me.send('message', { ws: ws.id, text: `again ${i}` });
@@ -564,6 +593,7 @@ test('remote control: a picture the agent opens with read_file is previewed on t
   assert.equal(kept.length, 8);
   assert.deepEqual(kept.map((i) => Boolean(i.images[0].thumb)), [false, false, true, true, true, true, true, true], 'a snapshot keeps only the six latest previews');
   assert.equal(kept[0].images[0].name, 'shot.png', 'an older step still names its picture');
+  assert.ok(kept[0].images[0].file, 'and can still fetch it whole');
 
   me.close();
   await daemon.stop();

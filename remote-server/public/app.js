@@ -292,6 +292,9 @@ function apply(event) {
         go({ name: 'session', ws: event.id });
       }
       break;
+    case 'file':
+      pictureArrived(event);
+      break;
     case 'toast':
       state.opening = 0;
       // It may be the Mac refusing an answer that came too late: nothing is waiting on one any more.
@@ -1172,9 +1175,72 @@ const runningDots = () => h('span', { class: 'dots', 'aria-hidden': 'true' }, h(
  * The pictures of an entry: what the user sent, or what a tool step opened on the Mac. A preview is
  * shown only as an image of a type the Mac recognised; anything else is just named.
  */
-function pictures(images, size = '') {
-  const shots = (Array.isArray(images) ? images : []).map((i) => (i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name, title: i.name }) : h('span', { class: 'file' }, i.name)));
+function pictures(images, size = '', from = null) {
+  const shots = (Array.isArray(images) ? images : []).map((i, index) => {
+    const shown = i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name, title: i.name }) : h('span', { class: 'file' }, i.name);
+    // A picture that is a file on the Mac opens whole, ready to save, when tapped.
+    if (!from || !i.file) return shown;
+    return h('button', { type: 'button', class: 'shot-open', 'aria-label': `Open ${i.name}`, onclick: () => openPicture(from.ws, from.item, index, i.name) }, shown);
+  });
   return shots.length ? h('div', { class: `shots${size ? ` ${size}` : ''}` }, shots) : null;
+}
+
+// ── a whole picture from the Mac ──────────────────────────────────────────
+// The Mac uploads it beside the event log (it is too large for it) and says so with a 'file' event.
+const fetching = new Map(); // req → { name, timer }
+let pictureUrl = null; // the object URL of the picture on screen, freed when another opens
+
+function openPicture(ws, item, index, name) {
+  const req = crypto.randomUUID().replace(/-/g, '');
+  for (const [key, wait] of fetching) clearTimeout(wait.timer), fetching.delete(key);
+  const timer = setTimeout(() => fetching.delete(req) && (closeSheet(), toast('Your Mac did not send the picture. Try again.')), 60_000);
+  fetching.set(req, { name, timer });
+  sheet(name, h('div', { class: 'viewer-wait muted' }, 'Fetching the picture from your Mac…'));
+  command('file', { ws, item, index, req }).then((sent) => sent || (clearTimeout(timer), fetching.delete(req), closeSheet()));
+}
+
+async function pictureArrived(event) {
+  const wait = fetching.get(event.req);
+  if (!wait) return; // asked for by another phone, or replayed from the log
+  clearTimeout(wait.timer);
+  fetching.delete(event.req);
+  if (event.error) return closeSheet(), toast(event.error);
+  try {
+    const res = await fetch(`/api/blob?id=${encodeURIComponent(event.req)}`, { headers: { authorization: `Bearer ${state.token}` } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+    const picture = await unseal((await res.json()).c);
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(picture.mime)) throw new Error('That is not a picture.');
+    showPicture(new File([fromBase64(picture.data)], picture.name, { type: picture.mime }), event);
+  } catch (err) {
+    closeSheet();
+    toast(`Could not open the picture: ${err.message}`);
+  }
+}
+
+function showPicture(file, { smaller }) {
+  if (pictureUrl) URL.revokeObjectURL(pictureUrl);
+  pictureUrl = URL.createObjectURL(file);
+  const save = async () => {
+    // On a phone the share sheet is where "Save Image" lives; elsewhere it is an ordinary download.
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        return await navigator.share({ files: [file] });
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+      }
+    }
+    const a = h('a', { href: pictureUrl, download: file.name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+  };
+  const size = file.size >= 1_000_000 ? `${(file.size / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1000))} KB`;
+  sheet(
+    file.name,
+    h('img', { class: 'viewer', src: pictureUrl, alt: file.name }),
+    h('div', { class: 'muted viewer-note' }, smaller ? `${size} · a smaller copy; the file on the Mac was too large to send whole` : size),
+    h('div', { class: 'actions even' }, h('button', { type: 'button', class: 'btn', onclick: () => window.open(pictureUrl, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save')),
+  );
 }
 
 function entryOf(item) {
@@ -1189,7 +1255,7 @@ function entryOf(item) {
       'li',
       { class: `ev tool ${mark}` },
       h('span', { class: 'node', icon: mark === 'done' ? 'check' : mark === 'failed' ? 'cross' : 'play' }),
-      h('div', { class: 'body' }, hasMore ? expandable(item, head, item.diff && diffView(item.diff, item.summary), item.output?.length ? h('pre', { class: 'out' }, item.output.join('\n')) : null) : head, pictures(item.images, 'wide')),
+      h('div', { class: 'body' }, hasMore ? expandable(item, head, item.diff && diffView(item.diff, item.summary), item.output?.length ? h('pre', { class: 'out' }, item.output.join('\n')) : null) : head, pictures(item.images, 'wide', { ws: state.view.ws, item: item.id })),
     );
   }
   if (item.kind === 'user') {
