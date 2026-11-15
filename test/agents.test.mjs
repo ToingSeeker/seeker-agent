@@ -154,3 +154,54 @@ test('/agents lists them, and says how to make one when there are none', async (
   assert.match(text, /tester\s+Runs the tests\n\s+this project · the model helpers run on · all tools a helper has/);
   assert.deepEqual(agent.agents.map((a) => a.name), ['reviewer', 'tester'], 'a file added during the session can be used by name');
 });
+
+test('helpers: up to 20 jobs in one call, no more than maxHelpers at once, reports in the order asked', async () => {
+  const cwd = project();
+  let inFlight = 0;
+  let most = 0;
+  const started = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d)).on('end', () => {
+      const sent = JSON.parse(body);
+      const last = sent.messages.at(-1);
+      const job = /^job (\d+)$/.exec(sent.messages.find((m) => m.role === 'user')?.content ?? '');
+      const reply = (chunks) => res.writeHead(200, { 'content-type': 'application/x-ndjson' }).end(chunks.map((c) => JSON.stringify(c)).join('\n'));
+      if (job) {
+        // A helper: it takes a moment, the later ones less, so they finish out of order.
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        started.push(Number(job[1]));
+        return setTimeout(() => {
+          inFlight -= 1;
+          reply([done(`report ${job[1]}`)]);
+        }, 120 - Number(job[1]) * 4);
+      }
+      if (last.role === 'tool') return reply([done('All helpers reported.')]);
+      reply([call('task', { tasks: Array.from({ length: 20 }, (_, n) => ({ description: `part ${n}`, prompt: `job ${n}` })) }), { done: true }]);
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const { agent, config } = makeAgent(`http://127.0.0.1:${server.address().port}`, cwd);
+  config.maxHelpers = 5;
+  await agent.runTurn('do the twenty parts');
+
+  assert.equal(started.length, 20, 'every job was given to a helper');
+  assert.equal(most, 5, 'five at a time, as the setting says');
+  const output = agent.messages.find((m) => m.role === 'tool').content;
+  const order = [...output.matchAll(/^## Helper (\d+): part (\d+) — completed\nreport (\d+)$/gm)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])]);
+  assert.deepEqual(order, Array.from({ length: 20 }, (_, n) => [n + 1, n, n]), 'each report sits with its own task, in the order the tasks were given');
+  assert.equal(agent.helpers.size, 0);
+
+  // Without the setting all twenty run at once; a setting above the limit is the limit.
+  started.length = 0;
+  most = 0;
+  const all = makeAgent(`http://127.0.0.1:${server.address().port}`, cwd);
+  all.config.maxHelpers = 99;
+  await all.agent.runTurn('do the twenty parts');
+  server.close();
+  assert.equal(most, 20);
+  const { SETTINGS } = await import('../src/config.mjs');
+  assert.deepEqual(['20', '1', '0', '21', 'many'].map((v) => SETTINGS.maxHelpers.parse(v)), [20, 1, undefined, undefined, undefined]);
+  assert.equal(DEFAULTS.maxHelpers, 20);
+});

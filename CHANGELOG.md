@@ -4,6 +4,8 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Up to 20 helpers.** One `task` call may hand out 20 jobs (it was 3). `maxHelpers` says how many run
+  side by side; the rest wait their turn.
 - **Six more hook events**, all observe-only: `on_approval_request`, `pre_compact`, `post_compact`,
   `subagent_start`, `subagent_stop`, `on_error`.
 - **`seeker -p … --output json`** (or `--json`) prints the answer, the steps, the token counts and whether

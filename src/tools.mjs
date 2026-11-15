@@ -104,6 +104,8 @@ function httpGet(url, { signal, headers, publicOnly }) {
   });
 }
 
+/** The most helpers one `task` call may start, and the most that ever run side by side. */
+export const MAX_HELPERS = 20;
 const MAX_OUTPUT = 24_000;
 // Files read_file hands to extract.mjs instead of showing as text.
 const DOCUMENT_LIKE = /\.(ipynb|docx?|rtf|odt|pdf|xlsx|db|sqlite3?)$/i;
@@ -799,7 +801,7 @@ export const TOOLS = [
         agent: { type: 'string', description: 'Optional: the name of one of the agents listed under "Agents" in your instructions, to give the helper that role. Leave out for a general helper.' },
         tasks: {
           type: 'array',
-          description: 'Several jobs to run in parallel, up to 3. Each helper sees only its own prompt — repeat shared background in every one that needs it.',
+          description: `Several jobs to run side by side, up to ${MAX_HELPERS}. Each helper sees only its own prompt — repeat shared background in every one that needs it. Each has a context of its own to fill, so use as many as the work has independent parts, not more.`,
           items: {
             type: 'object',
             properties: { description: { type: 'string', description: 'Three to five words naming the job' }, prompt: { type: 'string', description: 'The full instructions for this helper' }, agent: { type: 'string', description: 'Optional: the name of an agent to give this helper its role' } },
@@ -821,7 +823,7 @@ export const TOOLS = [
       }
       if (Array.isArray(tasks) && tasks.length) {
         if (!ctx.delegateMany) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
-        if (tasks.length > 3) throw new ToolError(`At most 3 helpers can run at once; ${tasks.length} were asked for. Send them in batches.`);
+        if (tasks.length > MAX_HELPERS) throw new ToolError(`At most ${MAX_HELPERS} helpers can be given work in one call; ${tasks.length} were asked for. Send them in batches.`);
         const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : ''), agent: t?.agent || null }));
         if (jobs.some((j) => !j.prompt.trim())) throw new ToolError('Every task needs a "prompt".');
         const results = await ctx.delegateMany(jobs);
