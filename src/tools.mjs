@@ -347,7 +347,7 @@ export const TOOLS = [
           throw new ToolError(err.message);
         }
         const { bytes, ...attached } = image;
-        return { output: `${attached.name} is an image (${mime}, ${kilobytes(bytes)}). It is attached; look at it.`, note: `image · ${kilobytes(bytes)}`, images: [attached] };
+        return { output: `${attached.name} is an image (${mime}, ${kilobytes(bytes)}). It is attached; look at it.`, note: `image · ${kilobytes(bytes)}`, images: [{ ...attached, file }] };
       }
       let text;
       let extracted = false;
