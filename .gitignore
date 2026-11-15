@@ -6,3 +6,6 @@ node_modules/
 .railway/
 # The token ledger belongs in ~/.seeker; this keeps it out even if SEEKER_HOME is pointed here.
 usage.json
+# Compiled Python left behind by running a skill's script.
+__pycache__/
+*.pyc
