@@ -354,6 +354,18 @@ hook may print `{"action":"block","message":"…"}` (or exit with code 2) to sto
 `{"context":"…"}` to add to it. A hook that fails does not stop the work unless it has `"fail_closed": true`.
 No hook runs until you have approved that exact command in `/hooks`.
 
+## Editing video
+
+The bundled `video-editing` skill (`/video-editing`, or just ask: "cut this to the first 20 seconds and make it
+9:16") edits video files you already have. It comes with a Python script on top of ffmpeg, one command per
+edit: trim, join clips, reframe for vertical or square, change speed, cut out silences, burn in captions or a
+title, level or replace the sound, add music under speech, make a GIF, compress to a size. Each edit writes a
+new file and never the one it was given, and reports the result's length, size and resolution so SEEKER can
+check it; it then looks at frames of the result before telling you it is done.
+
+It needs `ffmpeg` and `python3`; captions and titles also need Pillow (`pip install pillow`). Drag the file
+into the terminal to name it. For planning a video from a brief, there is the `video-production` skill.
+
 ## Reading and checking files
 
 `read_file` also reads PDFs (needs `pdftotext`), Word and OpenDocument files, `.xlsx`, notebooks and SQLite
