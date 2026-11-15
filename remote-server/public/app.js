@@ -44,6 +44,7 @@ const ICONS = {
   folder: svg('<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>'),
   home: svg('<path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6h-6v6H5a1 1 0 01-1-1z"/>'),
   terminal: svg('<path d="M5 8l4 4-4 4M12 16h7"/>'),
+  file: svg('<path d="M7 3h7l5 5v12a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v5h5"/>'),
   shield: svg('<path d="M12 3l7 3v5c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>'),
   // Built from eight equal teeth, so it stays even at any size.
   gear: svg('<path d="M10.3 4.9L10.72 2.49L13.28 2.49L13.7 4.9L15.81 5.78L17.82 4.37L19.63 6.18L18.22 8.19L19.1 10.3L21.51 10.72L21.51 13.28L19.1 13.7L18.22 15.81L19.63 17.82L17.82 19.63L15.81 18.22L13.7 19.1L13.28 21.51L10.72 21.51L10.3 19.1L8.19 18.22L6.18 19.63L4.37 17.82L5.78 15.81L4.9 13.7L2.49 13.28L2.49 10.72L4.9 10.3L5.78 8.19L4.37 6.18L6.18 4.37L8.19 5.78z"/><circle cx="12" cy="12" r="3.1"/>'),
@@ -1439,28 +1440,38 @@ const KIND = { exec: 'COMMAND', write: 'FILE CHANGE', net: 'NETWORK', other: 'TO
 const diffCounts = (diff) => diff?.counts ?? (diff ? { added: diff.added?.length ?? 0, removed: diff.removed?.length ?? 0 } : null);
 const plusMinus = (counts) => [h('span', { class: 'success' }, `+${counts.added}`), ' ', h('span', { class: 'danger' }, `−${counts.removed}`)];
 
-function approvalCard(a) {
+// A request in the list: which project asks, what kind of thing it is, and the thing itself — the
+// command, the file, the question — so it can be judged before it is opened.
+const ASKS = { exec: ['Command', 'terminal'], write: ['File change', 'file'], net: ['Network', 'cloud'], other: ['Tool', 'bolt'], question: ['Question', 'help'] };
+
+function approvalRow(a) {
+  const [label, icon] = ASKS[a.kind] ?? ASKS.other;
   const counts = diffCounts(a.diff);
+  const answers = a.options?.length ?? 0;
+  const detail = a.kind === 'question' ? (answers ? `${answers} suggested answer${answers === 1 ? '' : 's'}` : 'Your own answer') : counts ? plusMinus(counts) : a.warning ? label : null;
   return h(
     'button',
-    { class: 'card approval', onclick: () => go({ name: 'review', id: a.id, from: { name: 'approvals' } }) },
+    { class: 's-row', 'aria-label': `${label} in ${a.wsName}: ${a.kind === 'question' ? a.title : a.summary}`, onclick: () => go({ name: 'review', id: a.id, from: { name: 'approvals' } }) },
+    h('span', { class: 'ico', icon }),
     h(
       'span',
       { class: 'grow' },
-      h('span', { class: 'meta' }, h('span', { class: 'tag primary' }, KIND[a.kind] ?? 'TOOL'), a.warning && h('span', { class: 'tag danger' }, 'DANGEROUS'), h('span', { class: 'sub grow line' }, a.wsName), h('time', { class: 'sub' }, ago(a.at))),
-      h('span', { class: 'title line' }, a.title),
-      h('span', { class: 'sub mono line' }, a.kind === 'question' ? `${a.options?.length ?? 0} suggested answers` : `${a.doing} ${a.summary}`),
-      counts && h('span', { class: 'sub' }, '1 file · ', plusMinus(counts)),
+      // One word on the right: what kind of request it is, or that it is one to be careful with.
+      h('span', { class: 'top' }, h('span', { class: 'name line' }, a.wsName), h('span', { class: `pill ${a.warning ? 'danger' : 'primary'}` }, h('i'), a.warning ? 'Dangerous' : label)),
+      h('span', { class: `task line${a.kind === 'question' ? '' : ' mono'}` }, a.kind === 'question' ? a.title : a.summary),
+      h('span', { class: 'meta mono line' }, detail, h('time', { datetime: new Date(a.at).toISOString() }, `${detail ? ' · ' : ''}${ago(a.at)}`)),
     ),
     h('span', { class: 'chev', icon: 'chevron' }),
   );
 }
 
 function approvals() {
+  const count = state.approvals.length;
   return [
     header(),
-    section('APPROVALS', state.approvals.length > 0 && h('span', { class: 'count' }, state.approvals.length)),
-    state.approvals.length ? state.approvals.map(approvalCard) : h('div', { class: 'empty' }, h('span', { class: 'ico big', icon: 'shield' }), 'Nothing is waiting for you.', h('span', { class: 'sub' }, 'Every command and every file change an agent wants to make shows up here first.')),
+    h('div', { class: 'page-head' }, h('h1', { class: 'grow' }, 'Approvals')),
+    h('p', { class: 'page-sub' }, count ? `${count} request${count === 1 ? ' is' : 's are'} waiting for you.` : 'Commands and file changes wait here until you allow them.'),
+    count ? h('div', { class: 's-list' }, state.approvals.map(approvalRow)) : h('div', { class: 'empty' }, h('b', {}, 'Nothing is waiting for you'), 'Every command and every file change an agent wants to make shows up here first.'),
   ];
 }
 
