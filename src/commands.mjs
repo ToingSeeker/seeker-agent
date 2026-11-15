@@ -31,7 +31,7 @@ export const COMMANDS = [
   ['/compact', 'Summarise the conversation to free up context'],
   ['/status', 'Show model and context usage'],
   ['/agents', 'Agents of your own: helpers with a role, a model and a set of tools'],
-  ['/sandbox', 'Run shell commands in a sandbox that writes only in the project (macOS): on · off'],
+  ['/sandbox', 'Run shell commands in a sandbox that writes only in the project: on · off'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
   ['/context', 'What fills the context: instructions, tools, messages, tool results'],
   ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
@@ -334,17 +334,17 @@ export async function runCommand(input, ctx) {
     }
 
     case 'sandbox': {
-      const { sandboxAvailable, writablePlaces } = await import('./sandbox.mjs');
+      const { NO_SANDBOX, sandboxAvailable, sandboxKind, writablePlaces } = await import('./sandbox.mjs');
       const word = (rest[0] ?? '').toLowerCase();
       if (word === 'on' || word === 'off') {
-        if (word === 'on' && !sandboxAvailable()) return ui.warn('  The sandbox needs macOS; on this machine shell commands cannot be sandboxed.');
+        if (word === 'on' && !sandboxAvailable()) return ui.warn(`  Shell commands cannot be sandboxed here: ${NO_SANDBOX}.`);
         await apply('sandbox', word === 'on');
-        return ui.notice(word === 'on' ? '  Sandbox on: shell commands write only in the project, the temporary folders and the package caches. Approvals are asked as before.' : '  Sandbox off: shell commands run with your own access.');
+        return ui.notice(word === 'on' ? `  Sandbox on: shell commands write only in the project, the temporary folders and the package caches, and ${config.sandboxNetwork === true ? 'may use the network' : 'reach no network beyond this machine (/config sandboxNetwork on allows it)'}. Approvals are asked as before.` : '  Sandbox off: shell commands run with your own access.');
       }
       if (word) return ui.warn('  /sandbox on | off');
-      ui.line(`  ${c.dim('sandbox')} ${config.sandbox ? 'on' : 'off'}${sandboxAvailable() ? '' : c.yellow(' — not available on this machine (needs macOS)')}`);
+      ui.line(`  ${c.dim('sandbox')} ${config.sandbox ? 'on' : 'off'}${sandboxAvailable() ? c.dim(` (${sandboxKind() === 'bwrap' ? 'bubblewrap' : 'Seatbelt'})`) : c.yellow(' — not available: ' + NO_SANDBOX)}`);
       if (config.sandbox && sandboxAvailable()) {
-        ui.line(`  ${c.dim('network')} ${config.sandboxNetwork === false ? 'cut off' : 'allowed'}`);
+        ui.line(`  ${c.dim('network')} ${config.sandboxNetwork === true ? 'allowed' : 'this machine only'}`);
         ui.line(`  ${c.dim('writes ')} ${writablePlaces(agent.cwd, { write: config.sandboxWrite ?? [] }).join('\n          ')}`);
       }
       ui.line(`  ${c.dim('It covers the shell commands SEEKER starts — not the tools of a provider that runs its own (Claude Code), and not your own !commands.')}`);

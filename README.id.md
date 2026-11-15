@@ -89,14 +89,17 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
 Yang masuk ke system prompt hanya indeksnya, paling banyak 20% dari context window. Kalau indeks tidak muat (model lokal
 dengan konteks kecil), SEEKER diberi tahu letak file indeksnya dan mencarinya dengan grep saat perlu.
 
-**Sandbox (macOS).** `/sandbox on` menjalankan perintah shell yang dimulai SEEKER di bawah Seatbelt: perintah itu
-membaca seperti biasa dan hanya bisa menulis di proyek, folder sementara, dan cache paket (`~/.npm`, `~/.cache`,
-`~/Library/Caches`, …). File pengaturan SEEKER, yang menyimpan API key, tidak bisa dibaca perintah itu. Riwayat
-worktree yang berada di luar folder tetap bisa ditulis, jadi commit tetap jalan. `/config sandboxWrite <path>,<path>`
-mengizinkan folder tambahan, dan `/config sandboxNetwork off` memutus perintah dari jaringan. Persetujuan tetap
+**Sandbox (macOS dan Linux).** `/sandbox on` menjalankan perintah shell yang dimulai SEEKER di bawah sandbox milik
+sistem: Seatbelt di macOS, bubblewrap (`bwrap`) di Linux. Perintah itu membaca seperti biasa dan hanya bisa menulis
+di proyek, folder sementara, dan cache paket (`~/.npm`, `~/.cache`, `~/Library/Caches`, …). File pengaturan SEEKER,
+yang menyimpan API key, tidak bisa dibaca perintah itu. Riwayat worktree yang berada di luar folder tetap bisa
+ditulis, jadi commit tetap jalan. Perintah itu tidak bisa menjangkau jaringan di luar mesin ini: tes yang berbicara
+ke `127.0.0.1` tetap jalan, sedangkan `npm install` dan `git push` tidak, sampai kamu mengizinkannya dengan
+`/config sandboxNetwork on`. `/config sandboxWrite <path>,<path>` mengizinkan folder tambahan. Persetujuan tetap
 ditanyakan seperti biasa; sandbox adalah pengaman kedua, bukan pengganti. Sandbox tidak mencakup penyedia yang
-menjalankan tool-nya sendiri (Claude Code) maupun `!perintah` yang kamu ketik. Di mesin tanpa sandbox, menyalakannya
-ditolak, dan konfigurasi yang menyalakannya membuat perintah shell gagal, bukan jalan tanpa pengaman.
+menjalankan tool-nya sendiri (Claude Code) maupun `!perintah` yang kamu ketik. Di mesin tanpa sandbox (Windows, atau
+Linux tanpa bubblewrap), menyalakannya ditolak, dan konfigurasi yang menyalakannya membuat perintah shell gagal,
+bukan jalan tanpa pengaman.
 
 ### Menekan biaya sesi panjang
 
