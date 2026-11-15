@@ -2,13 +2,28 @@
 
 What changed in SEEKER, newest first. Versions follow the number in `package.json`.
 
-## Unreleased
+## 0.3.0 — 2026-11-15
+
+Two guards and helpers that were put off from 0.2.0.
 
 - **Sandbox for shell commands (macOS).** `/sandbox on` runs the commands SEEKER starts under Seatbelt:
-  they write only in the project, the temporary folders and the package caches, and cannot read SEEKER's
-  settings file. `sandboxWrite` allows more folders; `sandboxNetwork off` cuts the network.
+  they read as usual and write only in the project, the temporary folders and the package caches, and
+  cannot read SEEKER's settings file. A worktree's history outside the folder stays writable.
+  `sandboxWrite` allows more folders; `sandboxNetwork off` cuts the network. Approvals are asked as before.
+  Off by default.
 - **Agents of your own.** A file in `~/.seeker/agents` or `.seeker/agents` gives a helper a role, and
-  optionally its own model and set of tools. The `task` tool hands work to one by name; `/agents` lists them.
+  optionally its own model and set of tools. The `task` tool hands work to one by name; `/agents` lists
+  them. A project's file may pick a model but not another provider.
+
+### Known limits
+
+- The sandbox covers the shell commands SEEKER starts. It does not cover a provider that runs its own tools
+  (Claude Code) or the `!commands` you type, and there is none on Linux or Windows: there, switching it on
+  is refused.
+- `sandbox-exec` is marked deprecated by Apple; it works on the macOS this was tried on (27.2).
+- Agents were tested against a scripted model. Whether a model picks the right agent unprompted was not
+  observed.
+- The limits listed for 0.2.0 still hold, except the one about there being no sandbox.
 
 ## 0.2.0 — 2026-11-15
 
