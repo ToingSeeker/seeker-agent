@@ -91,21 +91,51 @@ export function saveImages(images, dir = os.tmpdir()) {
  */
 export function imagePathsIn(text, cwd) {
   const found = [];
+  for (const { file } of filesNamedIn(text, cwd, (name) => IMAGE_PATH.test(name))) {
+    if (!found.includes(file)) found.push(file);
+    if (found.length === MAX_IMAGES_PER_MESSAGE) break;
+  }
+  return found;
+}
+
+/** The words of a message that name a file that exists: where each is, and whether it was written with quotes or escapes. */
+function* filesNamedIn(text, cwd, wanted = () => true) {
   for (const m of String(text).matchAll(/"([^"\n]+)"|'([^'\n]+)'|((?:\\.|[^\s"'\\])+)/g)) {
     let candidate = m[1] ?? m[2] ?? m[3].replace(/\\(.)/g, '$1');
     candidate = candidate.replace(/^@/, '').replace(/^file:\/\//, '');
     // A path at the end of a sentence drags its punctuation along.
-    if (!IMAGE_PATH.test(candidate)) candidate = candidate.replace(/[.,;:!?)\]]+$/, '');
-    if (!IMAGE_PATH.test(candidate)) continue;
-    if (candidate === '~' || candidate.startsWith('~/')) candidate = path.join(os.homedir(), candidate.slice(1));
-    const file = path.resolve(cwd, candidate);
-    try {
-      if (fs.statSync(file).isFile() && !found.includes(file)) found.push(file);
-    } catch {
-      // Not a file on this machine: it stays ordinary text.
-    }
-    if (found.length === MAX_IMAGES_PER_MESSAGE) break;
+    if (!wanted(candidate) || !exists(candidate, cwd)) candidate = candidate.replace(/[.,;:!?)\]]+$/, '');
+    if (!wanted(candidate)) continue;
+    const file = exists(candidate, cwd);
+    if (file) yield { file, at: m.index, written: m[0], plain: m[3] !== undefined && !m[3].includes('\\') };
   }
+}
+
+/** The absolute path of `candidate` if it is a file on this machine. */
+function exists(candidate, cwd) {
+  if (candidate === '~' || candidate.startsWith('~/')) candidate = path.join(os.homedir(), candidate.slice(1));
+  const file = path.resolve(cwd, candidate);
+  try {
+    return fs.statSync(file).isFile() ? file : null;
+  } catch {
+    return null; // not a file on this machine: it stays ordinary text
+  }
+}
+
+/** Whether a message opens with the path of a file that exists — a file dragged into the terminal, not a /command. */
+export function startsWithFile(text, cwd) {
+  const { value } = filesNamedIn(String(text).trimStart(), cwd).next();
+  return Boolean(value && value.at === 0);
+}
+
+/**
+ * Files other than pictures that a message names the way a terminal types a dragged file: with
+ * escaped spaces or in quotes. A model reads `Report\ 2026.pdf` as a name with backslashes in it,
+ * so the message is given their plain paths as well.
+ */
+export function draggedFilesIn(text, cwd) {
+  const found = [];
+  for (const { file, plain } of filesNamedIn(text, cwd, (name) => !IMAGE_PATH.test(name))) if (!plain && !found.includes(file)) found.push(file);
   return found;
 }
 

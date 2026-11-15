@@ -4,7 +4,7 @@ import { Agent } from './agent.mjs';
 import { isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
 import { Picker } from './picker.mjs';
 import { RemoteDaemon, Workspace, remoteCredentials, stayAwake } from './remote.mjs';
-import { saveImages } from './images.mjs';
+import { saveImages, startsWithFile } from './images.mjs';
 import { TerminalLink, teeUi, terminalId } from './link.mjs';
 import { VERSION, loadConfig, normalizeHost, saveConfig } from './config.mjs';
 import { Terminal } from './input.mjs';
@@ -713,7 +713,8 @@ export async function main(argv) {
       ui.line(result.output);
       continue;
     }
-    if (text.startsWith('/')) {
+    // A path dragged in from the file manager also starts with a slash; it is a message, not a command.
+    if (text.startsWith('/') && !startsWithFile(text, cwd)) {
       let result;
       try {
         result = await runCommand(text, { agent, ui, term, config, permissions, session, hub, autonomy: getAutonomy });

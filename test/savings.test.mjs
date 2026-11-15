@@ -198,3 +198,32 @@ test('every on/off setting can be switched in the /config list', async () => {
   for (const key of switches) assert.deepEqual(CHOICES[key], [true, false], key);
   for (const [key, values] of Object.entries(CHOICES)) for (const value of values) assert.notEqual(SETTINGS[key].parse(String(value)), undefined, `${key} ${value}`);
 });
+
+test('a file dragged into the terminal is a message, not a /command, and the model gets its plain path', async () => {
+  const { draggedFilesIn, imagePathsIn, startsWithFile } = await import('../src/images.mjs');
+  const dir = fs.realpathSync(tmp());
+  const pdf = path.join(dir, 'Report 2026 final.pdf');
+  const shot = path.join(dir, 'Screenshot 2026-11-15 at 17.14.44.png');
+  fs.writeFileSync(pdf, '%PDF-1.4');
+  fs.writeFileSync(shot, 'png');
+  fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
+  const typed = (file) => file.replace(/ /g, '\\ '); // what a terminal types for a dragged file
+
+  assert.equal(startsWithFile(`${typed(shot)}   update the screenshot`, dir), true);
+  assert.equal(startsWithFile(`${typed(pdf)} summarise this`, dir), true);
+  assert.equal(startsWithFile(`'${pdf}' summarise this`, dir), true);
+  assert.equal(startsWithFile('/help', dir), false);
+  assert.equal(startsWithFile('/config autoLearn on', dir), false);
+  assert.equal(startsWithFile(`/model ${typed(pdf)}`, dir), false, 'a command that names a file is still a command');
+  assert.equal(startsWithFile(`${typed(path.join(dir, 'missing.pdf'))} read it`, dir), false);
+
+  assert.deepEqual(imagePathsIn(`${typed(shot)} what is this?`, dir), [shot]);
+  assert.deepEqual(draggedFilesIn(`${typed(pdf)} and ${typed(shot)} and notes.txt.`, dir), [pdf], 'pictures are attached instead, and a plain name needs no help');
+  assert.deepEqual(draggedFilesIn(`read "${pdf}"`, dir), [pdf]);
+
+  const ollama = await fakeOllama([[done('Read.')]]);
+  const agent = makeAgent(ollama.host, dir);
+  await agent.runTurn(`${typed(pdf)} summarise this`);
+  ollama.close();
+  assert.equal(ollama.requests[0].messages.at(-1).content, `${typed(pdf)} summarise this\n\n[The file named above, as plain path to open: ${pdf}]`);
+});

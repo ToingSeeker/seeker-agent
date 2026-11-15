@@ -9,7 +9,7 @@ import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
 import { recordUsage } from './usage.mjs';
-import { MAX_IMAGES_PER_MESSAGE, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
+import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
 const CHARS_PER_TOKEN = 3.5;
 const COMPACT_AT = 0.8;
@@ -869,6 +869,10 @@ export class Agent {
     }
     if (references && HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
     this.#attachImages(message, sent);
+    if (!this.review && !this.parent) {
+      const dragged = draggedFilesIn(userText, this.cwd);
+      if (dragged.length) message.content += `\n\n[The file${dragged.length > 1 ? 's' : ''} named above, as plain path${dragged.length > 1 ? 's' : ''} to open: ${dragged.join(' · ')}]`;
+    }
     if (!this.review) this.dropPastImages();
     if (this.newSkills.length && !this.provider.ownTools) {
       const fresh = this.skills.filter((s) => this.newSkills.includes(s.name));
