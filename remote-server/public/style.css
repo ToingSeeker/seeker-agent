@@ -1675,6 +1675,12 @@ pre {
 .metric .big {
   margin-top: 8px;
   font: 700 21px/1.1 var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.metric .small + .small {
+  margin-top: 0;
 }
 .metric .small {
   margin-top: 3px;
