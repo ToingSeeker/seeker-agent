@@ -30,6 +30,7 @@ export const COMMANDS = [
   ['/clear', 'Start a new conversation'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/status', 'Show model and context usage'],
+  ['/agents', 'Agents of your own: helpers with a role, a model and a set of tools'],
   ['/sandbox', 'Run shell commands in a sandbox that writes only in the project (macOS): on · off'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
   ['/context', 'What fills the context: instructions, tools, messages, tool results'],
@@ -313,6 +314,24 @@ export async function runCommand(input, ctx) {
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
       return;
+
+    case 'agents': {
+      const { AGENTS_DIR, loadAgents, projectAgentsDir } = await import('./agents.mjs');
+      // Read again, so a file added just now can be used by name. The instructions the model already has are
+      // left as they are: rewriting them mid-conversation would throw away what the provider has cached.
+      agent.agents = loadAgents(agent.cwd);
+      if (!agent.agents.length) {
+        ui.notice(`  No agents yet. An agent is a file: ${AGENTS_DIR}/<name>.md (yours) or ${projectAgentsDir(agent.cwd)}/<name>.md (this project's).`);
+        return ui.notice('  It starts with ---, then name:, description:, optionally model: and tools:, then ---, then the helper\'s instructions. See the README.');
+      }
+      const wide = Math.max(...agent.agents.map((a) => a.name.length));
+      for (const a of agent.agents) {
+        ui.line(`  ${c.accent(a.name.padEnd(wide))}  ${a.description}`);
+        ui.line(`  ${' '.repeat(wide)}  ${c.dim([a.source === 'project' ? 'this project' : 'yours', a.model ? `model ${a.model}` : 'the model helpers run on', a.tools ? `tools: ${a.tools.join(', ')}` : 'all tools a helper has'].join(' · '))}`);
+      }
+      ui.line(`  ${c.dim('SEEKER hands work to one through its task tool. Ask for it by name: "have the reviewer look at this change".')}`);
+      return;
+    }
 
     case 'sandbox': {
       const { sandboxAvailable, writablePlaces } = await import('./sandbox.mjs');
@@ -689,7 +708,7 @@ export const PHONE_COMMANDS = [
   ['/help', 'Show the commands that work from the phone'],
 ];
 
-const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage']);
+const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage', 'agents']);
 const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
 const PHONE_ELSEWHERE = {
   model: 'Type /model on its own: the app opens its model list.',
@@ -698,7 +717,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'agents', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).

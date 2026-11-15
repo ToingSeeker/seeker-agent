@@ -9,6 +9,7 @@ import { PLAN_NOTE } from './permissions.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
+import { loadAgents, roleText } from './agents.mjs';
 import { recordUsage } from './usage.mjs';
 import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
@@ -124,7 +125,9 @@ export class Agent {
     this.info = info;
     this.caps = { tools: Boolean(info.tools), thinking: Boolean(info.thinking), vision: Boolean(info.vision) };
     this.skills = loadSkills(this.cwd, this.config.skillDirs, { bundled: this.config.bundledSkills !== false });
-    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, provider, contextLimit: this.contextLimit() });
+    // Helpers with a role of their own (src/agents.mjs). A helper has none: it cannot start another.
+    this.agents = this.config.agents === false ? [] : loadAgents(this.cwd);
+    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, agents: this.agents, provider, contextLimit: this.contextLimit() });
     this.system = prompt;
     this.instructionFiles = instructionFiles;
     this.hints = new SubdirectoryHints(this.cwd, contextFiles);
@@ -286,24 +289,49 @@ export class Agent {
    * The model helper agents and the review run on: the `subagentModel` setting, or the
    * conversation's own. A setting that cannot be used is reported once and the own model is used.
    */
-  async #helperTarget() {
+  async #helperTarget(wanted = String(this.config.subagentModel ?? '').trim(), { what = 'subagentModel', sameProvider = false } = {}) {
     const own = { provider: this.provider, model: this.model, info: this.info };
-    const wanted = String(this.config.subagentModel ?? '').trim();
     if (!wanted) return own;
-    const key = `${this.provider.id}\n${wanted}`;
-    if (this.helperTarget?.key === key) return this.helperTarget.target;
+    const key = `${this.provider.id}\n${wanted}\n${sameProvider}`;
+    this.helperTargets ??= new Map();
+    if (this.helperTargets.has(key)) return this.helperTargets.get(key);
     let target = own;
     try {
       const split = wanted.indexOf(':');
       const named = split > 0 && providerDefs(this.config).some((p) => p.id === wanted.slice(0, split));
+      // A project's file may pick a model, not send the work to another provider: where the
+      // conversation's text goes is the user's choice.
+      if (named && sameProvider && wanted.slice(0, split) !== this.provider.id) throw new Error(`it names another provider, which only an agent in ~/.seeker/agents may do`);
       const provider = named ? createProvider(wanted.slice(0, split), this.config) : this.provider;
       const model = named ? wanted.slice(split + 1) : wanted;
       if (provider.id !== this.provider.id || model !== this.model) target = { provider, model, info: await provider.describe(model) };
     } catch (err) {
-      this.ui.warn(`  ⚠ subagentModel "${wanted}" cannot be used (${String(err.message ?? err).split('\n')[0]}); helpers run on ${this.model}.`);
+      const fallback = what === 'subagentModel' ? own : await this.#helperTarget();
+      this.ui.warn(`  ⚠ ${what} "${wanted}" cannot be used (${String(err.message ?? err).split('\n')[0]}); it runs on ${fallback.model}.`);
+      target = fallback;
     }
-    this.helperTarget = { key, target };
+    this.helperTargets.set(key, target);
     return target;
+  }
+
+  /** The agent of that name, as the task tool was asked for it. */
+  #agentNamed(name) {
+    if (name == null || name === '') return null;
+    const found = this.agents.find((a) => a.name === String(name).trim().toLowerCase());
+    if (!found) throw new ToolError(this.agents.length ? `No agent named "${name}". Available: ${this.agents.map((a) => a.name).join(', ')}. Leave "agent" out for a general helper.` : `No agent named "${name}": none are defined. Leave "agent" out for a general helper.`);
+    return found;
+  }
+
+  /** Where a helper runs: on its agent's own model if the file names one, else where helpers run. */
+  #targetFor(role) {
+    return role?.model ? this.#helperTarget(role.model, { what: `The model of agent ${role.name}`, sameProvider: role.source === 'project' }) : this.#helperTarget();
+  }
+
+  /** Gives a helper its role: the instructions, and only the tools the role lists. */
+  #applyRole(helper, role) {
+    if (!role) return;
+    helper.system = `${helper.system}\n\n${roleText(role)}`;
+    if (role.tools) for (const tool of helper.tools()) if (!role.tools.includes(tool.name)) helper.withheld.add(tool.name);
   }
 
   /**
@@ -554,8 +582,9 @@ export class Agent {
    * `subagentModel` names another); its
    * steps appear in the tree, its thinking and answer text do not.
    */
-  async #delegate(prompt, label) {
+  async #delegate(prompt, label, agentName) {
     const { ui } = this;
+    const role = this.#agentNamed(agentName);
     ui.toolOpen(); // keep the "Delegating …" line; the helper's steps follow under it
     const pass = new Set(['toolStart', 'toolOpen', 'toolRunning', 'toolDone', 'toolFail', 'toolLine', 'diff', 'startSpinner', 'stopSpinner', 'warn', 'error', 'ensureNewline']);
     const quiet = new Proxy(
@@ -569,14 +598,15 @@ export class Agent {
         },
       },
     );
-    const on = await this.#helperTarget();
-    const helper = new Agent({ config: { ...this.config, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: on.provider, info: on.info, cwd: this.cwd });
+    const on = await this.#targetFor(role);
+    const helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: on.provider, info: on.info, cwd: this.cwd });
     helper.extraTools = this.extraTools;
     // A helper never gets a tool its parent was denied (API server, scheduled job), and does not write memory, skills or jobs.
     helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
     helper.parent = this;
     helper.shellHooks = this.shellHooks;
     helper.allowReview = false; // the conversation that learns is the user's, not a helper's
+    this.#applyRole(helper, role);
     this.helper = helper;
     try {
       await helper.runTurn(prompt);
@@ -601,8 +631,11 @@ export class Agent {
     const { ui } = this;
     ui.toolOpen();
     let queue = Promise.resolve();
-    const on = await this.#helperTarget();
+    // Every name is checked before any helper starts: one wrong name should not leave the others running.
+    const roles = tasks.map((task) => this.#agentNamed(task.agent));
     const run = async (task, index) => {
+      const role = roles[index];
+      const on = await this.#targetFor(role);
       const tag = `helper ${index + 1}`;
       const quiet = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? ui.c : key === 'error' || key === 'warn' ? (text) => ui.toolLine(ui.c.dim(`${tag}: ${String(text).trim()}`)) : () => {}) });
       // One question on screen at a time, and it says whose it is.
@@ -618,12 +651,13 @@ export class Agent {
           return asked;
         },
       };
-      const helper = new Agent({ config: { ...this.config, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: on.provider, info: on.info, cwd: this.cwd });
+      const helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: on.provider, info: on.info, cwd: this.cwd });
       helper.extraTools = this.extraTools;
       helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
       helper.parent = this;
       helper.shellHooks = this.shellHooks;
       helper.allowReview = false;
+      this.#applyRole(helper, role);
       this.helpers.add(helper);
       const started = Date.now();
       let status = 'completed';
@@ -671,7 +705,7 @@ export class Agent {
       sandbox: this.config.sandbox ? { write: this.config.sandboxWrite ?? [], network: this.config.sandboxNetwork !== false } : null,
       vision: this.caps.vision,
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
-      delegate: this.withheld.has('task') ? null : (prompt, label) => this.#delegate(prompt, label),
+      delegate: this.withheld.has('task') ? null : (prompt, label, agent) => this.#delegate(prompt, label, agent),
       delegateMany: this.withheld.has('task') ? null : (tasks) => this.#delegateMany(tasks),
       turn: this.turn,
       review: this.review,
@@ -766,7 +800,7 @@ export class Agent {
     const { reviewPrompt, reviewOutcome, reviewReplay } = await import('./review.mjs');
     const on = await this.#helperTarget();
     const silent = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? this.ui.c : () => {}) });
-    const helper = new Agent({ config: { ...this.config, model: on.model, maxSteps: REVIEW_STEPS, checkpoints: false }, ui: silent, permissions: unattended, provider: on.provider, info: on.info, cwd: this.cwd });
+    const helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: REVIEW_STEPS, checkpoints: false }, ui: silent, permissions: unattended, provider: on.provider, info: on.info, cwd: this.cwd });
     helper.review = true;
     helper.parent = this;
     if (on.model === this.model) helper.system = this.system;
