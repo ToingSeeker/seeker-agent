@@ -53,6 +53,9 @@ export function resolveModel(name, models) {
 // a `review` skill keeps it.
 const OVERRIDABLE = new Set(['review']);
 
+/** What a message says before the list of files sent with it from the phone (see remote.mjs). */
+export const PHONE_FILES = '[Sent from the phone, saved on this Mac:]';
+
 /** Commands and skills whose name starts with what has been typed so far. */
 export function matchCommands(text, skills) {
   if (!/^\/\S*$/.test(text)) return [];
@@ -257,7 +260,8 @@ async function rollback(given, { agent, ui, term }) {
 export async function runCommand(input, ctx) {
   const { agent, ui, term, config, permissions, session, hub } = ctx;
   const [name, ...rest] = input.slice(1).trim().split(/\s+/);
-  const arg = rest.join(' ');
+  // What follows the command as it was written: a note on more lines (files sent from the phone) keeps its lines.
+  const arg = input.slice(1).trim().slice(name.length).trim();
   const { c } = ui;
   const apply = (k, v) => applySetting(k, v, ctx);
 
@@ -701,7 +705,11 @@ export async function runCommand(input, ctx) {
       if (skill) import('./skill-manage.mjs').then((m) => m.recordUse(skill.name), () => {});
       // A skill with a list to choose from, called with nothing after it: the list is offered to tick,
       // instead of expecting its names to be remembered.
-      const choices = skill && !arg ? skillChoices(skill) : [];
+      // Files sent from the phone along with the command are a note after it, not a choice already made.
+      const at = arg.indexOf(PHONE_FILES);
+      const own = (at < 0 ? arg : arg.slice(0, at)).trim();
+      const attachment = at < 0 ? '' : arg.slice(at).trim();
+      const choices = skill && !own ? skillChoices(skill) : [];
       if (choices.length >= 2) {
         const title = `/${skill.name} — tick what to use`;
         if (term) {
@@ -710,8 +718,9 @@ export async function runCommand(input, ctx) {
           const chosen = picked.map((i) => choices[i].value).join(', ');
           return { prompt: renderSkill(skill, chosen), label: `/${skill.name}${chosen ? ` ${chosen}` : ''}` };
         }
-        // On the phone the list is shown there; what is ticked comes back as `/skill a, b`.
-        if (ctx.choose) return void ctx.choose({ skill: skill.name, title, items: choices });
+        // On the phone the list is shown there; what is ticked comes back as `/skill a, b`, with the
+        // note of any files sent along carried back after it.
+        if (ctx.choose) return void ctx.choose({ skill: skill.name, title, items: choices, ...(attachment ? { attachment } : {}) });
       }
       if (skill) return { prompt: renderSkill(skill, arg), label: `/${skill.name}${arg ? ` ${arg}` : ''}` };
       ui.warn(`  Unknown command: /${name} — type /help`);
