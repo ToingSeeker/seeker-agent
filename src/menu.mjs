@@ -9,6 +9,7 @@ export const CHOICES = {
   numCtx: [8192, 16384, 32768, 65536, 131072],
   permissionMode: ['ask', 'auto'],
   maxSteps: [30, 60, 100, 200],
+  effort: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
   compactAt: [0, 150_000, 300_000, 500_000],
   cacheTtl: ['5m', '1h'],
   keepAlive: ['5m', '30m', '2h', '24h'],
@@ -19,6 +20,7 @@ const LABELS = {
   false: 'off',
   ask: 'ask first',
   auto: 'auto (YOLO)',
+  '': 'default',
 };
 
 /** The value one step left (-1) or right (+1) of `current`, wrapping around. */

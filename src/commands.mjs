@@ -30,6 +30,7 @@ export const COMMANDS = [
   ['/clear', 'Start a new conversation'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/status', 'Show model and context usage'],
+  ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
   ['/context', 'What fills the context: instructions, tools, messages, tool results'],
   ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
   ['/think', 'Toggle thinking mode'],
@@ -310,6 +311,25 @@ export async function runCommand(input, ctx) {
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
       return;
+
+    case 'effort': {
+      const levels = agent.info?.effort ?? [];
+      const said = (level) => level || 'the model\'s default';
+      if (!arg) {
+        ui.line(`  ${c.dim('effort ')} ${said(config.effort)}`);
+        ui.line(`  ${c.dim(levels.length ? `${agent.model} takes: ${levels.join(', ')}. /effort <level> sets it, /effort default clears it.` : `${agent.model} has no effort setting; it applies to Anthropic models that offer one.`)}`);
+        return;
+      }
+      const value = SETTINGS.effort.parse(arg);
+      if (value === undefined) return ui.warn('  /effort low | medium | high | xhigh | max | default');
+      await apply('effort', value);
+      ui.notice(`  Effort: ${said(value)}.`);
+      if (value && !levels.length) ui.warn(`  ${agent.model} has no effort setting, so nothing changes until a model that has one is chosen.`);
+      else if (value && !levels.includes(value)) ui.warn(`  ${agent.model} does not offer "${value}"; the nearest lower level it has is used.`);
+      // The level is part of the request the provider caches against.
+      if (levels.length && agent.messages.length) ui.notice('  The next message is read by the provider without its cache, once.');
+      return;
+    }
 
     case 'context': {
       const b = agent.contextBreakdown();
@@ -658,7 +678,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).

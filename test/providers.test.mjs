@@ -152,7 +152,7 @@ test('Claude provider: streams through the SDK, asks for summarised thinking and
   const config = { ...DEFAULTS, providers: { anthropic: { apiKey: 'sk-ant-test', baseUrl: fake.url } } };
   const provider = createProvider('anthropic', config);
 
-  assert.deepEqual(await provider.describe('claude-opus-5-5'), { tools: true, thinking: true, vision: true, context: 1000000 });
+  assert.deepEqual(await provider.describe('claude-opus-5-5'), { tools: true, thinking: true, vision: true, context: 1000000, effort: [] });
   const chunks = await collect(provider.chat({ model: 'claude-opus-5-5', system: 'SYS', messages: history, tools: toolSpecs() }));
   fake.close();
 
@@ -374,4 +374,54 @@ test('Claude provider: reasoning refused after a changed history is left out and
   assert.equal(stubborn.requests.filter((r) => r.body?.messages).length, 2);
   fake.close();
   stubborn.close();
+});
+
+test('Claude provider: the effort level is sent where the model has it, the nearest lower one where it does not, and never to a model without the setting', async () => {
+  const { EFFORT_LEVELS, effortFor, effortLevels } = await import('../src/providers.mjs');
+  const { SETTINGS } = await import('../src/config.mjs');
+  const withEffort = (levels) => ({ capabilities: { effort: { supported: true, ...Object.fromEntries(levels.map((l) => [l, { supported: true }])) } } });
+  assert.deepEqual(EFFORT_LEVELS, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(effortLevels(withEffort(['low', 'medium', 'high'])), ['low', 'medium', 'high']);
+  assert.deepEqual(effortLevels({ capabilities: {} }), []);
+  assert.equal(effortFor(withEffort(EFFORT_LEVELS), 'xhigh'), 'xhigh');
+  assert.equal(effortFor(withEffort(['low', 'medium', 'high']), 'max'), 'high', 'more than the model offers: the nearest lower level');
+  assert.equal(effortFor(withEffort(EFFORT_LEVELS), ''), null, 'unset: the model keeps its own default');
+  assert.equal(effortFor({ capabilities: {} }, 'high'), null);
+  assert.equal(effortFor(withEffort(['medium', 'high']), 'low'), null, 'nothing at or below what was asked');
+  assert.deepEqual(['low', 'XHIGH', 'default', 'ultra'].map((v) => SETTINGS.effort.parse(v)), ['low', 'xhigh', '', undefined]);
+
+  const done = [
+    { type: 'message_start', message: { id: 'm', type: 'message', role: 'assistant', model: 'x', content: [], stop_reason: null, usage: { input_tokens: 1, output_tokens: 0 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+    { type: 'message_stop' },
+  ];
+  const metas = {
+    'claude-haiku-4-5': { id: 'claude-haiku-4-5', type: 'model', max_input_tokens: 200000, max_tokens: 64000, capabilities: {} },
+    'claude-test-effort': { id: 'claude-test-effort', type: 'model', max_input_tokens: 200000, max_tokens: 64000, ...withEffort(['low', 'medium', 'high']) },
+  };
+  const fake = await server((req, res) => {
+    if (req.method === 'GET') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(metas[req.url.split('/').pop().split('?')[0]]));
+    sse(res, done);
+  });
+  const config = { ...DEFAULTS, effort: 'max', providers: { anthropic: { apiKey: 'k', baseUrl: fake.url } } };
+  const provider = createProvider('anthropic', config);
+  const ask = (model) => collect(provider.chat({ model, system: 's', messages: [{ role: 'user', content: 'x' }] }));
+  const sent = () => fake.requests.filter((r) => r.body?.messages).at(-1).body;
+
+  assert.deepEqual((await provider.describe('claude-test-effort')).effort, ['low', 'medium', 'high']);
+  await ask('claude-test-effort');
+  assert.deepEqual(sent().output_config, { effort: 'high' });
+  await ask('claude-haiku-4-5');
+  assert.equal(sent().output_config, undefined, 'a model without the setting is not sent one');
+  // Changed while running: the next request carries the new level, and clearing it sends nothing.
+  config.effort = 'low';
+  await ask('claude-test-effort');
+  assert.deepEqual(sent().output_config, { effort: 'low' });
+  config.effort = '';
+  await ask('claude-test-effort');
+  assert.equal(sent().output_config, undefined);
+  fake.close();
 });
