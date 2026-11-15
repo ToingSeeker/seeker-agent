@@ -208,9 +208,17 @@ export class WebUI {
     this.#item({ kind: 'notice', level: 'info', text: plain(text).trim() });
   }
 
-  /** A list for the phone to offer as boxes to tick; what is ticked comes back as a message. */
-  choose({ skill, title, items, attachment }) {
-    this.emit({ t: 'choose', skill, title, items: items.map(({ value, description }) => ({ value, description })), ...(attachment ? { attachment } : {}) });
+  /**
+   * A list for the phone: boxes to tick for a skill's choices (what is ticked comes back as a
+   * message), or, with mode 'one', rows to tap one of (the skills).
+   */
+  choose({ skill, title, items, attachment, mode }) {
+    this.emit({ t: 'choose', ...(mode ? { mode } : {}), ...(skill ? { skill } : {}), title, items: items.map(({ value, description }) => ({ value, description })), ...(attachment ? { attachment } : {}) });
+  }
+
+  /** The settings, each with its value and the values it can take, for the phone to change with a tap. */
+  settings(items) {
+    this.emit({ t: 'settings', items });
   }
 
   warn(text) {
@@ -477,7 +485,8 @@ export class Workspace {
       const { agent, session } = this;
       // A skill with a list to choose from is answered with that list: the phone shows it to tick.
       const choose = (list) => this.ui.choose(list);
-      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose });
+      const settings = (items) => this.ui.settings(items);
+      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose, settings });
     } catch (err) {
       this.ui.warn(`  ${err.message}`);
     } finally {
@@ -1304,8 +1313,8 @@ export class RemoteDaemon {
           return this.send({ t: 'ws', ws: workspace.meta() });
         }
         // A list for the phone to tick (a skill's choices), asked for by a command sent from the phone.
-        if (event.t === 'choose' && typeof event.skill === 'string' && Array.isArray(event.items)) {
-          return this.send({ t: 'choose', ws: workspace.id, skill: event.skill.slice(0, 80), title: String(event.title ?? '').slice(0, 200), items: event.items.slice(0, 200).map((i) => ({ value: String(i?.value ?? '').slice(0, 80), description: String(i?.description ?? '').slice(0, 200) })), ...(typeof event.attachment === 'string' ? { attachment: event.attachment.slice(0, 4000) } : {}) });
+        if (event.t === 'choose' && Array.isArray(event.items) && (typeof event.skill === 'string' || event.mode === 'one')) {
+          return this.send({ t: 'choose', ws: workspace.id, ...(event.mode === 'one' ? { mode: 'one' } : { skill: String(event.skill).slice(0, 80) }), title: String(event.title ?? '').slice(0, 200), items: event.items.slice(0, 1000).map((i) => ({ value: String(i?.value ?? '').slice(0, 80), description: String(i?.description ?? '').slice(0, 200) })), ...(typeof event.attachment === 'string' ? { attachment: event.attachment.slice(0, 4000) } : {}) });
         }
         if (event.t !== 'item' && event.t !== 'patch') return;
         workspace.track(event);
