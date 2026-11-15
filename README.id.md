@@ -549,6 +549,8 @@ rantainya.
 Pengaturan disimpan di `~/.seeker/config.json` (`model`, `numCtx`, `think`, `showThinking`, `animation`, `host`),
 riwayat percakapan di `~/.seeker/sessions/`. Catatan yang berlaku di semua proyek: `~/.seeker/SEEKER.md`.
 
+Perubahan dari versi ke versi ada di [CHANGELOG.md](CHANGELOG.md) (bahasa Inggris).
+
 ## Tes
 
 Saat mencoba secara manual, pakai `SEEKER_HOME=/tmp/folder-uji seeker` supaya konfigurasi dan riwayat aslimu tidak ikut berubah.

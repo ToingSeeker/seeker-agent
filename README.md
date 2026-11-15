@@ -565,6 +565,8 @@ plain Node.
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
 
+What changed from version to version is in [CHANGELOG.md](CHANGELOG.md).
+
 ## Tests
 
 ```
