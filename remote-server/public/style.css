@@ -2230,10 +2230,15 @@ pre {
 .send {
   position: relative;
   flex: none;
-  height: 40px;
+  height: 34px;
 }
+/* They look 34px tall; the finger gets 44. */
 .stop-btn::after,
-.send::after,
+.send::after {
+  content: '';
+  position: absolute;
+  inset: -5px -1px;
+}
 .tool-btn::after {
   content: '';
   position: absolute;
@@ -2243,9 +2248,9 @@ pre {
   position: relative;
 }
 .stop-btn {
-  width: 50px;
+  width: 42px;
   margin-right: 4px;
-  padding: 8px 13px;
+  padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--sk-danger) 75%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--sk-danger) 6%, transparent);
@@ -2262,12 +2267,12 @@ pre {
   animation: pulse 1s ease-in-out infinite;
 }
 .send {
-  width: 52px;
+  width: 44px;
   margin: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--sk-primary);
   color: var(--sk-on-primary);
-  padding: 8px 15px;
+  padding: 7px 12px;
   transition: opacity var(--sk-motion-fast);
 }
 /* With little height (a phone on its side, or the keyboard up there) the writing area starts at one line. */
