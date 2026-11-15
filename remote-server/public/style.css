@@ -2395,6 +2395,13 @@ pre {
   gap: 8px;
   margin-top: 8px;
 }
+.shots.wide img {
+  width: 100%;
+  max-width: 480px;
+  height: auto;
+  object-fit: contain;
+  background: var(--sk-surface-elevated);
+}
 .shots .file {
   border: 1px solid var(--sk-border);
   border-radius: 8px;

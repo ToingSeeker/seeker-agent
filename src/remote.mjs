@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { isSlashCommand, runPhoneCommand } from './commands.mjs';
 import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
-import { receivedImages } from './images.mjs';
+import { previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
@@ -28,6 +28,8 @@ const SNAPSHOT_EVERY = 400; // events between full snapshots, which let the rela
 const COMMAND_MAX_AGE = 5 * 60 * 1000;
 const NOTIFY_FINISHED_AFTER = 30_000; // a turn shorter than this ends without a notification
 const QUEUE_MAX = 20; // instructions that can wait in one project
+const PREVIEWS_KEPT = 6; // tool steps per workspace that keep their image previews in a snapshot
+const PREVIEWS_PER_STEP = 4;
 const INSTRUCTION_MAX = 20_000; // characters in one of them
 const PAUSED = {
   stopped: 'The queue is paused because the task was stopped.',
@@ -177,10 +179,15 @@ export class WebUI {
     if (this.tool) this.emit({ t: 'patch', id: this.tool.id, patch: { state: 'running' } });
   }
 
-  toolDone(note, display, maxLines = 4) {
+  /** `images` are pictures the tool returned (read_file on an image): the phone is sent a small preview of each. */
+  toolDone(note, display, maxLines = 4, images = []) {
     if (!this.tool) return;
     const output = String(display ?? '').split('\n').filter((l) => l.trim()).slice(0, Math.max(maxLines, 12)).map((l) => l.slice(0, 300));
-    this.#finish({ state: 'done', note: note ?? '', output });
+    const shown = (Array.isArray(images) ? images : []).slice(0, PREVIEWS_PER_STEP).map((image) => {
+      const preview = previewOf(image);
+      return { name: path.basename(String(image.name ?? 'image')), mime: preview?.mime ?? null, thumb: preview?.data ?? null };
+    });
+    this.#finish({ state: 'done', note: note ?? '', output, ...(shown.length ? { images: shown } : {}) });
   }
 
   toolFail(message) {
@@ -220,6 +227,19 @@ export class WebUI {
   }
   thinkChunk() {}
   thinkEnd() {}
+}
+
+/**
+ * Drops the previews of all but the last `keep` tool steps that carry images, so a snapshot of a long
+ * session stays small. The names stay; the phone shows those instead.
+ */
+export function keepRecentPreviews(items, keep = PREVIEWS_KEPT) {
+  let seen = 0;
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.kind !== 'tool' || !item.images?.some((image) => image.thumb)) continue;
+    if (++seen > keep) item.images = item.images.map(({ name }) => ({ name, mime: null, thumb: null }));
+  }
 }
 
 // ── One project folder with its own agent ───────────────────────────────────
@@ -266,6 +286,7 @@ export class Workspace {
         Object.assign(item, event.patch ?? {});
         if (event.append) item.text = (item.text ?? '') + event.append;
       }
+      if (event.patch?.images) keepRecentPreviews(this.items);
     } else if (event.t === 'activity') {
       this.activity = event.text;
       this.phase = event.phase ?? null;
@@ -509,6 +530,7 @@ class LinkedWorkspace {
       if (!item) return;
       Object.assign(item, event.patch ?? {});
       if (event.append) item.text = (item.text ?? '') + event.append;
+      if (event.patch?.images) keepRecentPreviews(this.items);
     }
   }
 

@@ -1168,6 +1168,15 @@ function entry(item) {
 /** Three dots that light up one after another while a tool runs. */
 const runningDots = () => h('span', { class: 'dots', 'aria-hidden': 'true' }, h('i', {}, '.'), h('i', {}, '.'), h('i', {}, '.'));
 
+/**
+ * The pictures of an entry: what the user sent, or what a tool step opened on the Mac. A preview is
+ * shown only as an image of a type the Mac recognised; anything else is just named.
+ */
+function pictures(images, size = '') {
+  const shots = (Array.isArray(images) ? images : []).map((i) => (i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name, title: i.name }) : h('span', { class: 'file' }, i.name)));
+  return shots.length ? h('div', { class: `shots${size ? ` ${size}` : ''}` }, shots) : null;
+}
+
 function entryOf(item) {
   // The time sits beside the entry's label, so what follows uses the full width of the screen.
   const time = h('time', { class: 'at' }, clock(item.at));
@@ -1180,13 +1189,11 @@ function entryOf(item) {
       'li',
       { class: `ev tool ${mark}` },
       h('span', { class: 'node', icon: mark === 'done' ? 'check' : mark === 'failed' ? 'cross' : 'play' }),
-      h('div', { class: 'body' }, hasMore ? expandable(item, head, item.diff && diffView(item.diff, item.summary), item.output?.length ? h('pre', { class: 'out' }, item.output.join('\n')) : null) : head),
+      h('div', { class: 'body' }, hasMore ? expandable(item, head, item.diff && diffView(item.diff, item.summary), item.output?.length ? h('pre', { class: 'out' }, item.output.join('\n')) : null) : head, pictures(item.images, 'wide')),
     );
   }
   if (item.kind === 'user') {
-    // A preview is shown only as an image of a type the Mac recognised; anything else is just named.
-    const shots = (item.images ?? []).map((i) => (i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name }) : h('span', { class: 'file' }, i.name)));
-    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), h('div', { class: 'said' }, item.text), shots.length ? h('div', { class: 'shots' }, shots) : null));
+    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), h('div', { class: 'said' }, item.text), pictures(item.images)));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
