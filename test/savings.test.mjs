@@ -227,3 +227,38 @@ test('a file dragged into the terminal is a message, not a /command, and the mod
   ollama.close();
   assert.equal(ollama.requests[0].messages.at(-1).content, `${typed(pdf)} summarise this\n\n[The file named above, as plain path to open: ${pdf}]`);
 });
+
+test('an edit is shown as numbered lines: what goes, what comes, and the lines around them', async () => {
+  const { hunkRows, lineDiff } = await import('../src/hunks.mjs');
+  const { TOOL_BY_NAME } = await import('../src/tools.mjs');
+  const show = (rows) => rows.map((r) => (r.gap ? '...' : `${r.n}${r.kind}${r.text}`));
+
+  assert.deepEqual(lineDiff(['a', 'b', 'c'], ['a', 'x', 'c']).map((s) => s.kind + s.text), [' a', '-b', '+x', ' c']);
+  assert.deepEqual(lineDiff([], ['a', 'b']).map((s) => s.kind + s.text), ['+a', '+b']);
+
+  const before = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+  const after = [...before];
+  after[9] = 'line ten';
+  after.splice(20, 1); // "line 21" goes
+  const { rows, added, removed, hidden } = hunkRows(before, after);
+  assert.deepEqual([added, removed, hidden], [1, 2, 0]);
+  assert.deepEqual(show(rows), ['7 line 7', '8 line 8', '9 line 9', '10-line 10', '10+line ten', '11 line 11', '12 line 12', '13 line 13', '...', '18 line 18', '19 line 19', '20 line 20', '21-line 21', '21 line 22', '22 line 23', '23 line 24']);
+  assert.equal(hunkRows(before, after, { first: 101 }).rows[0].n, 107, 'numbered from where the lines sit in the file');
+  const cut = hunkRows([], Array.from({ length: 100 }, (_, i) => `n${i}`), { limit: 40 });
+  assert.deepEqual([cut.rows.length, cut.hidden, cut.added], [40, 60, 100]);
+
+  // The edit tool: the change in place, with the file's own line numbers and three lines either side.
+  const dir = tmp();
+  fs.writeFileSync(path.join(dir, 'a.js'), before.join('\n'));
+  const edit = TOOL_BY_NAME.get('edit_file').preview({ path: 'a.js', old_string: 'line 15\nline 16', new_string: 'line 15\nline sixteen\nline 16b' }, { cwd: dir });
+  assert.deepEqual(show(edit.hunk.rows), ['13 line 13', '14 line 14', '15 line 15', '16-line 16', '16+line sixteen', '17+line 16b', '18 line 17', '19 line 18', '20 line 19']);
+  assert.deepEqual([edit.hunk.added, edit.hunk.removed, edit.line], [2, 1, 15]);
+  // A change inside a line shows the whole line, before and after.
+  const inside = TOOL_BY_NAME.get('edit_file').preview({ path: 'a.js', old_string: 'ne 2\n', new_string: 'ne two\n' }, { cwd: dir });
+  assert.deepEqual(show(inside.hunk.rows), ['1 line 1', '2-line 2', '2+line two', '3 line 3', '4 line 4', '5 line 5']);
+  // Writing over a file shows what really changes, not the whole new file.
+  const write = TOOL_BY_NAME.get('write_file').preview({ path: 'a.js', content: after.join('\n') }, { cwd: dir });
+  assert.deepEqual([write.hunk.added, write.hunk.removed, write.overwrites], [1, 2, 30]);
+  const fresh = TOOL_BY_NAME.get('write_file').preview({ path: 'new.js', content: 'one\ntwo' }, { cwd: dir });
+  assert.deepEqual(show(fresh.hunk.rows), ['1+one', '2+two']);
+});

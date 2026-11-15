@@ -74,6 +74,9 @@ export function sgr(hex, depth, background = false) {
   return String((background ? 40 : 30) + nearestBasic(hex));
 }
 
+// Backgrounds of changed lines in the terminal.
+const DIFF = { added: '#12351f', removed: '#40171b' };
+
 // With only sixteen colours, "nearest" would give purple and blue the same code; each meaning keeps its own.
 const SIXTEEN = { accent: '33', blue: '34', purple: '35', green: '32', red: '31', yellow: '93' };
 
@@ -95,6 +98,9 @@ export function terminalCodes(depth) {
     yellow: fg('yellow', 'warning'),
     red: fg('red', 'danger'),
     chip: depth >= 8 ? `${sgr(TOKENS.surfaceElevated, depth, true)};${accent}` : `7;${accent}`,
+    // A line an edit adds or removes: a quiet green or red behind the text. Sixteen colours have no quiet ones, so the text is coloured.
+    added: depth >= 8 ? sgr(DIFF.added, depth, true) : SIXTEEN.green,
+    removed: depth >= 8 ? sgr(DIFF.removed, depth, true) : SIXTEEN.red,
   };
 }
 
