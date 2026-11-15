@@ -117,6 +117,12 @@ Reading is free. Edits, shell commands and network access ask first; "always" an
 rules. A short list of harmless shell commands runs without asking, and commands matching the dangerous
 patterns are asked about even with `--yolo`.
 
+**Plan mode.** `/plan` (or `seeker --plan`) has SEEKER look first and answer with a plan: the steps, the files
+each touches, how the result will be checked. Reading, searching and the harmless shell commands still run;
+edits, other commands and saving memory are refused without asking you, also with `--yolo`. `/plan go`
+approves the plan and starts the work under your usual approval rules; `/plan off` leaves plan mode. The
+status bar shows `PLAN` while it is on. It works from the phone as well.
+
 ## Instructions, memory and skills
 
 - `SEEKER.md` in a project — project instructions; `/init` writes one. Without it: every `AGENTS.md` from the

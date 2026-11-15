@@ -39,6 +39,7 @@ Options:
   -c, --continue       continue the last conversation in this folder
   -p, --print          answer once, no interactive prompt
       --yolo           do not ask before editing files or running commands
+      --plan           start in plan mode: look and propose, change nothing until /plan go
       --ctx <tokens>   context window for Ollama models (default 32768)
       --no-think       turn thinking mode off
       --no-checkpoints do not snapshot files before changing them (no /rollback)
@@ -59,6 +60,7 @@ function parseArgs(argv) {
     else if (a === '-p' || a === '--print') opts.print = true;
     else if (a === '-c' || a === '--continue') opts.continue = true;
     else if (a === '--yolo') opts.yolo = true;
+    else if (a === '--plan') opts.plan = true;
     else if (a === '--no-think') opts.noThink = true;
     else if (a === '--no-checkpoints') opts.noCheckpoints = true;
     else if (a === '-m' || a === '--model') opts.model = value(i++, a);
@@ -432,6 +434,7 @@ export async function main(argv) {
   const mirror = port ? new Workspace(port, cwd, { id: terminalId(cwd), terminal: true }) : null;
   let phoneAsker = null;
   const permissions = new Permissions({ mode: config.permissionMode, cwd, ask: term ? eitherAsker(permissionAsker(ui, term), { port, term, ui, phone: (request) => phoneAsker?.(request) }) : null , autoLearn: config.autoLearn });
+  if (opts.plan) permissions.planning = true;
   const agent = new Agent({ config, ui: mirror ? teeUi(ui, mirror.ui) : ui, permissions, provider, info, cwd });
   const session = new Session(cwd);
   agent.session = session;
@@ -488,6 +491,7 @@ export async function main(argv) {
         provider: agent.provider,
         tokensPerSecond: agent.lastStats?.tokensPerSecond,
         yolo: permissions.mode === 'auto',
+        plan: permissions.planning,
       }),
   });
   ui.attach(screen);

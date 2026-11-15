@@ -5,6 +5,7 @@ import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
 import { decide, fallbackChain, reasonText } from './failover.mjs';
+import { PLAN_NOTE } from './permissions.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
@@ -876,6 +877,7 @@ export class Agent {
     }
     if (references && HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
     this.#attachImages(message, sent);
+    if (this.permissions?.planning && !this.review && !this.parent) message.content += `\n\n${PLAN_NOTE}`;
     if (!this.review && !this.parent) {
       const dragged = draggedFilesIn(userText, this.cwd);
       if (dragged.length) message.content += `\n\n[The file${dragged.length > 1 ? 's' : ''} named above, as plain path${dragged.length > 1 ? 's' : ''} to open: ${dragged.join(' · ')}]`;
@@ -938,6 +940,7 @@ export class Agent {
       ui.ensureNewline();
     }
     if (this.shellHooks && !this.review && !this.parent && !signal.aborted) this.shellHooks.run('post_llm_call', { extra: { response: this.messages.at(-1)?.content ?? '' } }).catch(() => {});
+    if (this.permissions?.planning && !this.review && !this.parent && !signal.aborted) ui.notice('  Plan mode: nothing was changed. /plan go carries the plan out · /plan off leaves plan mode.');
     // Not awaited: the user has their answer and can type; the review works behind it.
     if (!signal.aborted) this.reviewing = this.#reviewTurn().catch(() => {});
   }
