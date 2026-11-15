@@ -474,8 +474,15 @@ export class Agent {
     if (kind === 'start') {
       if (this.external.has(id)) return; // already on screen because approval was asked
       const about = describeExternal(name, input, this.cwd);
-      this.external.set(id, { about, row: null });
+      const entry = { about, row: null };
+      this.external.set(id, entry);
       ui.toolStart(about.verbs[0], about.verbs[1], about.summary);
+      // A change that needed no approval is still shown: what the file loses and gains, line by line.
+      if (about.diff) {
+        entry.row = ui.tool;
+        ui.diff(about.diff);
+        ui.toolRunning();
+      }
       return;
     }
     const entry = this.external.get(id);
