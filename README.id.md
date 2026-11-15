@@ -87,6 +87,10 @@ dengan konteks kecil), SEEKER diberi tahu letak file indeksnya dan mencarinya de
 
 ### Menekan biaya sesi panjang
 
+`/context` menunjukkan apa yang mengisi percakapan, bagian demi bagian (instruksi, definisi tool, pesanmu,
+jawaban, hasil tool, gambar) dan seberapa jauh lagi sebelum diringkas. `/usage` menunjukkan token yang
+terpakai: total, input baru dan dari cache, output, dan tujuh hari terakhir. Keduanya bisa dari HP.
+
 Setiap langkah mengirim seluruh percakapan ke model lagi, jadi sesi yang panjang dibayar berkali-kali. Saat
 percakapan mencapai 80% jendela konteks, atau 300.000 token kalau itu lebih dulu, percakapan diringkas; bagian
 terbaru dan permintaanmu disimpan kata demi kata. Ubah pengaturan ini dengan `/config <nama> <nilai>`:
