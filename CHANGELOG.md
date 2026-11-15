@@ -4,6 +4,8 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **`seeker -p … --output json`** (or `--json`) prints the answer, the steps, the token counts and whether
+  the run succeeded as one JSON object; `stream-json` prints an object per line as things happen.
 - **`/review`** reads a change from git — since the last commit, staged, one commit, or against a branch —
   and reports what is wrong with it. The turn can only look: edits and commands that change something are
   refused, also with `--yolo`.
