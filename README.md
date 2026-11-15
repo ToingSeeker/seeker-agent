@@ -159,6 +159,10 @@ Change these with `/config <name> <value>`:
 
 - `compactAt` (300000) — summarise at this many tokens even when the model's window is larger. `0` waits
   until the window is nearly full.
+- `effort` (empty) — how hard an Anthropic model works on a reply: `low`, `medium`, `high`, `xhigh` or `max`;
+  also `/effort <level>`. Lower is cheaper and faster. Empty keeps the model's own default. It is sent only
+  to models that have the setting, and a level a model does not offer becomes the nearest lower one.
+  Changing it makes the provider read the conversation without its cache once.
 - `subagentModel` (empty) — the model helper agents (the `task` tool) and the look back after a reply run
   on: a model of the provider in use (`claude-haiku-5-5`), or `provider:model`. Empty, or `same`: the model of
   the conversation.

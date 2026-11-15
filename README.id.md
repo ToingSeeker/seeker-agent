@@ -97,6 +97,10 @@ terbaru dan permintaanmu disimpan kata demi kata. Ubah pengaturan ini dengan `/c
 
 - `compactAt` (300000) — ringkas pada jumlah token ini walau jendela modelnya lebih besar. `0` menunggu sampai
   jendela hampir penuh.
+- `effort` (kosong) — seberapa keras model Anthropic mengerjakan satu jawaban: `low`, `medium`, `high`, `xhigh`,
+  atau `max`; bisa juga lewat `/effort <level>`. Lebih rendah berarti lebih murah dan lebih cepat. Kosong berarti
+  bawaan modelnya. Hanya dikirim ke model yang punya pengaturan ini, dan level yang tidak ditawarkan model
+  diturunkan ke level terdekat di bawahnya. Mengubahnya membuat penyedia membaca percakapan tanpa cache satu kali.
 - `subagentModel` (kosong) — model untuk agen pembantu (tool `task`) dan tinjauan setelah menjawab: model dari
   penyedia yang sedang dipakai (`claude-haiku-5-5`), atau `penyedia:model`. Kosong, atau `same`: model
   percakapan.
