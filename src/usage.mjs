@@ -13,7 +13,12 @@ import { HOME_DIR } from './config.mjs';
 
 export const USAGE_FILE = path.join(HOME_DIR, 'usage.json');
 const KEEP_DAYS = 400; // days listed one by one; older ones stay in the total
-const blank = () => ({ input: 0, cached: 0, output: 0, replies: 0 });
+// input   everything sent to the model, whatever it was billed as
+// cached  the part of input the provider read from its cache
+// written the part of input the provider wrote to its cache (billed above plain input, where it is reported)
+// known   the part of input that came from replies whose provider reports cache figures at all:
+//         a share of cached input is only meaningful against this, not against all input
+const blank = () => ({ input: 0, cached: 0, output: 0, replies: 0, written: 0, known: 0 });
 const whole = (n) => (Number.isFinite(n) && n > 0 ? Math.round(n) : 0);
 
 /** The local calendar day, as 2026-11-15: "today" is the user's day, not UTC's. */
@@ -23,7 +28,11 @@ export function dayOf(at = Date.now()) {
 }
 
 function clean(counts) {
-  return { input: whole(counts?.input), cached: whole(counts?.cached), output: whole(counts?.output), replies: whole(counts?.replies) };
+  const input = whole(counts?.input);
+  const cached = Math.min(whole(counts?.cached), input);
+  // A ledger written before `known` existed: where cache reads were counted, the provider reported them.
+  const known = counts?.known === undefined ? (cached > 0 ? input : 0) : Math.min(whole(counts.known), input);
+  return { input, cached, output: whole(counts?.output), replies: whole(counts?.replies), written: Math.min(whole(counts?.written), input - cached), known: Math.max(known, cached) };
 }
 
 /** The ledger as it is on disk. A missing or damaged file reads as "nothing counted yet". */
@@ -43,8 +52,11 @@ export function readUsage(file = USAGE_FILE) {
  * from the provider's cache, where the provider says); `output` is what it wrote.
  * Counting must never break a turn: a ledger that cannot be written is skipped.
  */
-export function recordUsage({ input = 0, cached = 0, output = 0 } = {}, { file = USAGE_FILE, now = Date.now() } = {}) {
+export function recordUsage({ input = 0, cached, written = 0, output = 0 } = {}, { file = USAGE_FILE, now = Date.now() } = {}) {
   const add = { input: whole(input), cached: Math.min(whole(cached), whole(input)), output: whole(output) };
+  add.written = Math.min(whole(written), add.input - add.cached);
+  // A provider that says nothing about its cache has not said "nothing was cached".
+  add.known = cached === undefined ? 0 : add.input;
   if (!add.input && !add.output) return false;
   try {
     // Read just before writing: another SEEKER (a terminal beside the phone's) may have added to it.
@@ -54,6 +66,8 @@ export function recordUsage({ input = 0, cached = 0, output = 0 } = {}, { file =
     for (const counts of [day, ledger.total]) {
       counts.input += add.input;
       counts.cached += add.cached;
+      counts.written += add.written;
+      counts.known += add.known;
       counts.output += add.output;
       counts.replies += 1;
     }
@@ -69,7 +83,11 @@ export function recordUsage({ input = 0, cached = 0, output = 0 } = {}, { file =
   }
 }
 
-/** What the phone is shown: today, the last seven days (today first), and everything since counting began. */
+/**
+ * What the phone is shown: today, the last seven days (today first), everything since counting
+ * began, and every day that has a record (`days`, oldest first). Days are this machine's calendar
+ * days; `sinceDay` is the day counting began, so the phone never has to convert a time zone.
+ */
 export function usageSummary({ file = USAGE_FILE, now = Date.now() } = {}) {
   const ledger = readUsage(file);
   const week = [];
@@ -78,5 +96,6 @@ export function usageSummary({ file = USAGE_FILE, now = Date.now() } = {}) {
     const day = dayOf(new Date(at.getFullYear(), at.getMonth(), at.getDate() - back).getTime());
     week.push({ day, ...(ledger.days[day] ?? blank()) });
   }
-  return { since: ledger.since, today: week[0], week, total: ledger.total };
+  const days = Object.keys(ledger.days).sort().map((day) => ({ day, ...ledger.days[day] }));
+  return { since: ledger.since, sinceDay: ledger.since ? dayOf(ledger.since) : null, today: week[0], week, total: ledger.total, days };
 }
