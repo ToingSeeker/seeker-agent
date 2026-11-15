@@ -560,7 +560,10 @@ Perintah milikmu sendiri yang berjalan di titik-titik tertentu dan bisa membatal
 { "hooks": { "pre_tool_call": [{ "matcher": "bash|write_file", "command": "~/bin/guard.sh", "timeout": 60 }] } }
 ```
 
-Event: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`.
+Event: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`,
+dan enam yang hanya memberi tahu hook apa yang terjadi: `on_approval_request` (SEEKER menunggu jawabanmu; tempat
+untuk bunyi atau notifikasi), `pre_compact` dan `post_compact` (percakapan diringkas), `subagent_start` dan
+`subagent_stop` (pembantu, beserta laporannya), dan `on_error` (sebuah giliran gagal).
 Hook menerima satu baris JSON di stdin (`hook_event_name`, `tool_name`, `tool_input`, `cwd`, …). Hook
 `pre_tool_call` boleh mencetak `{"action":"block","message":"…"}` (atau keluar dengan kode 2) untuk menghentikan
 panggilan, atau `{"action":"modify","args":{…}}` untuk mengubah argumennya; hook `pre_llm_call` boleh memblokir pesan

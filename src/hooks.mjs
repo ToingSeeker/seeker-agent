@@ -8,14 +8,24 @@
 // A hook gets one line of JSON on stdin and may print one JSON object:
 //   pre_tool_call  {"action":"block","message":"…"}  or  {"action":"modify","args":{…}}   (exit code 2 also blocks)
 //   pre_llm_call   {"action":"block","message":"…"}  or  {"context":"text added to the message"}
-// Other events are observe-only. A hook runs only after the user has approved that exact command.
+// Other events are observe-only: what a hook prints is ignored, and it cannot stop anything (EVENTS, below,
+// says what each is told). A hook runs only after the user has approved that exact command.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { HOME_DIR } from './config.mjs';
 
-export const EVENTS = ['pre_tool_call', 'post_tool_call', 'pre_llm_call', 'post_llm_call', 'on_session_start', 'on_session_end'];
+export const EVENTS = [
+  'pre_tool_call', 'post_tool_call', 'pre_llm_call', 'post_llm_call', 'on_session_start', 'on_session_end',
+  // Observe-only, like every event that does not start with pre_:
+  'on_approval_request', // SEEKER is waiting for the user's answer        extra: { summary, warning }   tool_name set
+  'pre_compact', //         the conversation is about to be summarised     extra: { tokens, mid_task }
+  'post_compact', //        it has been summarised                         extra: { tokens }
+  'subagent_start', //      a helper is starting                           extra: { agent, description }
+  'subagent_stop', //       a helper has finished                          extra: { agent, description, status, report }
+  'on_error', //            a turn ended with an error                     extra: { message }
+];
 const DEFAULT_TIMEOUT_S = 60;
 const MAX_TIMEOUT_S = 300;
 const ALLOWLIST = () => path.join(HOME_DIR, 'hooks-allowlist.json');

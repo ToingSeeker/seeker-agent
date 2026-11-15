@@ -585,6 +585,8 @@ export async function main(argv) {
   if (Object.keys(config.hooks ?? {}).length) {
     const { Hooks } = await import('./hooks.mjs');
     agent.shellHooks = new Hooks({ config, cwd, sessionId: session.file, warn: (text) => ui.warn(`  ⚠ ${text}`) });
+    // When SEEKER stops to ask, a hook of the user's may want to say so (a sound, a notification).
+    permissions.onAsk = (tool, args, warning) => agent.shellHooks.run('on_approval_request', { toolName: tool.name, extra: { summary: String(TOOL_BY_NAME.get(tool.name)?.summary?.(args) ?? args?.command ?? args?.url ?? '').slice(0, 500), warning: warning ?? null } }).catch(() => {});
     const waiting = agent.shellHooks.unapproved.length;
     if (waiting) ui.notice(`  ${waiting} shell hook${waiting > 1 ? 's are' : ' is'} configured but not approved yet, so ${waiting > 1 ? 'they do' : 'it does'} not run. Review with /hooks.`);
     agent.shellHooks.run('on_session_start').catch(() => {});
