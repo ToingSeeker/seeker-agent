@@ -113,6 +113,11 @@ export function bashPrefix(command) {
   return words[1] && /^[a-z][\w:-]*$/i.test(words[1]) ? `${words[0]} ${words[1]}` : words[0];
 }
 
+export const PLANNING = 'Not run: plan mode is on, so nothing is changed or executed yet. Finish looking with the read-only tools, then give the plan and stop. The user approves it before any change.';
+
+/** What the model is told with each message while plan mode is on. */
+export const PLAN_NOTE = '[Plan mode is on. Look at what you need with the read-only tools, then answer with a plan: the steps in order, the files each one touches, and how the result will be checked. Do not change files or run commands that change anything; those are refused until the user approves the plan.]';
+
 export class Permissions {
   /**
    * @param {{ mode: 'ask'|'auto', cwd: string, ask: null | ((q: object) => Promise<string|null>) }} opts
@@ -125,6 +130,9 @@ export class Permissions {
     this.cwd = cwd;
     this.ask = ask;
     this.allowWrites = false;
+    // Plan mode: SEEKER looks and proposes, and nothing is changed or run until the plan is approved.
+    // It sits beside `mode`, which is how approvals work once the plan is being carried out.
+    this.planning = false;
     this.bashPrefixes = new Set();
     this.hosts = new Set();
     this.toolNames = new Set();
@@ -151,6 +159,13 @@ export class Permissions {
   /** @returns {Promise<{ ok: true } | { ok: false, reason: string }>} */
   async check(tool, args) {
     if (tool.risk === 'read') return { ok: true };
+    if (this.planning) {
+      // Looking around is part of planning: the short list of commands that only read still runs.
+      // A page to read is asked about as usual. Anything that changes something waits for the plan.
+      const looks = tool.risk === 'exec' && !isDangerous(String(args.command ?? '')) && parse(String(args.command ?? ''))?.every((words) => isSafeCommand(words));
+      if (!looks && tool.risk !== 'net') return { ok: false, reason: PLANNING };
+      if (looks) return { ok: true };
+    }
 
     let always = null; // { label, apply } offered as the "always" answer
     let warning = null;

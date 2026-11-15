@@ -2224,6 +2224,8 @@ function slashCommands() {
     { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => $('stop').click() },
     { name: '/image', about: 'attach a photo or screenshot', off: false, run: () => $('file').click() },
     { name: '/yolo', about: terminal ? 'changed in the terminal for this session' : 'run edits and commands without asking (on/off)', off: busy || terminal, run: run('/yolo') },
+    { name: '/plan', about: 'plan first, change nothing (on/off)', off: busy, run: run('/plan') },
+    { name: '/plan go', about: 'carry out the plan it proposed', off: busy, run: run('/plan go') },
     { name: '/status', about: 'model, context and approval mode', off: busy, run: run('/status') },
     { name: '/skills', about: 'list skills; run one with /<name>', off: busy, run: run('/skills') },
     { name: '/compact', about: 'summarise to free up context', off: busy, run: run('/compact') },

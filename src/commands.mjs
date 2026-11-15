@@ -32,6 +32,7 @@ export const COMMANDS = [
   ['/status', 'Show model and context usage'],
   ['/think', 'Toggle thinking mode'],
   ['/yolo', 'Toggle running edits and commands without asking'],
+  ['/plan', 'Plan first: SEEKER looks and proposes, changes nothing (/plan go carries it out · /plan off)'],
   ['/help', 'Show this help'],
   ['/exit', 'Quit'],
 ];
@@ -284,6 +285,20 @@ export async function runCommand(input, ctx) {
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
       return;
+
+    case 'plan': {
+      const word = (rest[0] ?? '').toLowerCase();
+      if (['go', 'run', 'approve', 'yes'].includes(word)) {
+        if (!permissions.planning) return ui.notice('  Plan mode is off. /plan turns it on.');
+        permissions.planning = false;
+        ui.notice('  Plan approved: SEEKER carries it out now, asking as usual.');
+        return { prompt: 'The plan is approved. Carry it out now.' };
+      }
+      permissions.planning = word === 'off' ? false : word === 'on' ? true : !permissions.planning;
+      ui.notice(permissions.planning ? '  Plan mode on: SEEKER looks and proposes; nothing is changed or run. /plan go carries the plan out, /plan off leaves.' : '  Plan mode off.');
+      ui.screen?.render();
+      return;
+    }
 
     case 'yolo':
       permissions.mode = permissions.mode === 'auto' ? 'ask' : 'auto';
@@ -554,6 +569,7 @@ export const isSlashCommand = (text) => /^\/[^\s/]+(\s|$)/.test(text);
 
 export const PHONE_COMMANDS = [
   ['/yolo', 'Toggle running edits and commands without asking'],
+  ['/plan', 'Plan first, change nothing: /plan · /plan go carries it out · /plan off'],
   ['/status', 'Show model, context and approval mode'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/think', 'Toggle thinking mode'],
@@ -567,7 +583,7 @@ export const PHONE_COMMANDS = [
   ['/help', 'Show the commands that work from the phone'],
 ];
 
-const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat']);
+const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan']);
 const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
 const PHONE_ELSEWHERE = {
   model: 'Type /model on its own: the app opens its model list.',
@@ -576,7 +592,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).
