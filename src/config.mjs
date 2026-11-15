@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 // Under `node --test` with no SEEKER_HOME given, a scratch folder stands in: a test run must
 // never read or write the user's real settings, memory, skills or checkpoints.
 export const HOME_DIR =
