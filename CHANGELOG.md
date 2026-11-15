@@ -4,6 +4,8 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Six more hook events**, all observe-only: `on_approval_request`, `pre_compact`, `post_compact`,
+  `subagent_start`, `subagent_stop`, `on_error`.
 - **`seeker -p … --output json`** (or `--json`) prints the answer, the steps, the token counts and whether
   the run succeeded as one JSON object; `stream-json` prints an object per line as things happen.
 - **`/review`** reads a change from git — since the last commit, staged, one commit, or against a branch —
