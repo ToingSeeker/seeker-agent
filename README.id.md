@@ -333,6 +333,25 @@ langkah tool. Gambar lewat relay dalam keadaan terenkripsi, di samping log event
 dan disimpan di sana sepuluh menit. File di atas 2 MB dikirim sebagai JPEG yang lebih kecil di macOS,
 dan ditolak di sistem lain.
 
+### Video dan file utuh lainnya
+
+Tombol yang sama juga bisa melampirkan video, dan `/file` mengirim file apa pun apa adanya. Video atau
+file tidak ditunjukkan ke model: file dikirim utuh dalam potongan terenkripsi 2 MB, lalu disimpan di Mac
+di `~/Downloads/SEEKER/` (tidak pernah menimpa file yang sudah ada). Pesannya baru diteruskan ke agen
+setelah file tiba, lengkap dengan lokasi simpannya, jadi agen bisa langsung mengerjakannya. Biarkan
+aplikasi HP tetap terbuka selama upload; bar di bawah kotak pesan menunjukkan progresnya. Maksimal empat
+file per pesan, masing-masing paling besar 300 MB.
+
+Kalau jawaban agen menyebut file yang ada di Mac (video, audio, gambar, PDF, zip atau `.srt`, ditulis
+sebagai path, `~/…` atau relatif terhadap proyek), HP menampilkannya di bawah jawaban itu dengan tombol
+download. Ketuk untuk mengambil filenya per potongan; video bisa diputar langsung, dan **Save** membuka
+share sheet, tempat "Simpan Video" dan "Simpan ke File". Sama seperti gambar, HP hanya menyebut
+jawabannya, tidak pernah path. Tiap potongan dienkripsi bersama identitas file dan urutannya, jadi relay
+tidak bisa menukar atau mengacak urutannya, dan potongan langsung dihapus dari relay begitu sisi lain
+mengambilnya. Relay menampung paling banyak 40 MB per arah sekaligus dan menyuruh pengirim menunggu kalau
+lebih. Mac menghentikan transfer kalau tidak ada yang bergerak selama dua menit. Relay yang sudah ada
+perlu di-deploy ulang untuk fitur ini.
+
 ## Pasang
 
 Butuh Node ≥ 22 dan Ollama dengan model yang mendukung tool calling.
@@ -584,6 +603,7 @@ rantainya.
 | `src/ui.mjs`, `src/markdown.mjs` | tampilan: header, panel, pohon langkah tool, status bar |
 | `src/theme.mjs` | satu palet untuk terminal dan aplikasi HP (amber merek, biru tool bekerja, ungu berpikir, hijau selesai, merah gagal); ditulis sebagai warna 24-bit, 256 atau 16 sesuai terminal, tanpa warna jika `NO_COLOR` diisi |
 | `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau dan gambar utuh untuk HP |
+| `src/transfer.mjs` | file utuh antara HP dan Mac: potongan terenkripsi lewat relay, folder kiriman, dan file yang ditawarkan jawaban untuk didownload |
 | `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
 | `src/screen.mjs` | tata letak layar penuh: header menempel di atas, kotak input di bawah, percakapan di tengah (baris lama masuk scrollback terminal) |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |

@@ -11,8 +11,14 @@
 //   phone  →  POST /api/command      one encrypted command for the Mac
 //   Mac    →  POST /agent/blob       one large encrypted file the phone asked for
 //   phone  ←  GET  /api/blob?id=     that file, for a few minutes
+//   phone  →  POST /api/chunk        one encrypted piece of a file for the Mac (a video, say)
+//   Mac    ←  GET  /agent/chunk?id=&n=   that piece, taken once; waits a while for it to come
+//   Mac    →  POST /agent/chunk      one encrypted piece of a file for the phone
+//   phone  ←  GET  /api/chunk?id=&n=     that piece, taken once
 //
 // Files go beside the log, not into it: one picture would push hundreds of events out.
+// A large file goes through in pieces, each gone as soon as the other side has it; while
+// too much waits in one direction the sender is told to wait (507), so memory stays bounded.
 // Nothing is stored on disk; after a restart the Mac sends a fresh snapshot.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -31,6 +37,10 @@ const MAX_TRACKED = 10_000; // addresses remembered for the lockout
 const BLOB_TTL_MS = 10 * 60 * 1000;
 const MAX_BLOB_BYTES = 24 * 1024 * 1024; // all files held at once
 const BLOB_ID = /^[A-Za-z0-9_-]{8,64}$/;
+const CHUNK_TTL_MS = 10 * 60 * 1000;
+const MAX_CHUNK_BYTES = 40 * 1024 * 1024; // pieces held at once, per direction
+const CHUNK_WAIT_MS = 25_000; // how long a request for a piece not yet here is held open
+const MAX_CHUNKS = 100_000; // pieces in one file
 const OVERFLOW = '(everyone else)';
 
 const sha256 = (text) => crypto.createHash('sha256').update(text).digest();
@@ -62,6 +72,60 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
       blobs.delete(key);
     }
   }
+
+  // Pieces of files on their way: 'up' from the phone to the Mac, 'down' the other way.
+  const pieces = { up: { held: new Map(), bytes: 0, waiting: new Map() }, down: { held: new Map(), bytes: 0, waiting: new Map() } };
+
+  function dropOld(box) {
+    for (const [key, piece] of box.held) {
+      if (Date.now() - piece.at < CHUNK_TTL_MS) continue;
+      box.bytes -= piece.c.length;
+      box.held.delete(key);
+    }
+  }
+
+  /** False when too much is waiting already: the sender tries again once some of it has been taken. */
+  function putPiece(box, key, c) {
+    dropOld(box);
+    const old = box.held.get(key);
+    if (box.bytes - (old?.c.length ?? 0) + c.length > MAX_CHUNK_BYTES) return false;
+    if (old) box.bytes -= old.c.length;
+    box.held.set(key, { c, at: Date.now() });
+    box.bytes += c.length;
+    box.waiting.get(key)?.();
+    return true;
+  }
+
+  function takePiece(box, key) {
+    const piece = box.held.get(key);
+    if (!piece) return null;
+    box.held.delete(key);
+    box.bytes -= piece.c.length;
+    return piece.c;
+  }
+
+  /** Answers with the piece once it is here, or 204 after a while so the caller asks again. */
+  function waitForPiece(box, key, req, res) {
+    const c = takePiece(box, key);
+    if (c) return json(res, 200, { c });
+    if (box.waiting.has(key)) return json(res, 409, { error: 'already waiting for that piece' });
+    const finish = (status) => {
+      clearTimeout(timer);
+      box.waiting.delete(key);
+      if (status === 200) json(res, 200, { c: takePiece(box, key) });
+      else if (!res.writableEnded) res.writeHead(204, { 'cache-control': 'no-store' }).end();
+    };
+    const timer = setTimeout(() => finish(204), CHUNK_WAIT_MS);
+    box.waiting.set(key, () => finish(200));
+    req.on('close', () => {
+      if (box.waiting.get(key) && !res.writableEnded) {
+        clearTimeout(timer);
+        box.waiting.delete(key);
+      }
+    });
+  }
+
+  const pieceKey = (id, n) => (typeof id === 'string' && BLOB_ID.test(id) && Number.isInteger(n) && n >= 0 && n < MAX_CHUNKS ? `${id}:${n}` : null);
 
   // x-forwarded-for is whatever the caller sent unless a proxy in front rewrites it, so it is believed
   // only when told such a proxy exists (`trustProxy`). Railway's does: the first address is the caller.
@@ -153,7 +217,7 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
     res.writeHead(200, {
       'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream',
       'cache-control': 'no-cache',
-      'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
       'strict-transport-security': 'max-age=31536000',
@@ -205,6 +269,19 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
         if (typeof body.id !== 'string' || !BLOB_ID.test(body.id) || typeof body.c !== 'string') return json(res, 400, { error: 'bad blob' });
         keepBlob(body.id, body.c);
         return json(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' && (pathname === '/api/chunk' || pathname === '/agent/chunk')) {
+        const body = await readBody(req);
+        const key = pieceKey(body.id, body.n);
+        if (!key || typeof body.c !== 'string') return json(res, 400, { error: 'bad piece' });
+        const box = pathname === '/api/chunk' ? pieces.up : pieces.down;
+        if (!putPiece(box, key, body.c)) return json(res, 507, { error: 'busy', busy: true });
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && (pathname === '/api/chunk' || pathname === '/agent/chunk')) {
+        const key = pieceKey(searchParams.get('id'), Number(searchParams.get('n')));
+        if (!key) return json(res, 400, { error: 'bad piece' });
+        return waitForPiece(pathname === '/agent/chunk' ? pieces.up : pieces.down, key, req, res);
       }
       if (req.method === 'GET' && pathname === '/agent/stream') {
         agent?.end(); // a newer connection from the Mac replaces the old one
