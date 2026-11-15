@@ -51,6 +51,10 @@ menjalankannya, Esc menutup daftar. Mengetik mempersempit daftar (`/rev` juga me
 untuk baris baru; saat daftar tertutup, ↑↓ menelusuri pesan sebelumnya.
 Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya.
 
+`seeker doctor` memeriksa apa yang dibutuhkan SEEKER di mesin ini — Node, git, paket yang terpasang, siapa yang
+bisa membaca file pengaturan, apakah penyedia yang dipilih menjawab atau punya key, relay, dan daemon remote —
+lalu menyebutkan cara memperbaiki yang kurang. Tidak mengubah apa pun dan tidak mencetak key.
+
 ## Model dan penyedia
 
 `/model` memilih tempat model dijalankan, lalu salah satu model yang didaftar penyedia itu saat itu juga:
