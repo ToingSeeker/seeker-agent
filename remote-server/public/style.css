@@ -2769,6 +2769,91 @@ pre {
   font-size: 12px;
 }
 
+/* ── whole files: a video waiting to go, one going up, one an answer offers ── */
+.file-chip .chip-body,
+.download {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: 8px;
+  background: var(--sk-surface-elevated);
+  color: var(--sk-text-primary);
+}
+.file-chip .chip-body {
+  max-width: 240px;
+}
+.chip-icon {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.chip-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.chip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.downloads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.download {
+  width: 100%;
+  max-width: 480px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.download .chip-name {
+  flex: 1;
+}
+.download:active {
+  background: var(--sk-surface-hover);
+}
+.upload {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: 8px;
+  background: var(--sk-surface-elevated);
+}
+.upload-line {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+.upload-line .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--sk-border-subtle);
+  overflow: hidden;
+}
+.upload-bar i {
+  display: block;
+  height: 100%;
+  background: var(--sk-primary);
+  transition: width var(--sk-motion-fast);
+}
+
 /* ── bottom navigation ── */
 #nav {
   display: grid;

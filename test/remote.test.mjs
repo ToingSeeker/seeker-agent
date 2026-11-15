@@ -15,6 +15,7 @@ import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
 import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
 import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
+import { CHUNK_BYTES, sealChunk, unsealChunk } from '../src/transfer.mjs';
 import { USAGE_FILE } from '../src/usage.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
@@ -524,6 +525,132 @@ test('remote control: pictures sent from the phone reach the model, and what is 
   relay.closeAllConnections();
   model.close();
   model.closeAllConnections();
+});
+
+test('remote control: a video sent from the phone arrives whole on the Mac, and a file an answer names can be downloaded', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const inbox = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-inbox-'));
+  const secret = 'test-secret-that-is-long-enough-123456';
+  const { key } = deriveKeys(secret);
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  // The result the agent "renders": a little over one piece, so it goes down in two.
+  const result = crypto.randomBytes(CHUNK_BYTES + 1234);
+  fs.writeFileSync(path.join(cwd, 'out.mp4'), result);
+  const asked = [];
+  const model = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk)).on('end', () => {
+      if (req.url === '/api/chat') asked.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(JSON.stringify(done('Done: `out.mp4`, and `missing.mp4` is not there. Notes in /etc/hosts.')));
+    });
+  });
+  const host = await listen(model);
+  const config = { ...DEFAULTS, host, bundledSkills: false, remote: { url, secret } };
+  const build = async (folder, ui, asker) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info: { tools: true, thinking: false, context: null }, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false, inbox });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  await until(() => me.state.online && me.state.workspaces.size === 1);
+  const [ws] = [...me.state.workspaces.values()];
+
+  // ── up: the message announces the file, then the pieces follow ──
+  const video = crypto.randomBytes(2 * CHUNK_BYTES + 77);
+  const id = 'upload-video-1';
+  const chunks = Math.ceil(video.length / CHUNK_BYTES);
+  await me.send('message', { ws: ws.id, text: 'add effects to this', files: [{ id, name: '../../my clip.mp4', bytes: video.length }] });
+  for (let n = 0; n < chunks; n++) {
+    const c = sealChunk(key, id, n, video.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
+    const res = await fetch(`${url}/api/chunk`, { method: 'POST', headers: me.headers, body: JSON.stringify({ id, n, c }) });
+    assert.equal(res.status, 200);
+  }
+  await until(() => asked.length === 1);
+  const saved = path.join(inbox, 'my clip.mp4');
+  assert.ok(fs.readFileSync(saved).equals(video), 'the file arrives whole, under its own name, in the inbox and nowhere else');
+  assert.match(asked[0].messages.at(-1).content, new RegExp(`^add effects to this\\n\\n\\[Sent from the phone, saved on this Mac:\\]\\n- ${saved.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`), 'the agent is told where it is');
+  assert.deepEqual(fs.readdirSync(inbox), ['my clip.mp4'], 'no piece of it is left behind');
+
+  // ── down: the answer named a file that exists; only that one is offered ──
+  const answer = await until(() => me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'assistant' && i.files));
+  assert.deepEqual(answer.files.map(({ name, mime, bytes }) => [name, mime, bytes]), [['out.mp4', 'video/mp4', result.length]]);
+  await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+  await me.send('download', { ws: ws.id, item: answer.id, index: 0, req: 'want-video-1' });
+  const offer = await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-1'));
+  assert.deepEqual([offer.error, offer.name, offer.bytes, offer.chunks], [undefined, 'out.mp4', result.length, 2]);
+  const got = [];
+  for (let n = 0; n < offer.chunks; ) {
+    const res = await fetch(`${url}/api/chunk?id=want-video-1&n=${n}`, { headers: me.headers });
+    if (res.status === 204) continue;
+    assert.equal(res.status, 200);
+    got.push(unsealChunk(key, 'want-video-1', n, (await res.json()).c));
+    n += 1;
+  }
+  assert.ok(Buffer.concat(got).equals(result), 'the phone gets the file itself');
+  assert.throws(() => unsealChunk(key, 'want-video-1', 1, sealChunk(key, 'want-video-1', 0, Buffer.from('x'))), 'a piece cannot be passed off as another');
+
+  // The phone names an answer and a place in its list, never a path.
+  await me.send('download', { ws: ws.id, item: answer.id, index: 5, req: 'want-video-2' });
+  assert.match((await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-2'))).error, /no longer be downloaded/);
+  const userItem = me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'user');
+  await me.send('download', { ws: ws.id, item: userItem.id, index: 0, req: 'want-video-3', file: '/etc/hosts' });
+  assert.match((await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-3'))).error, /no longer be downloaded/);
+
+  // A file the phone stops sending is dropped, and the agent never hears of it.
+  await me.send('message', { ws: ws.id, text: 'too big', files: [{ id: 'x', name: 'a.mp4', bytes: 10 }] });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /a\.mp4 could not be sent/.test(r.text)));
+  await me.send('message', { ws: ws.id, text: 'too big', files: [{ id: 'upload-huge-1', name: 'a.mp4', bytes: 600 * 1024 * 1024 }] });
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /a\.mp4 is .* at most/.test(r.text)));
+  assert.equal(asked.length, 1);
+
+  me.close();
+  await daemon.stop();
+  await running;
+  relay.close();
+  relay.closeAllConnections();
+  model.close();
+  model.closeAllConnections();
+});
+
+test('relay: file pieces are taken once, a request waits for a piece still on its way, and the store refuses more than it may hold', async (t) => {
+  const secret = 'test-secret-that-is-long-enough-123456';
+  const { token } = deriveKeys(secret);
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  t.after(() => (relay.close(), relay.closeAllConnections()));
+  const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+  const put = (side, body) => fetch(`${url}/${side}/chunk`, { method: 'POST', headers, body: JSON.stringify(body) });
+  const take = (side, id, n) => fetch(`${url}/${side}/chunk?id=${id}&n=${n}`, { headers });
+
+  assert.equal((await put('api', { id: 'piece-test-1', n: 0, c: 'abc' })).status, 200);
+  // A piece sent up waits for the Mac: asking for it from the phone's side finds nothing (the request is just held).
+  await assert.rejects(fetch(`${url}/api/chunk?id=piece-test-1&n=0`, { headers, signal: AbortSignal.timeout(300) }), /abort|timeout/i);
+  const first = await take('agent', 'piece-test-1', 0);
+  assert.deepEqual([first.status, (await first.json()).c], [200, 'abc']);
+
+  // Asked for before it arrives: the request is held and answered when it comes.
+  const waiting = take('agent', 'piece-test-1', 1);
+  await new Promise((r) => setTimeout(r, 100));
+  await put('api', { id: 'piece-test-1', n: 1, c: 'def' });
+  const second = await waiting;
+  assert.deepEqual([second.status, (await second.json()).c], [200, 'def']);
+
+  assert.equal((await put('api', { id: '../x', n: 0, c: 'abc' })).status, 400);
+  assert.equal((await put('api', { id: 'piece-test-1', n: -1, c: 'abc' })).status, 400);
+  assert.equal((await fetch(`${url}/agent/chunk?id=piece-test-1&n=0`)).status, 401, 'only with the token');
+
+  // 40 MB may wait in one direction; past that the sender is told to wait (and the other direction is not affected).
+  const big = 'a'.repeat(3_500_000);
+  let n = 0;
+  while ((await put('agent', { id: 'piece-test-2', n, c: big })).status === 200) n += 1;
+  assert.equal(n, 11);
+  assert.equal((await put('agent', { id: 'piece-test-2', n, c: big })).status, 507);
+  assert.equal((await put('api', { id: 'piece-test-3', n: 0, c: big })).status, 200);
+  assert.equal((await take('api', 'piece-test-2', 0)).status, 200);
+  assert.equal((await put('agent', { id: 'piece-test-2', n, c: big })).status, 200, 'room again once the phone has taken a piece');
 });
 
 test('remote control: a picture the agent opens with read_file is previewed on the phone, and old previews leave the snapshot', async () => {

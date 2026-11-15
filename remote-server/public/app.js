@@ -57,6 +57,8 @@ const ICONS = {
   wifi: svg('<path d="M3 9a14 14 0 0118 0M6 12.5a9.5 9.5 0 0112 0M9 16a5 5 0 016 0"/><circle cx="12" cy="19" r="0.6"/>'),
   pulse: svg('<path d="M3 12h4l2-6 4 12 2-6h6"/>'),
   list: svg('<path d="M8 7h12M8 12h12M8 17h12"/><circle cx="4" cy="7" r="0.6"/><circle cx="4" cy="12" r="0.6"/><circle cx="4" cy="17" r="0.6"/>'),
+  download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  film: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M10 9.5v5l4-2.5z"/>'),
   image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
@@ -184,6 +186,30 @@ async function seal(value) {
   return toBase64(out);
 }
 
+// A piece of a file: sealed on its own, with the file's id and the piece's number bound in, so the
+// relay cannot swap or reorder pieces unnoticed (src/transfer.mjs does the same on the Mac).
+const CHUNK_BYTES = 2 * 1024 * 1024; // must match src/transfer.mjs
+const MAX_FILE_BYTES = 300 * 1024 * 1024;
+const chunkLabel = (id, n) => enc.encode(`seeker-chunk-v1:${id}:${n}`);
+
+async function sealChunk(id, n, bytes) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const body = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: chunkLabel(id, n) }, state.key, bytes));
+  const out = new Uint8Array(12 + body.length);
+  out.set(iv);
+  out.set(body, 12);
+  return toBase64(out);
+}
+
+async function unsealChunk(id, n, text) {
+  const raw = fromBase64(text);
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.subarray(0, 12), additionalData: chunkLabel(id, n) }, state.key, raw.subarray(12)));
+}
+
+const fileSize = (bytes) => (bytes >= 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1000))} KB`);
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const transferId = () => crypto.randomUUID().replace(/-/g, '');
+
 // ── talking to the relay ───────────────────────────────────────────────────
 /** Sends one encrypted command to the Mac. Resolves true once the relay has taken it. */
 async function command(type, fields = {}, { id = crypto.randomUUID(), quiet = false } = {}) {
@@ -296,6 +322,9 @@ function apply(event) {
       break;
     case 'file':
       pictureArrived(event);
+      break;
+    case 'download':
+      downloadArrived(event);
       break;
     case 'toast':
       state.opening = 0;
@@ -1141,11 +1170,11 @@ function home(model) {
   return [header(), h('div', { class: 'tabs', role: 'tablist' }, tab('control', 'CONTROL CENTER'), tab('projects', 'PROJECTS')), state.homeTab === 'projects' ? workspaceExplorer(model) : controlCenter(model)];
 }
 
-function sendText(wsId, text, images = []) {
+function sendText(wsId, text, images = [], files = []) {
   // What was just sent is what the reader wants to follow: back to the bottom, so the reply stays in view.
   const view = $('view');
   view.scrollTop = view.scrollHeight;
-  return command('message', images.length ? { ws: wsId, text, images } : { ws: wsId, text });
+  return command('message', { ws: wsId, text, ...(images.length ? { images } : {}), ...(files.length ? { files: files.map(({ id, name, bytes }) => ({ id, name, bytes })) } : {}) });
 }
 
 // ── images ─────────────────────────────────────────────────────────────────
@@ -1154,7 +1183,8 @@ function sendText(wsId, text, images = []) {
 const MAX_ATTACHMENTS = 4;
 const IMAGE_CHARS = 500_000; // base64 characters per picture, about 375 KB
 const KEEP_AS_IS = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
-let attachments = []; // { name, data, thumb } waiting to go with the next message
+let attachments = []; // waiting to go with the next message: a picture { name, data, thumb }, or a file { kind: 'file', file, name, bytes }
+let uploading = null; // { name, n, chunks, index, count } while a file goes up to the Mac
 
 const readDataUrl = (blob) =>
   new Promise((resolve, reject) => {
@@ -1200,13 +1230,27 @@ async function prepare(file) {
   return { name: file.name || 'image', data, thumb: shrink(img, 240, 0.6) };
 }
 
-async function addImages(files) {
+/**
+ * A picture goes to the model to look at; anything else (a video, or anything chosen with /file)
+ * is sent whole and saved on the Mac, where the agent can work on it.
+ */
+async function addImages(files, { whole = false } = {}) {
   const ws = state.workspaces.get(state.view.ws);
-  if (ws && ws.meta.vision === false) return toast(`${ws.meta.model} cannot see images. Change the model first.`);
   for (const file of files) {
     if (attachments.length >= MAX_ATTACHMENTS) {
-      toast(`At most ${MAX_ATTACHMENTS} images per message.`);
+      toast(`At most ${MAX_ATTACHMENTS} attachments per message.`);
       break;
+    }
+    if (whole || !file.type.startsWith('image/')) {
+      if (!file.size) toast(`${file.name || 'That file'} is empty.`);
+      else if (file.size > MAX_FILE_BYTES) toast(`${file.name || 'That file'} is ${fileSize(file.size)}; at most ${fileSize(MAX_FILE_BYTES)} can be sent.`);
+      else attachments.push({ kind: 'file', file, name: file.name || 'file', bytes: file.size, video: file.type.startsWith('video/') });
+      showAttachments();
+      continue;
+    }
+    if (ws && ws.meta.vision === false) {
+      toast(`${ws.meta.model} cannot see images. Change the model, or send it as a file with /file.`);
+      continue;
     }
     try {
       attachments.push(await prepare(file));
@@ -1217,16 +1261,59 @@ async function addImages(files) {
   }
 }
 
+/** Sends the pieces of files a message announced. The Mac takes each as it comes. */
+async function uploadFiles(files) {
+  try {
+    for (const [index, f] of files.entries()) {
+      const chunks = Math.ceil(f.bytes / CHUNK_BYTES);
+      let last = Date.now();
+      for (let n = 0; n < chunks; ) {
+        uploading = { name: f.name, n, chunks, index, count: files.length };
+        showAttachments();
+        if (Date.now() - last > 120_000) throw new Error('the relay stopped taking it');
+        const bytes = new Uint8Array(await f.file.slice(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES).arrayBuffer());
+        const c = await sealChunk(f.id, n, bytes);
+        const res = await fetch('/api/chunk', { method: 'POST', headers: { authorization: `Bearer ${state.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ id: f.id, n, c }) }).catch(() => null);
+        if (res?.ok) {
+          n += 1;
+          last = Date.now();
+        } else await pause(res?.status === 507 ? 500 : 1500); // 507: the Mac has not taken the earlier pieces yet
+      }
+    }
+    return true;
+  } catch (err) {
+    toast(`The upload stopped: ${err.message}.`);
+    return false;
+  } finally {
+    uploading = null;
+    showAttachments();
+  }
+}
+
 function showAttachments() {
   composerState();
   const strip = $('attachments');
+  if (uploading) {
+    const { name, n, chunks, index, count } = uploading;
+    const done = Math.round((n / chunks) * 100);
+    strip.hidden = false;
+    return strip.replaceChildren(
+      h(
+        'div',
+        { class: 'upload', role: 'status' },
+        h('div', { class: 'upload-line' }, h('span', { class: 'grow mono' }, `${count > 1 ? `${index + 1}/${count} · ` : ''}${name}`), h('span', { class: 'muted' }, `${done}%`)),
+        h('div', { class: 'upload-bar' }, h('i', { style: `width:${done}%` })),
+        h('div', { class: 'muted small' }, 'Sending to your Mac. Keep this page open until it is done.'),
+      ),
+    );
+  }
   strip.hidden = attachments.length === 0;
   strip.replaceChildren(
     ...attachments.map((a) =>
       h(
         'div',
-        { class: 'shot' },
-        h('img', { src: `data:image/jpeg;base64,${a.thumb}`, alt: a.name }),
+        { class: `shot${a.kind === 'file' ? ' file-chip' : ''}` },
+        a.kind === 'file' ? h('span', { class: 'chip-body' }, h('span', { class: 'chip-icon', icon: a.video ? 'film' : 'file' }), h('span', { class: 'chip-name mono' }, a.name), h('span', { class: 'muted small' }, fileSize(a.bytes))) : h('img', { src: `data:image/jpeg;base64,${a.thumb}`, alt: a.name }),
         h('button', { type: 'button', 'aria-label': `Remove ${a.name}`, onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments()) }, '×'),
       ),
     ),
@@ -1338,26 +1425,113 @@ async function pictureArrived(event) {
 function showPicture(file, { smaller }) {
   if (pictureUrl) URL.revokeObjectURL(pictureUrl);
   pictureUrl = URL.createObjectURL(file);
-  const save = async () => {
-    // On a phone the share sheet is where "Save Image" lives; elsewhere it is an ordinary download.
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        return await navigator.share({ files: [file] });
-      } catch (err) {
-        if (err.name === 'AbortError') return;
-      }
-    }
-    const a = h('a', { href: pictureUrl, download: file.name });
-    document.body.append(a);
-    a.click();
-    a.remove();
-  };
-  const size = file.size >= 1_000_000 ? `${(file.size / 1_000_000).toFixed(1)} MB` : `${Math.max(1, Math.round(file.size / 1000))} KB`;
+  const url = pictureUrl;
+  const save = () => saveFile(file, url);
+  const size = fileSize(file.size);
   sheet(
     file.name,
     h('img', { class: 'viewer', src: pictureUrl, alt: file.name }),
     h('div', { class: 'muted viewer-note' }, smaller ? `${size} · a smaller copy; the file on the Mac was too large to send whole` : size),
     h('div', { class: 'actions even' }, h('button', { type: 'button', class: 'btn', onclick: () => window.open(pictureUrl, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save')),
+  );
+}
+
+// ── a whole file from the Mac (a rendered video, say) ─────────────────────
+// An answer that names a file on the Mac offers it; the Mac sends it through the relay in pieces.
+const downloads = new Map(); // req → { name, timer }
+const SHOWABLE = /^(video\/(mp4|quicktime|webm)|audio\/(mpeg|mp4|wav)|image\/(png|jpeg|gif|webp)|application\/(pdf|zip)|text\/plain)$/;
+
+function offered(files, from) {
+  if (!Array.isArray(files) || !files.length) return null;
+  return h(
+    'div',
+    { class: 'downloads' },
+    files.map((f, index) =>
+      h(
+        'button',
+        { type: 'button', class: 'download', 'aria-label': `Download ${f.name}`, onclick: () => startDownload(from.ws, from.item, index, f.name) },
+        h('span', { class: 'chip-icon', icon: String(f.mime).startsWith('video/') ? 'film' : 'file' }),
+        h('span', { class: 'chip-name mono' }, f.name),
+        h('span', { class: 'muted small' }, Number.isFinite(f.bytes) ? fileSize(f.bytes) : ''),
+        h('span', { class: 'chip-icon accent', icon: 'download' }),
+      ),
+    ),
+  );
+}
+
+function startDownload(ws, item, index, name) {
+  const req = transferId();
+  for (const [key, wait] of downloads) clearTimeout(wait.timer), downloads.delete(key);
+  const timer = setTimeout(() => downloads.delete(req) && (closeSheet(), toast('Your Mac did not send the file. Try again.')), 60_000);
+  downloads.set(req, { name, timer });
+  sheet(name, h('div', { class: 'viewer-wait muted', id: 'download-progress', role: 'status' }, 'Asking your Mac for the file…'));
+  command('download', { ws, item, index, req }).then((sent) => sent || (clearTimeout(timer), downloads.delete(req), closeSheet()));
+}
+
+async function downloadArrived(event) {
+  const wait = downloads.get(event.req);
+  if (!wait) return; // asked for by another phone, or replayed from the log
+  clearTimeout(wait.timer);
+  if (event.error) return downloads.delete(event.req), closeSheet(), toast(event.error);
+  const progress = $('download-progress');
+  try {
+    if (!SHOWABLE.test(String(event.mime))) throw new Error('that kind of file cannot be saved here');
+    if (!Number.isInteger(event.chunks) || event.chunks < 1 || event.bytes > MAX_FILE_BYTES) throw new Error('the file is too large');
+    const parts = [];
+    let got = 0;
+    let last = Date.now();
+    for (let n = 0; n < event.chunks; ) {
+      // The sheet was closed: the download is given up (the Mac stops by itself after a while).
+      if (!progress?.isConnected) return downloads.delete(event.req), toast('Download cancelled.');
+      if (Date.now() - last > 120_000) throw new Error('your Mac stopped sending it');
+      const res = await fetch(`/api/chunk?id=${event.req}&n=${n}`, { headers: { authorization: `Bearer ${state.token}` } }).catch(() => null);
+      if (res?.status === 204) continue;
+      if (!res?.ok) {
+        await pause(1500);
+        continue;
+      }
+      const bytes = await unsealChunk(event.req, n, (await res.json()).c);
+      parts.push(bytes);
+      got += bytes.length;
+      last = Date.now();
+      n += 1;
+      progress.textContent = `Downloading… ${Math.round((got / event.bytes) * 100)}% (${fileSize(got)} of ${fileSize(event.bytes)})`;
+    }
+    if (got !== event.bytes) throw new Error('it did not arrive whole');
+    downloads.delete(event.req);
+    showDownloaded(new File(parts, event.name, { type: event.mime }));
+  } catch (err) {
+    downloads.delete(event.req);
+    closeSheet();
+    toast(`Could not download ${wait.name}: ${err.message}.`);
+  }
+}
+
+/** On a phone the share sheet is where "Save Video" and "Save to Files" live; elsewhere it is an ordinary download. */
+async function saveFile(file, url) {
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      return await navigator.share({ files: [file] });
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+    }
+  }
+  const a = h('a', { href: url, download: file.name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+function showDownloaded(file) {
+  if (pictureUrl) URL.revokeObjectURL(pictureUrl);
+  pictureUrl = URL.createObjectURL(file);
+  const url = pictureUrl;
+  const preview = file.type.startsWith('video/') ? h('video', { class: 'viewer', src: url, controls: true, playsinline: true, preload: 'metadata' }) : file.type.startsWith('image/') ? h('img', { class: 'viewer', src: url, alt: file.name }) : file.type.startsWith('audio/') ? h('audio', { src: url, controls: true }) : null;
+  sheet(
+    file.name,
+    preview,
+    h('div', { class: 'muted viewer-note' }, fileSize(file.size)),
+    h('div', { class: 'actions even' }, h('button', { type: 'button', class: 'btn', onclick: () => window.open(url, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: () => saveFile(file, url) }, 'Save')),
   );
 }
 
@@ -1381,7 +1555,7 @@ function entryOf(item) {
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
-    return h('li', { class: 'ev assistant' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'SEEKER'), time), h('div', { class: 'prose' }, prose(item.text))));
+    return h('li', { class: 'ev assistant' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'SEEKER'), time), h('div', { class: 'prose' }, prose(item.text)), offered(item.files, { ws: state.view.ws, item: item.id })));
   }
   return h('li', { class: `ev notice ${item.level}` }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'sub' }, item.text, ' ', time)));
 }
@@ -2222,7 +2396,8 @@ function slashCommands() {
     { name: '/model', about: 'switch the model', off: busy || terminal, run: chooseModel },
     { name: '/new', about: 'start a new conversation', off: busy || terminal, run: () => newConversation(ws.meta) },
     { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => $('stop').click() },
-    { name: '/image', about: 'attach a photo or screenshot', off: false, run: () => $('file').click() },
+    { name: '/image', about: 'attach a photo, screenshot or video', off: false, run: () => $('file').click() },
+    { name: '/file', about: 'send any file whole, saved on the Mac', off: false, run: () => $('anyfile').click() },
     { name: '/yolo', about: terminal ? 'changed in the terminal for this session' : 'run edits and commands without asking (on/off)', off: busy || terminal, run: run('/yolo') },
     { name: '/plan', about: 'plan first, change nothing (on/off)', off: busy, run: run('/plan') },
     { name: '/plan go', about: 'carry out the plan it proposed', off: busy, run: run('/plan go') },
@@ -2285,18 +2460,22 @@ $('form').addEventListener('submit', async (e) => {
   const ws = state.workspaces.get(state.view.ws);
   // Sent while the agent works: it is asked whether this goes into the running task or waits for it to end.
   if (ws && agentState(ws.meta).busy && !ws.meta.terminal) {
-    if (attachments.length) return toast('Pictures cannot wait in the queue yet. Send them when the task has ended.');
+    if (attachments.length) return toast('Pictures and files cannot wait in the queue yet. Send them when the task has ended.');
     return chooseMode(ws, text);
   }
   // A message with pictures takes a moment to upload; a second tap must not send it twice.
   sending = true;
   draw();
   try {
-    if (await sendText(state.view.ws, text, attachments)) {
+    const pictures = attachments.filter((a) => a.kind !== 'file');
+    const files = attachments.filter((a) => a.kind === 'file').map((f) => ({ ...f, id: transferId() }));
+    if (await sendText(state.view.ws, text, pictures, files)) {
       input.value = '';
       grow();
       attachments = [];
       showAttachments();
+      // The message went first; the Mac waits for the files it announced, then hands both to the agent.
+      if (files.length) await uploadFiles(files);
     }
   } finally {
     sending = false;
@@ -2315,6 +2494,11 @@ $('file').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = ''; // so the same picture can be chosen again
   await addImages(files);
+});
+$('anyfile').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  await addImages(files, { whole: true });
 });
 // A picture pasted into the text box is attached too.
 input.addEventListener('paste', (e) => {
