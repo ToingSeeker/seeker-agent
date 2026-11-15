@@ -60,7 +60,7 @@ test('the folder is snapshotted before the first change of a message, and /rollb
   assert.match(taken[0].reason, /^before write_file: app\.js/);
 
   said.length = 0;
-  await runCommand('/rollback 1', { agent, ui, term: null, config: agent.config, permissions: agent.permissions, session: null, hub: null });
+  await runCommand('/rollback 1 --files', { agent, ui, term: null, config: agent.config, permissions: agent.permissions, session: null, hub: null });
   assert.equal(fs.readFileSync(path.join(cwd, 'app.js'), 'utf8'), 'original\n');
   assert.equal(fs.existsSync(path.join(cwd, 'extra.txt')), false);
   assert.ok(said.some((line) => /Restored the folder to checkpoint/.test(line)));
@@ -247,4 +247,47 @@ test('a helper never gets a tool its parent was denied', async () => {
   const offered = ollama.requests[1].tools.map((t) => t.function.name);
   for (const name of ['bash', 'write_file', 'task', 'memory', 'skill_manage', 'cronjob_manage']) assert.ok(!offered.includes(name), name);
   assert.ok(offered.includes('read_file'));
+});
+
+test('/rollback takes the conversation back to before the message that made the change, and undoing it gives both back', async () => {
+  const cwd = project();
+  fs.writeFileSync(path.join(cwd, 'app.js'), 'original\n');
+  const ollama = await fakeOllama([
+    [done('Hello.')],
+    [call('write_file', { path: 'app.js', content: 'rewritten\n' }), { done: true }],
+    [done('Rewritten.')],
+    [done('It says rewritten.')],
+  ]);
+  const agent = makeAgent(ollama.host, cwd);
+  await agent.runTurn('hi');
+  await agent.runTurn('rewrite app.js');
+  await agent.runTurn('what does it say now?');
+  ollama.close();
+  assert.deepEqual(agent.messages.map((m) => m.role), ['user', 'assistant', 'user', 'assistant', 'tool', 'assistant', 'user', 'assistant']);
+  const [taken] = await list(cwd);
+  assert.equal(agent.messages[2].checkpoint, taken.id, 'the message that led to the change remembers its snapshot');
+  assert.equal(agent.messages[0].checkpoint, undefined);
+
+  const ctx = { agent, ui, term: null, config: agent.config, permissions: agent.permissions, session: null, hub: null };
+  said.length = 0;
+  await runCommand('/rollback 1', ctx);
+  assert.equal(fs.readFileSync(path.join(cwd, 'app.js'), 'utf8'), 'original\n');
+  assert.deepEqual(agent.messages.map((m) => m.content), ['hi', 'Hello.'], 'the request, its change and everything after are gone from the conversation');
+  assert.ok(said.some((line) => /The conversation went back too, to before "rewrite app\.js" \(6 messages\)/.test(line)));
+
+  // The rollback is itself a checkpoint: going back to it restores the files and the conversation.
+  said.length = 0;
+  await runCommand('/rollback 1', ctx);
+  assert.equal(fs.readFileSync(path.join(cwd, 'app.js'), 'utf8'), 'rewritten\n');
+  assert.equal(agent.messages.length, 8);
+  assert.equal(agent.messages.at(-1).content, 'It says rewritten.');
+  assert.ok(said.some((line) => /The conversation is back as well \(6 messages\)/.test(line)));
+
+  // One file from a checkpoint leaves the conversation alone and tells the model.
+  const before = agent.messages.length;
+  const older = (await list(cwd)).findIndex((c) => c.id === taken.id) + 1;
+  await runCommand(`/rollback ${older} app.js`, ctx);
+  assert.equal(fs.readFileSync(path.join(cwd, 'app.js'), 'utf8'), 'original\n');
+  assert.equal(agent.messages.length, before + 2);
+  assert.match(agent.messages.at(-2).content, /rolled the file app\.js back/);
 });
