@@ -1758,7 +1758,7 @@ function draw() {
     queuePanel(ws, up);
     composerState();
     $('tokens').textContent = `${kilo(ws.meta.used)} / ${sizeOf(ws.meta.limit)}`;
-    $('input').placeholder = !up ? 'Not connected…' : st.busy ? (ws.meta.terminal ? 'Working… a picture can still be sent' : ws.meta.can?.queue ? 'Next instruction…' : 'Seeker is working…') : ws.meta.terminal ? 'Message, or just a picture…' : 'Message or /command…';
+    $('input').placeholder = !up ? 'Not connected…' : st.busy ? (ws.meta.terminal ? 'Working… a picture can still be sent' : ws.meta.can?.queue ? 'Write the next instruction…' : 'Seeker is working…') : ws.meta.terminal ? 'Message, or just a picture…' : 'Message or command…';
     // Said aloud once per change, for a reader who cannot see the banner turn colour.
     const say = `${ws.meta.name}: ${st.label.toLowerCase()}`;
     if (say !== announced) $('announce').textContent = announced = say;
@@ -1797,10 +1797,12 @@ function runStatus(ws, st) {
   if (el.dataset.key !== key) {
     el.dataset.key = key;
     el.className = `run-status ${stopping ? 'muted' : st.tone}`;
+    // One line: what it is doing, the step it is on, and for how long. The header already carries the state word.
     el.replaceChildren(
       h('span', { class: 'ico', icon: st.key === 'thinking' ? 'brain' : waiting ? 'shield' : 'bolt' }),
-      h('span', { class: 'grow' }, h('b', {}, stopping ? 'Stopping' : RUN_TITLE[st.key], !waiting && runningDots()), h('span', { class: 'sub line' }, stopping ? 'Waiting for your Mac to confirm' : meta.activity || '')),
-      h('span', { class: 'side' }, h('span', { class: `state-chip ${stopping ? 'muted' : st.tone} busy` }, h('i'), stopping ? 'STOPPING' : waiting ? 'WAITING' : 'RUNNING'), h('time', { class: 'elapsed mono' })),
+      h('b', {}, stopping ? 'Stopping' : RUN_TITLE[st.key], !waiting && runningDots()),
+      h('span', { class: 'sub line' }, stopping ? 'Waiting for your Mac to confirm' : meta.activity || ''),
+      h('time', { class: 'elapsed mono', 'aria-label': 'Time since the task started' }),
     );
   }
   el.hidden = false;
@@ -1991,7 +1993,7 @@ let sending = false;
 const grow = () => {
   input.style.height = 'auto';
   // An empty box is one line; measuring it would count a placeholder that wraps.
-  input.style.height = input.value ? `${Math.min(input.scrollHeight, 140)}px` : '';
+  input.style.height = input.value ? `${Math.min(input.scrollHeight, 176)}px` : '';
 };
 
 /**

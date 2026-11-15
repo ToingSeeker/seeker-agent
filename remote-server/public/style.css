@@ -1949,47 +1949,33 @@ pre {
 }
 
 /* What the agent is doing, above the message box. */
+/* What the agent is doing, in one line above the message box: no card, no second state badge. */
 .run-status {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--sk-border);
-  border-radius: var(--sk-radius-md);
-  background: var(--sk-surface);
+  gap: 8px;
+  min-height: 30px;
+  margin: -2px 2px 6px;
+  font-size: 13.5px;
 }
 .run-status .ico {
-  width: 30px;
-  height: 30px;
+  width: 18px;
+  height: 18px;
   flex: none;
-  padding: 6px;
-  border-radius: 50%;
-  background: var(--sk-surface-elevated);
-}
-.run-status .grow {
-  display: grid;
-  min-width: 0;
 }
 .run-status b {
-  font-size: 14.5px;
+  flex: none;
+  font-weight: 600;
 }
 .run-status .sub {
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
-  color: var(--sk-text-secondary);
-}
-.run-status .side {
-  display: grid;
-  justify-items: end;
-  gap: 3px;
-  flex: none;
-}
-.run-status .state-chip {
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
+  color: var(--sk-text-muted);
 }
 .run-status .elapsed {
-  font-size: 12px;
+  flex: none;
+  font-size: 12.5px;
   color: var(--sk-text-secondary);
 }
 .run-status.reasoning .ico,
@@ -2004,6 +1990,7 @@ pre {
 .run-status.primary b {
   color: var(--sk-primary);
 }
+.run-status.muted .ico,
 .run-status.muted b {
   color: var(--sk-text-secondary);
 }
@@ -2183,57 +2170,90 @@ pre {
   border-top: 1px solid var(--sk-border-subtle);
 }
 
+/* The message box, on two levels: a writing area with a row of its own, and under it the tools
+   on the left with Stop and Send on the right. One surface; nothing else is boxed. */
 .composer-box {
   display: flex;
-  align-items: flex-end;
-  gap: 2px;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
-  padding: 4px 6px 4px 4px;
-  border: 1.5px solid var(--sk-border-strong);
-  border-radius: var(--sk-radius-lg);
-  background: var(--sk-surface-elevated);
-  transition: border-color var(--sk-motion-fast), box-shadow var(--sk-motion-fast);
-}
-.composer-box:focus-within {
-  border-color: var(--sk-primary);
-  box-shadow: 0 0 0 3px var(--sk-primary-soft);
+  padding: 8px;
+  border: 1px solid var(--sk-border);
+  border-radius: 18px;
+  background: var(--sk-surface);
 }
 .composer-box textarea {
-  flex: 1;
-  min-width: 0;
-  max-height: 140px;
-  padding: 11px 6px;
-  background: none;
-  border: 0;
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 176px;
+  padding: 12px 14px;
+  border: 1px solid var(--sk-border);
+  border-radius: 13px;
+  background: var(--sk-surface-elevated);
   outline: 0;
   resize: none;
+  overflow-y: auto;
   font-size: 16px; /* below 16px iOS zooms the page on focus */
-  line-height: 1.4;
+  line-height: 1.45;
+  transition: border-color var(--sk-motion-fast);
+}
+.composer-box textarea:focus {
+  border-color: color-mix(in srgb, var(--sk-primary) 55%, var(--sk-border));
 }
 .composer-box textarea::placeholder {
   color: var(--sk-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.composer-bar .grow {
+  flex: 1;
+  min-width: 4px;
 }
 .tool-btn {
-  width: 36px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   flex: none;
-  padding: 12px 8px;
+  padding: 10px;
+  border-radius: 10px;
   color: var(--sk-text-secondary);
 }
-/* Stop sits beside Send and never over it; both are a full touch target. */
-.stop-btn {
-  width: 44px;
-  height: 44px;
-  margin-right: 6px;
+.tool-btn:active {
+  background: var(--sk-surface-hover);
+}
+/* Stop: a short pill with a small red square. It never takes Send's place; each has its own touch area. */
+.stop-btn,
+.send {
+  position: relative;
   flex: none;
-  padding: 11px;
-  border: 1px solid var(--sk-danger);
-  border-radius: 10px;
-  background: var(--sk-danger-soft);
+  height: 40px;
+}
+.stop-btn::after,
+.send::after,
+.tool-btn::after {
+  content: '';
+  position: absolute;
+  inset: -2px 0;
+}
+.tool-btn {
+  position: relative;
+}
+.stop-btn {
+  width: 50px;
+  margin-right: 4px;
+  padding: 8px 13px;
+  border: 1px solid color-mix(in srgb, var(--sk-danger) 75%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sk-danger) 6%, transparent);
   color: var(--sk-danger);
+  transition: background var(--sk-motion-fast), border-color var(--sk-motion-fast);
+}
+.stop-btn:active {
+  background: color-mix(in srgb, var(--sk-danger) 16%, transparent);
 }
 .stop-btn:disabled {
   opacity: 0.45;
@@ -2242,15 +2262,40 @@ pre {
   animation: pulse 1s ease-in-out infinite;
 }
 .send {
-  width: 44px;
-  height: 44px;
+  width: 52px;
   margin: 0;
-  flex: none;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--sk-primary);
   color: var(--sk-on-primary);
-  padding: 9px 11px;
+  padding: 8px 15px;
   transition: opacity var(--sk-motion-fast);
+}
+/* With little height (a phone on its side, or the keyboard up there) the writing area starts at one line. */
+@media (max-height: 480px) {
+  .composer-box textarea {
+    min-height: 46px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .composer-box {
+    padding: 6px;
+    gap: 4px;
+  }
+  #composer .composer-foot {
+    display: none;
+  }
+  .run-status {
+    min-height: 24px;
+    margin-bottom: 4px;
+  }
+  #composer {
+    padding-top: 4px;
+    padding-bottom: calc(4px + var(--safe-b));
+  }
+  #view.screen-session {
+    padding-top: 6px;
+    padding-bottom: 12px;
+  }
 }
 /* Over a long conversation: back to the projects in the top-left corner, once the top bar has
    scrolled away, and down to the newest message above the message box. Each shows only when it helps. */
