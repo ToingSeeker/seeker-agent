@@ -263,10 +263,8 @@ code {
   width: 44px;
   height: 44px;
   flex: none;
-  padding: 10px;
-  border: 1px solid var(--sk-border);
+  padding: 9px;
   border-radius: var(--sk-radius-md);
-  background: var(--sk-surface);
   color: var(--sk-primary);
   transition: background var(--sk-motion-fast);
 }
@@ -275,8 +273,8 @@ code {
 }
 .switch-btn .count {
   position: absolute;
-  top: -7px;
-  right: -7px;
+  top: -3px;
+  right: -3px;
   box-sizing: border-box;
   min-width: 21px;
   height: 21px;
