@@ -1188,6 +1188,75 @@ button.stat:active {
 .ck-row:has(input:checked) .name {
   color: var(--sk-primary);
 }
+.ck-row.one {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.ck-row.one + .ck-row.one {
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.st-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.st-row[hidden] {
+  display: none;
+}
+.st-row + .st-row {
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.st-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.st-head .name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sk-text-primary);
+}
+.st-value {
+  font-size: 13px;
+  color: var(--sk-primary);
+}
+.st-row .sub {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--sk-text-secondary);
+}
+.st-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.st-options button {
+  min-height: 34px;
+  border: 1px solid var(--sk-border);
+  border-radius: 9px;
+  background: var(--sk-surface);
+  padding: 0 12px;
+  font: 600 13px/1 var(--mono);
+  color: var(--sk-text-secondary);
+}
+.st-options button:disabled {
+  opacity: 1;
+}
+.st-options button.on {
+  border-color: var(--sk-primary);
+  background: var(--sk-primary-soft);
+  color: var(--sk-primary);
+}
+.st-row .st-type {
+  align-self: flex-start;
+  width: auto;
+}
 /* The button stays in reach however long the list is. */
 .ck-foot {
   position: sticky;
