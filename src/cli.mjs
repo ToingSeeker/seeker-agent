@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { Agent } from './agent.mjs';
 import { isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
 import { Picker } from './picker.mjs';
+import { OUTPUT_FORMATS, attachJson } from './json-output.mjs';
 import { RemoteDaemon, Workspace, remoteCredentials, stayAwake } from './remote.mjs';
 import { saveImages, startsWithFile } from './images.mjs';
 import { TerminalLink, teeUi, terminalId } from './link.mjs';
@@ -39,6 +40,8 @@ Options:
   -m, --model <name>   model to use on that provider
   -c, --continue       continue the last conversation in this folder
   -p, --print          answer once, no interactive prompt
+      --output <fmt>   with -p: text (default), json (one object at the end), stream-json (one per line);
+                       --json is short for --output json
       --yolo           do not ask before editing files or running commands
       --plan           start in plan mode: look and propose, change nothing until /plan go
       --ctx <tokens>   context window for Ollama models (default 32768)
@@ -59,6 +62,8 @@ function parseArgs(argv) {
     if (a === '-h' || a === '--help') opts.help = true;
     else if (a === '-v' || a === '--version') opts.version = true;
     else if (a === '-p' || a === '--print') opts.print = true;
+    else if (a === '--json') opts.output = 'json';
+    else if (a === '--output') opts.output = value(i++, a);
     else if (a === '-c' || a === '--continue') opts.continue = true;
     else if (a === '--yolo') opts.yolo = true;
     else if (a === '--plan') opts.plan = true;
@@ -167,6 +172,10 @@ export async function main(argv) {
     process.exit(2);
   }
   if (opts.help) return console.log(USAGE);
+  if (opts.output !== undefined) {
+    if (!OUTPUT_FORMATS.includes(opts.output)) throw new Error(`--output is one of: ${OUTPUT_FORMATS.join(', ')}`);
+    if (opts.output !== 'text') opts.print = true; // JSON is for a script: there is nobody to type
+  }
   if (opts.version) return console.log(VERSION);
 
   const config = loadConfig();
@@ -472,6 +481,8 @@ export async function main(argv) {
   }
 
   if (print) {
+    // For a script: the answer and what was done as JSON on stdout, the readable activity still on stderr.
+    const finish = opts.output && opts.output !== 'text' ? attachJson(ui, { stream: opts.output === 'stream-json', meta: { model: agent.model, provider: agent.provider.id, cwd } }) : null;
     if (!agent.caps.tools) ui.warn(`⚠ ${config.model} cannot call tools.`);
     process.on('SIGINT', () => {
       agent.interrupt();
@@ -482,6 +493,7 @@ export async function main(argv) {
       for (const s of hub.status()) if (s.status === 'failed') ui.warn(`MCP · ${s.name} could not start: ${s.error}`);
     }
     await agent.runTurn(prompt, { references: true });
+    if (finish && !finish(agent).ok && !process.exitCode) process.exitCode = 1;
     session.save(agent.messages, agent.model);
     stopAllProcesses();
     await hub.closeAll();
