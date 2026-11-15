@@ -713,7 +713,7 @@ export async function main(argv) {
         let result;
         try {
           // agent.ui reaches both screens, so the phone sees what the command printed.
-          result = await runPhoneCommand(input.text, { agent, ui: agent.ui, term: null, config, permissions, session, hub, autonomy: getAutonomy, terminal: true });
+          result = await runPhoneCommand(input.text, { agent, ui: agent.ui, term: null, config, permissions, session, hub, autonomy: getAutonomy, terminal: true, choose: (list) => mirror.ui.choose(list) });
         } catch (err) {
           agent.ui.warn(`  ${err.message}`);
           continue;

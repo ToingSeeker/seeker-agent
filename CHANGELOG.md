@@ -13,6 +13,7 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 - **A skill with a list to choose from offers it to tick.** `/effects` with nothing after it shows its
   effects as a list: tick with Space in the terminal (Ctrl+A for all, type to filter), or in a sheet on the
   phone. What is ticked becomes the skill's arguments.
+  It also works when files are sent along with the command, and in a terminal session shown on the phone.
 
 ## 0.4.0 — 2026-11-16
 

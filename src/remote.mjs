@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isSlashCommand, runPhoneCommand } from './commands.mjs';
+import { PHONE_FILES, isSlashCommand, runPhoneCommand } from './commands.mjs';
 import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
 import { fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
@@ -209,8 +209,8 @@ export class WebUI {
   }
 
   /** A list for the phone to offer as boxes to tick; what is ticked comes back as a message. */
-  choose({ skill, title, items }) {
-    this.emit({ t: 'choose', skill, title, items: items.map(({ value, description }) => ({ value, description })) });
+  choose({ skill, title, items, attachment }) {
+    this.emit({ t: 'choose', skill, title, items: items.map(({ value, description }) => ({ value, description })), ...(attachment ? { attachment } : {}) });
   }
 
   warn(text) {
@@ -1061,7 +1061,7 @@ export class RemoteDaemon {
     }
     if (!this.running || !this.workspaces.has(workspace.id)) return;
     const list = saved.map((f) => `- ${f.path} (${kilobytes(f.bytes)})`).join('\n');
-    const text = `${said || `Here ${saved.length > 1 ? 'are the files' : 'is a file'} I sent from my phone.`}\n\n[Sent from the phone, saved on this Mac:]\n${list}`;
+    const text = `${said || `Here ${saved.length > 1 ? 'are the files' : 'is a file'} I sent from my phone.`}\n\n${PHONE_FILES}\n${list}`;
     this.send({ t: 'toast', text: `Your Mac has ${saved.length > 1 ? `the ${saved.length} files` : saved[0].path.split(path.sep).pop()}.` });
     if (workspace.linked) return workspace.message(text, images);
     if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} started something else meanwhile. The files are in ${tildify(this.inbox)}.` });
@@ -1302,6 +1302,10 @@ export class RemoteDaemon {
           workspace.track(event);
           if (workspace.status === 'idle') this.usageChanged();
           return this.send({ t: 'ws', ws: workspace.meta() });
+        }
+        // A list for the phone to tick (a skill's choices), asked for by a command sent from the phone.
+        if (event.t === 'choose' && typeof event.skill === 'string' && Array.isArray(event.items)) {
+          return this.send({ t: 'choose', ws: workspace.id, skill: event.skill.slice(0, 80), title: String(event.title ?? '').slice(0, 200), items: event.items.slice(0, 200).map((i) => ({ value: String(i?.value ?? '').slice(0, 80), description: String(i?.description ?? '').slice(0, 200) })), ...(typeof event.attachment === 'string' ? { attachment: event.attachment.slice(0, 4000) } : {}) });
         }
         if (event.t !== 'item' && event.t !== 'patch') return;
         workspace.track(event);
