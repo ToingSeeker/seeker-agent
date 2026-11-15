@@ -2067,6 +2067,12 @@ pre {
 .diff .ln.add {
   background: var(--sk-success-soft);
 }
+.diff .ln.gap {
+  color: var(--sk-text-muted);
+}
+.diff .ln.ctx .src {
+  color: var(--sk-text-secondary);
+}
 .diff .no {
   padding-right: 8px;
   text-align: right;

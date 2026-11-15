@@ -169,10 +169,9 @@ export class WebUI {
 
   diff(diff) {
     if (!this.tool) return;
-    // The numbered rows are the terminal's; the phone draws the change from the lines themselves.
-    const { hunk, ...rest } = diff;
-    this.tool.diff = rest;
-    this.emit({ t: 'patch', id: this.tool.id, patch: { diff: rest } });
+    // The numbered rows go along (at most a few dozen), so the phone draws the change as the terminal does.
+    this.tool.diff = diff;
+    this.emit({ t: 'patch', id: this.tool.id, patch: { diff } });
   }
 
   toolLine() {}
