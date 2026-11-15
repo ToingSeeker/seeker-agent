@@ -1236,9 +1236,23 @@ function showAttachments() {
 // ── session: the live view of one agent ────────────────────────────────────
 /** One file's change: removed and added lines with their line numbers, side by side when there is room. */
 function diffView(diff, file) {
-  if (!diff || (!diff.removed?.length && !diff.added?.length)) return null;
+  if (!diff || (!diff.removed?.length && !diff.added?.length && !diff.hunk?.rows?.length)) return null;
   const start = Number.isInteger(diff.line) ? diff.line : null;
-  const counts = diff.counts ?? { added: diff.added?.length ?? 0, removed: diff.removed?.length ?? 0 };
+  // The Mac's own line-by-line reading of the change, when it sends one: every line with its number in
+  // the file, the lines around it, and only what really changed marked as removed or added.
+  const rows = diff.hunk?.rows?.length ? diff.hunk.rows : null;
+  const counts = rows ? { added: diff.hunk.added, removed: diff.hunk.removed } : (diff.counts ?? { added: diff.added?.length ?? 0, removed: diff.removed?.length ?? 0 });
+  const KIND = { '+': 'add', '-': 'del', ' ': 'ctx' };
+  const numbered = () =>
+    h(
+      'div',
+      { class: 'side', role: 'table', 'aria-label': `Changes to ${file}` },
+      rows.map((r) =>
+        r.gap
+          ? h('div', { class: 'ln gap', role: 'row' }, h('span', { class: 'no' }), h('span', { class: 'sign' }), h('span', { class: 'src' }, '⋯'))
+          : h('div', { class: `ln ${KIND[r.kind] ?? 'ctx'}`, role: 'row', 'aria-label': `Line ${r.n}, ${r.kind === '+' ? 'added' : r.kind === '-' ? 'removed' : 'unchanged'}` }, h('span', { class: 'no' }, r.n), h('span', { class: 'sign' }, r.kind === '+' ? '+' : r.kind === '-' ? '−' : ''), h('span', { class: 'src' }, code(r.text))),
+      ),
+    );
   const side = (lines, kind) =>
     h(
       'div',
@@ -1249,11 +1263,11 @@ function diffView(diff, file) {
     'div',
     { class: 'diff' },
     h('div', { class: 'file' }, h('span', { class: 'mono line grow' }, file), h('span', { class: 'success' }, `+${counts.added}`), h('span', { class: 'danger' }, `−${counts.removed}`)),
-    h('div', { class: `sides${diff.removed?.length && diff.added?.length ? ' both' : ''}` }, diff.removed?.length ? side(diff.removed, 'del') : null, diff.added?.length ? side(diff.added, 'add') : null),
+    rows ? h('div', { class: 'sides' }, numbered()) : h('div', { class: `sides${diff.removed?.length && diff.added?.length ? ' both' : ''}` }, diff.removed?.length ? side(diff.removed, 'del') : null, diff.added?.length ? side(diff.added, 'add') : null),
     // What the lines above do not show by themselves is said in words.
     Number.isInteger(diff.overwrites) ? h('div', { class: 'more warning' }, `⚠ Replaces the whole file: its ${diff.overwrites} existing line${diff.overwrites === 1 ? '' : 's'} are removed.`) : null,
     diff.times > 1 ? h('div', { class: 'more warning' }, `⚠ Applied in ${diff.times} places: every occurrence in the file is changed.`) : null,
-    diff.more ? h('div', { class: 'more' }, `… ${diff.more} more line${diff.more > 1 ? 's' : ''} not shown`) : null,
+    rows ? (diff.hunk.hidden ? h('div', { class: 'more' }, `… ${diff.hunk.hidden} more changed line${diff.hunk.hidden > 1 ? 's' : ''} not shown`) : null) : diff.more ? h('div', { class: 'more' }, `… ${diff.more} more line${diff.more > 1 ? 's' : ''} not shown`) : null,
   );
 }
 
@@ -1540,7 +1554,8 @@ function controls(ws) {
 
 // ── approvals ──────────────────────────────────────────────────────────────
 const KIND = { exec: 'COMMAND', write: 'FILE CHANGE', net: 'NETWORK', other: 'TOOL', question: 'QUESTION' };
-const diffCounts = (diff) => diff?.counts ?? (diff ? { added: diff.added?.length ?? 0, removed: diff.removed?.length ?? 0 } : null);
+// Lines really added and removed, where the Mac worked that out; otherwise the size of the old and new text.
+const diffCounts = (diff) => (diff?.hunk ? { added: diff.hunk.added, removed: diff.hunk.removed } : (diff?.counts ?? (diff ? { added: diff.added?.length ?? 0, removed: diff.removed?.length ?? 0 } : null)));
 const plusMinus = (counts) => [h('span', { class: 'success' }, `+${counts.added}`), ' ', h('span', { class: 'danger' }, `−${counts.removed}`)];
 
 // A request in the list: which project asks, what kind of thing it is, and the thing itself — the
