@@ -107,6 +107,57 @@ export function previewOf(image, { run = spawnSync, platform = process.platform 
   return image.data.length <= MAX_PREVIEW_CHARS ? { mime: image.mime, data: image.data } : null;
 }
 
+// A whole picture sent to the phone when asked for. Sealed and base64-encoded twice it grows about 1.8x,
+// and the relay takes at most 4 MiB in one request.
+export const MAX_FULL_BYTES = 2_000_000;
+
+/**
+ * An image file as the phone should get it: the file itself, or on macOS a smaller JPEG when the file
+ * is too large to send.
+ * @returns {{ name: string, mime: string, data: string, bytes: number, smaller: boolean }}
+ * @throws {Error} with a message fit to show as it is
+ */
+export function fullImage(file, { max = MAX_FULL_BYTES, run = spawnSync, platform = process.platform } = {}) {
+  const name = path.basename(file);
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    throw new Error(`${name} is no longer on the Mac.`);
+  }
+  if (!stat.isFile()) throw new Error(`${name} is not a file.`);
+  if (stat.size > 64_000_000) throw new Error(`${name} is too large to send.`);
+  const buf = fs.readFileSync(file);
+  const mime = imageType(buf);
+  if (!mime) throw new Error(`${name} is not a PNG, JPEG, GIF or WebP image.`);
+  if (buf.length <= max) return { name, mime, data: buf.toString('base64'), bytes: buf.length, smaller: false };
+  if (platform === 'darwin') {
+    let folder = null;
+    try {
+      folder = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-full-'));
+      const source = path.join(folder, `source.${mime.split('/')[1]}`);
+      fs.writeFileSync(source, buf, { mode: 0o600 });
+      // `sips -Z` enlarges a smaller picture too, so only sides below its own are tried.
+      const probe = run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', source], { timeout: 10_000, encoding: 'utf8' });
+      const own = Math.max(0, ...[...String(probe.stdout ?? '').matchAll(/pixel(?:Width|Height):\s*(\d+)/g)].map((m) => Number(m[1])));
+      const steps = [[0, 85], [3000, 85], [2400, 75], [1600, 65], [1200, 60]].filter(([side]) => side === 0 || !own || side < own);
+      for (const [side, quality] of steps) {
+        const out = path.join(folder, `full-${side}.jpg`);
+        const resize = side ? ['-Z', String(side)] : [];
+        const result = run('sips', [...resize, '-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), source, '--out', out], { timeout: 20_000 });
+        if (result.status !== 0 || !fs.existsSync(out)) break;
+        const small = fs.readFileSync(out);
+        if (small.length <= max && imageType(small) === 'image/jpeg') return { name: name.replace(/\.[^.]*$/, '') + '.jpg', mime: 'image/jpeg', data: small.toString('base64'), bytes: small.length, smaller: true };
+      }
+    } catch {
+      // Falls through to the message below.
+    } finally {
+      if (folder) fs.rmSync(folder, { recursive: true, force: true });
+    }
+  }
+  throw new Error(`${name} is ${kilobytes(buf.length)}, too large to send to the phone (at most ${kilobytes(max)}).`);
+}
+
 /** Writes images to a folder only this user can open, for a provider that reads files itself. */
 export function saveImages(images, dir = os.tmpdir()) {
   const folder = fs.mkdtempSync(path.join(dir, 'seeker-image-'));
