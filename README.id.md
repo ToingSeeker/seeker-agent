@@ -404,6 +404,22 @@ Tulis salah satu ini di pesan dan isinya ikut dilampirkan:
 Path harus berada di dalam folder kerja, dan file kredensial tidak pernah dilampirkan. Lampiran di atas seperempat
 konteks diberi peringatan; di atas setengah, ditolak.
 
+## Di dalam skrip
+
+`seeker -p "<pesan>"` menjawab sekali lalu keluar: jawabannya di stdout, aktivitasnya di stderr. Untuk skrip yang
+butuh lebih dari teksnya, `--output json` (atau `--json`) mencetak satu objek saat selesai:
+
+```
+seeker -p "apakah build-nya lolos? jalankan" --json | jq '{ok, result}'
+```
+
+Objek itu berisi `ok`, `result` (jawabannya), `error`, `interrupted`, `model`, `provider`, `steps` (tiap langkah
+dengan `action`, `ok`, dan `note`), `warnings`, `usage`, dan `duration_ms`. `--output stream-json` mencetak satu
+objek per baris selama berjalan (`start`, `step`, `text`, `warning`, `error`) dan objek hasil yang sama di akhir.
+Pada keduanya stdout hanya berisi JSON, dan kode keluarnya 1 kalau gagal atau dihentikan. Di mode `-p` tidak ada
+yang bisa menyetujui apa pun, jadi edit dan perintah yang perlu izin tidak dijalankan dan muncul sebagai langkah
+dengan `"ok": false`; tambahkan `--yolo` supaya dijalankan.
+
 ## Mereview perubahan
 
 `/review` membuat SEEKER membaca sebuah perubahan dan melaporkan apa yang salah, yang terparah dulu, masing-masing

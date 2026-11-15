@@ -247,6 +247,27 @@ Put any of these in a message and its content is attached, so the model starts w
 Paths stay inside the working folder and credential files are never attached. Attachments over a quarter
 of the context are flagged; over half, they are refused.
 
+## In a script
+
+`seeker -p "<message>"` answers once and exits: the answer on stdout, the activity on stderr. For a script
+that needs more than the text, `--output json` (or `--json`) prints one object when the run is over:
+
+```
+seeker -p "does the build pass? run it" --json | jq '{ok, result}'
+```
+
+```json
+{"type":"result","ok":true,"result":"…the answer…","error":null,"interrupted":false,
+ "model":"qwen3.5:27b","provider":"ollama",
+ "steps":[{"action":"Running npm run build","ok":true,"note":"exit 0"}],
+ "warnings":[],"usage":{"input_tokens":7500,"output_tokens":96,"counted_by_provider":true},"duration_ms":4170}
+```
+
+`--output stream-json` prints one object per line as things happen (`start`, `step`, `text`, `warning`,
+`error`) and the same result object last. With either, stdout carries nothing but JSON, and the exit code is
+1 when the run failed or was interrupted. Nobody is there to approve anything in `-p`, so edits and commands
+that would ask are not run and show up as steps with `"ok": false`; add `--yolo` to let them run.
+
 ## Reviewing a change
 
 `/review` has SEEKER read a change and report what is wrong with it, most severe first, each with its file
