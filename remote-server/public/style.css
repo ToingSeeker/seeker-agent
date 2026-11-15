@@ -470,10 +470,6 @@ button.row:active {
   margin-bottom: 3px;
 }
 
-.card.approval {
-  border-left: 3px solid var(--sk-primary);
-}
-
 .group {
   border: 1px solid var(--sk-border);
   border-radius: var(--sk-radius-lg);
@@ -776,6 +772,9 @@ button.row:active {
 .s-row .task {
   font-size: 13.5px;
   color: var(--sk-text-secondary);
+}
+.s-row .task.mono {
+  font-size: 12.5px;
 }
 .s-row .task.none {
   color: var(--sk-text-muted);
