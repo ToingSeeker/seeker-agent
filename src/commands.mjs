@@ -46,7 +46,14 @@ export function resolveModel(name, models) {
 export function matchCommands(text, skills) {
   if (!/^\/\S*$/.test(text)) return [];
   const all = [...COMMANDS, ...skills.map((s) => [`/${s.name}`, s.description])];
-  return all.filter(([name]) => name.startsWith(text.toLowerCase()));
+  const typed = text.toLowerCase();
+  // The name itself first, then names that begin with what is typed, then names that contain it.
+  const rank = ([name]) => (name === typed ? 0 : name.startsWith(typed) ? 1 : typed.length > 2 && name.includes(typed.slice(1)) ? 2 : 3);
+  return all
+    .map((entry, at) => [rank(entry), at, entry])
+    .filter(([r]) => r < 3)
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1])
+    .map(([, , entry]) => entry);
 }
 
 /** Makes `model` on `provider` the active one, now and for the next start. */
