@@ -665,6 +665,8 @@ test('remote: the phone is told what the agent is doing, how the turn ended, and
   assert.ok(seen((w) => w.phase === 'executing' && w.tools.running === 'Writing notes.txt'), 'a tool in progress is reported as executing, and named');
   assert.deepEqual([meta().status, approval.kind, approval.tool], ['approval', 'write', 'write_file']);
   assert.deepEqual([approval.diff.line, approval.diff.counts], [1, { added: 2, removed: 0 }], 'the reviewer is told where the change starts and how big it is');
+  assert.ok(approval.diff.hunk.rows.every((r) => r.gap || (Number.isInteger(r.n) && typeof r.text === 'string' && ['+', '-', ' '].includes(r.kind))), 'and gets the change line by line, numbered as in the file');
+  assert.ok(approval.diff.hunk.rows.length > 0 && approval.diff.hunk.rows.length <= 40);
   await until(() => pushes.length === 2);
 
   // The round trip can be timed: a ping comes straight back with the same id.
