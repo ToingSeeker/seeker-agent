@@ -1372,3 +1372,74 @@ test('remote: a second daemon on the same machine refuses to start instead of fi
   await again;
   relay.close();
 });
+
+test('remote: a skill with a list, sent from the phone, is answered with the list; files sent along come back with the choice', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-choose-'));
+  fs.mkdirSync(path.join(cwd, '.seeker/skills/fx'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, '.seeker/skills/fx/SKILL.md'), '---\nname: fx\ndescription: effects\nchoices: orbit, spotlight, moody\n---\nApply the effects named.');
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sk-')), 'l.sock');
+  const secret = 'a-long-secret-for-the-choose-test-123456789';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  // A model server that keeps what it was sent.
+  const requests = [];
+  const model = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d)).on('end', () => {
+      if (req.url !== '/api/chat') return res.end(JSON.stringify({ capabilities: ['completion', 'tools'] }));
+      requests.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' }).end(JSON.stringify(done('Applying orbit and moody.')));
+    });
+  });
+  const ollama = { host: await listen(model), requests, close: () => (model.close(), model.closeAllConnections()) };
+  const config = { ...DEFAULTS, host: ollama.host, review: false, checkpoints: false, remote: { url, secret } };
+  const build = async (folder, ui, asker) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info: { tools: true, thinking: false, context: null }, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false, link });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+  });
+  const ws = await until(() => [...me.state.workspaces.values()].find((w) => w.meta?.path === cwd || w.path === cwd)?.meta?.id ?? [...me.state.workspaces.keys()][0]);
+
+  await me.send('message', { ws, text: '/fx' });
+  const offered = await until(() => me.state.events.find((e) => e.t === 'choose'));
+  assert.deepEqual([offered.ws, offered.skill, offered.items.map((i) => i.value), offered.attachment], [ws, 'fx', ['orbit', 'spotlight', 'moody'], undefined]);
+  assert.equal(ollama.requests.length, 0, 'nothing runs until the choice comes back');
+
+  // The choice comes back the way the phone sends it, here with the note of a file sent with the request.
+  const note = '[Sent from the phone, saved on this Mac:]\n- /tmp/clip.mov (16.4 MB)';
+  await me.send('message', { ws, text: `/fx orbit, moody\n\n${note}` });
+  await until(() => ollama.requests.length === 1);
+  const asked = ollama.requests[0].messages.at(-1).content;
+  assert.match(asked, /^Skill "fx"[\s\S]*Apply the effects named\.[\s\S]*Arguments from the user: orbit, moody\n\n\[Sent from the phone, saved on this Mac:\]\n- \/tmp\/clip\.mov/);
+
+  // A request that came with a file but chose nothing yet is still offered the list, and the note travels with it.
+  const { runPhoneCommand } = await import('../src/commands.mjs');
+  const lists = [];
+  const agent = { cwd, skills: [{ name: 'fx', description: 'effects', body: 'x', dir: cwd, source: 'project', choices: 'orbit, spotlight' }] };
+  const quiet = { c: new Proxy({}, { get: () => (x) => String(x) }), notice() {}, warn() {} };
+  assert.equal(await runPhoneCommand(`/fx\n\n${note}`, { agent, ui: quiet, term: null, config, permissions: null, choose: (l) => lists.push(l) }), undefined);
+  assert.equal(lists[0].attachment, note);
+
+  // A terminal session shown on the phone passes its list on, under its own id.
+  const cwd2 = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-choose-term-'));
+  const port = new TerminalLink({ file: link, info: { tools: true, thinking: false, context: null }, retry: 50, onMessage() {} });
+  const mirror = new Workspace(port, cwd2, { id: terminalId(cwd2), terminal: true });
+  port.build = async () => ({ agent: new Agent({ config, ui: mirror.ui, permissions: new Permissions({ mode: 'ask', cwd: cwd2, ask: null }), provider: createProvider('ollama', config), info: port.info, cwd: cwd2 }), session: { save() {}, startNew() {} } });
+  await mirror.open();
+  port.start(() => ({ ...mirror.meta(), items: mirror.items }));
+  t.after(() => port.close());
+  await until(() => me.state.workspaces.has(mirror.id));
+  mirror.ui.choose({ skill: 'fx', title: '/fx — tick what to use', items: [{ value: 'orbit', description: 'a' }, { value: 'moody', description: 'b' }], attachment: note });
+  const fromTerminal = await until(() => me.state.events.find((e) => e.t === 'choose' && e.ws === mirror.id));
+  assert.deepEqual([fromTerminal.skill, fromTerminal.items.length, fromTerminal.attachment], ['fx', 2, note]);
+});

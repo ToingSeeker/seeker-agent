@@ -896,7 +896,7 @@ function searchBox(name, value, placeholder, onchange) {
  * What is ticked goes back as `/skill a, b`, the way it would have been typed. The boxes are the
  * browser's own and the list is filtered by hiding rows, so typing never rebuilds what is on screen.
  */
-function chooseMany({ ws, skill, title, items }) {
+function chooseMany({ ws, skill, title, items, attachment }) {
   const boxes = items.map((item) => h('input', { type: 'checkbox', value: item.value }));
   const rows = items.map((item, i) => h('label', { class: 'ck-row' }, boxes[i], h('span', { class: 'grow' }, h('span', { class: 'name mono' }, item.value), item.description && h('span', { class: 'sub' }, item.description))));
   const send = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Tick at least one');
@@ -910,7 +910,8 @@ function chooseMany({ ws, skill, title, items }) {
     const values = picked();
     if (!values.length) return;
     closeSheet();
-    sendText(ws, `/${skill} ${values.join(', ')}`);
+    // Files sent with the request go back with the answer, so the skill still has them.
+    sendText(ws, `/${skill} ${values.join(', ')}${typeof attachment === 'string' && attachment ? `\n\n${attachment}` : ''}`);
   });
   const none = h('p', { class: 'quiet pad', hidden: true }, 'Nothing matches.');
   const filter =
