@@ -1215,3 +1215,31 @@ test('phone transcript: parallel provider tools each end on their own row, and a
   assert.deepEqual(rows(), ['failed Running sleep 1', 'failed Reading a.png', 'failed Reading b.png']);
   assert.ok([...items.values()].filter((i) => i.kind === 'tool').every((i) => i.note === 'interrupted'));
 });
+
+test('remote: a second daemon on the same machine refuses to start instead of fighting the first for the relay', async () => {
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sk-')), 'l.sock');
+  const secret = 'a-long-secret-for-the-one-daemon-test-12345';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const config = { ...DEFAULTS, remote: { url, secret } };
+  const logs = [];
+  const first = new RemoteDaemon({ config, folders: [], build: async () => ({}), info: null, remember: false, link, log: (l) => logs.push(l) });
+  const running = first.start();
+  await until(() => logs.includes('connected to the relay'));
+
+  const second = new RemoteDaemon({ config, folders: [], build: async () => ({}), info: null, remember: false, link, log: (l) => logs.push(`second: ${l}`) });
+  await assert.rejects(second.start(), /already running on this machine/);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(logs.filter((l) => l === 'connected to the relay').length, 1, 'the first keeps its connection');
+  assert.equal(logs.some((l) => l.startsWith('second: connected')), false);
+
+  await first.stop();
+  await running;
+  // With the first gone, the same socket is free again.
+  const third = new RemoteDaemon({ config, folders: [], build: async () => ({}), info: null, remember: false, link, log: (l) => logs.push(`third: ${l}`) });
+  const again = third.start();
+  await until(() => logs.includes('third: connected to the relay'));
+  await third.stop();
+  await again;
+  relay.close();
+});
