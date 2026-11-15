@@ -106,6 +106,26 @@ export function toOllamaMessages(system, messages) {
 
 const claudeImage = (i) => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: i.data } });
 
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** The effort levels a model takes, as the provider's own description of it says; none when it has no such setting. */
+export function effortLevels(meta) {
+  const effort = meta?.capabilities?.effort;
+  if (!effort?.supported) return [];
+  return EFFORT_LEVELS.filter((level) => effort[level]?.supported);
+}
+
+/**
+ * The level to send for `wanted`: itself where the model has it, else the nearest lower one it
+ * has (asking for more than a model offers is an error at the provider), else nothing.
+ */
+export function effortFor(meta, wanted) {
+  const levels = effortLevels(meta);
+  const at = EFFORT_LEVELS.indexOf(wanted);
+  if (at < 0 || !levels.length) return null;
+  return [...EFFORT_LEVELS.slice(0, at + 1)].reverse().find((level) => levels.includes(level)) ?? null;
+}
+
 /** Claude messages without the model's replayed reasoning; a turn left empty by that is dropped. */
 export function withoutReasoning(messages) {
   const reasoning = (b) => b?.type === 'thinking' || b?.type === 'redacted_thinking';
@@ -344,6 +364,9 @@ function anthropicProvider(def, config) {
         eager_input_streaming: true,
       }));
     }
+    // How hard the model works on a reply, where the user chose a level and this model has it.
+    const effort = effortFor(meta, config.effort);
+    if (effort) params.output_config = { effort };
     // Reasoning is hidden by default on current models; ask for the readable summary.
     if (meta.capabilities?.thinking?.types?.adaptive?.supported) params.thinking = { type: 'adaptive', display: 'summarized' };
 
@@ -419,7 +442,7 @@ function anthropicProvider(def, config) {
     },
     async describe(model) {
       const meta = await info(model);
-      return { tools: true, thinking: Boolean(meta.capabilities?.thinking?.supported), vision: meta.capabilities?.image_input?.supported ?? true, context: meta.max_input_tokens ?? def.context };
+      return { tools: true, thinking: Boolean(meta.capabilities?.thinking?.supported), vision: meta.capabilities?.image_input?.supported ?? true, context: meta.max_input_tokens ?? def.context, effort: effortLevels(meta) };
     },
     chat,
   };
