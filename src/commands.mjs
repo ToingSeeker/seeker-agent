@@ -824,7 +824,8 @@ export async function runPhoneCommand(input, ctx) {
       const shown = (v) => (Array.isArray(v) ? v.join(', ') : v === true ? 'on' : v === false ? 'off' : v === '' || v == null ? 'default' : String(v));
       return void ctx.settings(
         Object.keys(SETTINGS)
-          .filter((k) => k !== 'model' && k !== 'host')
+          // numCtx and host are Ollama's: a cloud model's context is its own, and a tap on 8192 would cap it there.
+          .filter((k) => k !== 'model' && ((k !== 'host' && k !== 'numCtx') || (k === 'numCtx' && agent.provider?.kind === 'ollama')))
           .map((k) => ({ key: k, value: shown(config[k]), help: SETTINGS[k].help, options: (CHOICES[k] ?? []).map(shown) })),
       );
     }
