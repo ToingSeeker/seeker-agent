@@ -4,6 +4,11 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **The sandbox works on Linux**, with bubblewrap (`bwrap`), under the same rules as on macOS.
+- **A sandboxed command no longer reaches the network** beyond this machine unless `sandboxNetwork` is on.
+  This is a change for anyone who already had the sandbox on: `npm install` and `git push` inside it now
+  need `/config sandboxNetwork on`. A server on `127.0.0.1` still works.
+
 - **Video editing.** A bundled `video-editing` skill with a Python script on top of ffmpeg: trim, join,
   reframe, change speed, cut out silences, burn in captions or a title, level or replace the sound, add music,
   make a GIF, compress to a size. Each edit writes a new file and reports what it made.
