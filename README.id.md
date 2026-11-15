@@ -155,6 +155,11 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
   pengurutan, dan filter sesi terminal. Di bawah **On your Mac**, folder proyek yang ditemukan di folder home
   bisa dibuka dengan satu ketukan. Tombol **+** membuka folder lewat path-nya, atau membuat folder baru untuk
   proyek baru. Folder baru hanya bisa dibuat di dalam folder home, dan tidak pernah di folder tersembunyi.
+- **Quick switcher** — tombol dua panah di kanan atas Home, Sessions dan Settings membuka lembar berisi semua
+  sesi, yang butuh kamu lebih dulu, apa yang sedang dikerjakan masing-masing, dan berapa yang berjalan (angka
+  di tombol). Ketuk satu untuk pindah; tidak ada yang dihentikan karena berpindah. *Queued instructions*
+  menampilkan antrean semua sesi, untuk dihapus atau dilanjutkan. Yang sedang kamu ketik tetap tinggal di
+  sesi tempat kamu mengetiknya.
 - **Sessions** — tiap proyek yang terbuka jadi satu baris ringkas: nama, instruksi terakhir, pill status kecil
   (Executing, Approval needed, Queued, Failed, Stopped, Completed, Idle), model, jumlah tool run, dan kapan
   terakhir aktif. Cari berdasarkan proyek, instruksi, atau model; saring per status (angkanya langsung

@@ -9,7 +9,7 @@
 // from the Mac's events, and a value the Mac has not reported is shown as "—".
 
 import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, summary, workspaces as explorerRows } from './home.js';
-import { SORTS, STATUSES, filters, since, statusOf, view as sessionsView } from './sessions.js';
+import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
@@ -82,6 +82,7 @@ const ICONS = {
   phone: svg('<rect x="7" y="3" width="10" height="18" rx="2.2"/><path d="M11 18h2"/>'),
   gauge: svg('<path d="M4.5 17a8.5 8.5 0 1115 0M12 14l3.5-4.5"/><circle cx="12" cy="14.5" r="1"/>'),
   tag: svg('<path d="M3.5 12.500V4.500h8l9 9-8 8zM8 8.500h.01"/>'),
+  swap: svg('<path d="M4 8.5h15M15.5 5l3.5 3.5-3.5 3.5M20 15.5H5M8.5 12L5 15.5 8.500 19"/>'.replace('8.500', '8.5')),
   stop: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
@@ -109,6 +110,7 @@ const state = {
   open: new Set(), // timeline entries the reader expanded
   shown: new Map(), // workspace id → how many entries are drawn
   deciding: new Set(), // approvals whose answer is on its way
+  drafts: new Map(), // session id → what was typed there and not sent
   scrolls: new Map(), // "session:<id>:<tab>" → where the reader was in that view
   drawn: new Set(), // timeline entries already on screen once, so only new ones animate in
   loaded: false, // the Mac's list of projects has arrived at least once
@@ -467,16 +469,138 @@ function toast(text) {
   toast.timer = setTimeout(() => (el.hidden = true), 3500);
 }
 
+let liveSheet = null; // { title, build, signature } — a sheet whose content follows the Mac's events
+let sheetOpener = null; // the id of what opened the sheet: focus goes back there when it closes
+let sheetPressed = false; // a finger is down on the sheet: its rows are not moved under it
+let sheetFromLive = false; // sheet() is being called to redraw the live sheet, not to open another
+
 function sheet(title, ...content) {
   const el = $('sheet');
-  el.replaceChildren(h('div', { class: 'panel', role: 'dialog', 'aria-label': title, onclick: (e) => e.stopPropagation() }, h('div', { class: 'grip' }), h('h3', {}, title), ...content));
+  if (el.hidden) sheetOpener = document.activeElement?.id || null;
+  if (!sheetFromLive) liveSheet = null; // another sheet takes the place of a live one
+  const panel = h('div', { class: 'panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, tabindex: '-1', onclick: (e) => e.stopPropagation() }, h('div', { class: 'grip' }), h('h3', {}, title), ...content);
+  // Pulled down from its top, the sheet goes away.
+  let from = null;
+  panel.addEventListener('touchstart', (e) => ((sheetPressed = true), (from = panel.scrollTop <= 0 ? e.touches[0].clientY : null)), { passive: true });
+  panel.addEventListener('touchmove', (e) => from != null && (panel.style.transform = `translateY(${Math.max(0, e.touches[0].clientY - from)}px)`), { passive: true });
+  panel.addEventListener('touchend', (e) => {
+    sheetPressed = false;
+    const pulled = from != null ? e.changedTouches[0].clientY - from : 0;
+    from = null;
+    panel.style.transform = '';
+    if (pulled > 90) closeSheet();
+    else if (liveSheet) drawSheet();
+  });
+  panel.addEventListener('pointerdown', () => (sheetPressed = true));
+  for (const end of ['pointerup', 'pointercancel', 'pointerleave']) panel.addEventListener(end, () => (sheetPressed = false));
+  el.replaceChildren(panel);
   el.hidden = false;
   el.onclick = closeSheet;
+  if (!panel.contains(document.activeElement)) panel.focus({ preventScroll: true });
 }
 const closeSheet = () => {
+  const wasOpen = !$('sheet').hidden;
   $('sheet').hidden = true;
   state.picking = false;
+  liveSheet = null;
+  sheetPressed = false;
+  if (wasOpen && sheetOpener) $(sheetOpener)?.focus({ preventScroll: true });
+  sheetOpener = null;
 };
+document.addEventListener('keydown', (e) => e.key === 'Escape' && !$('sheet').hidden && closeSheet());
+
+/** A sheet that is rebuilt when what it shows changes. `build` returns { signature, content }. */
+function openLive(title, build) {
+  liveSheet = { title, build, signature: null };
+  drawSheet();
+}
+function drawSheet() {
+  if (!liveSheet || sheetPressed) return;
+  const { signature, content } = liveSheet.build();
+  if (signature === liveSheet.signature && !$('sheet').hidden) return;
+  const keep = liveSheet;
+  const at = $('sheet').querySelector('.panel')?.scrollTop ?? 0;
+  const focused = $('sheet').contains(document.activeElement) ? document.activeElement.dataset.key : null;
+  sheetFromLive = true;
+  sheet(keep.title, ...content());
+  sheetFromLive = false;
+  liveSheet = { ...keep, signature };
+  const panel = $('sheet').querySelector('.panel');
+  panel.scrollTop = at;
+  panel.style.animation = at || keep.signature != null ? 'none' : '';
+  if (focused) [...panel.querySelectorAll('[data-key]')].find((el) => el.dataset.key === focused)?.focus({ preventScroll: true });
+}
+
+// ── the quick switcher: every session, from the header of any main screen ──
+function openSwitcher() {
+  openLive('Agent Quick Switcher', () => {
+    const up = state.linked && state.online;
+    const model = switcher([...state.workspaces.values()], { up });
+    const chip = (icon, n, label, tone = '') => h('span', { class: `sw-chip ${tone}` }, h('span', { class: 'ico', icon }), `${n} ${label}`);
+    return {
+      signature: JSON.stringify([up, state.loaded, model]),
+      content: () => [
+        h('p', { class: 'sheet-sub' }, 'Jump between active coding sessions'),
+        h('div', { class: 'sw-chips' }, chip('layers', model.sessions, model.sessions === 1 ? 'session' : 'sessions'), chip('play', model.running, 'running', model.running ? 'execution' : ''), chip('list', model.queued, 'queued', model.queued ? 'warning' : '')),
+        !up && h('p', { class: 'stale', role: 'status' }, 'Not connected: what each session is doing cannot be confirmed.'),
+        model.rows.length
+          ? h(
+              'div',
+              { class: 's-list sw-list', onkeydown: rowKeys },
+              model.rows.map((row) =>
+                h(
+                  'button',
+                  { class: `s-row sw-row${row.id === state.view.ws && state.view.name === 'session' ? ' selected' : ''}`, 'data-key': row.id, onclick: () => (closeSheet(), go({ name: 'session', ws: row.id })) },
+                  h('span', { class: 'ico', icon: 'folder' }),
+                  h(
+                    'span',
+                    { class: 'grow' },
+                    h('span', { class: 'top' }, h('span', { class: 'name line' }, row.name), h('span', { class: `pill ${row.tone}` }, h('i', { class: row.live ? 'live' : '' }), row.label)),
+                    h('span', { class: 'meta line' }, [row.terminal && 'terminal', row.branch, row.provider].filter(Boolean).join(' · ')),
+                    row.doing && h('span', { class: 'doing line' }, h('span', { class: 'ico', icon: 'terminal' }), row.doing),
+                    row.waiting > 0 && h('span', { class: 'doing line' }, h('span', { class: 'ico', icon: 'layers' }), `${row.waiting} queued instruction${row.waiting === 1 ? '' : 's'}`),
+                  ),
+                  h('span', { class: 'chev', icon: 'chevron' }),
+                ),
+              ),
+            )
+          : h('p', { class: 'quiet pad' }, state.loaded ? 'No session is open yet.' : 'Waiting for your Mac…'),
+        model.more > 0 && h('p', { class: 'muted small pad' }, `${model.more} more in Sessions.`),
+        h('button', { class: 'sw-action', 'data-key': 'queues', disabled: !model.queued, onclick: openQueues }, h('span', { class: 'ico', icon: 'layers' }), h('span', { class: 'grow' }, 'Queued instructions'), h('span', { class: 'n' }, model.queued), h('span', { class: 'chev', icon: 'chevron' })),
+        h('button', { class: 'sw-action all', 'data-key': 'all', onclick: () => (closeSheet(), go({ name: 'sessions' })) }, h('span', { class: 'grow' }, 'View all sessions'), h('span', { class: 'chev', icon: 'chevron' })),
+      ],
+    };
+  });
+}
+
+/** Every waiting instruction, by session. Removing and resuming are the same commands the session screen sends. */
+function openQueues() {
+  openLive('Queued instructions', () => {
+    const up = state.linked && state.online;
+    const list = queues([...state.workspaces.values()]);
+    return {
+      signature: JSON.stringify([up, list]),
+      content: () => [
+        h('button', { class: 'sheet-back', 'data-key': 'back', onclick: openSwitcher }, h('span', { class: 'ico', icon: 'back' }), 'All sessions'),
+        list.length ? null : h('p', { class: 'quiet pad' }, 'Nothing is waiting.'),
+        ...list.map((q) =>
+          h(
+            'section',
+            { class: 'q-group' },
+            h(
+              'div',
+              { class: 'head' },
+              h('button', { class: 'name line', 'data-key': `open-${q.id}`, 'aria-label': `Open ${q.name}`, onclick: () => (closeSheet(), go({ name: 'session', ws: q.id })) }, q.name),
+              q.paused && h('button', { class: 'btn small approve', 'data-key': `resume-${q.id}`, disabled: !up, onclick: () => command('queue_resume', { ws: q.id }) }, 'Resume queue'),
+            ),
+            q.paused && h('p', { class: 'paused' }, PAUSED[q.paused] ?? 'Paused.'),
+            h('ol', {}, q.items.map((item, i) => h('li', {}, h('span', { class: 'n mono' }, `${i + 1}.`), h('span', { class: 'text' }, item.text), h('button', { class: 'x', 'data-key': `x-${item.id}`, 'aria-label': `Remove instruction ${i + 1} of ${q.name}`, icon: 'cross', disabled: !up, onclick: () => command('queue_remove', { ws: q.id, item: item.id }) })))),
+          ),
+        ),
+      ],
+    };
+  });
+}
 
 // ── choosing the model (the lists come from the Mac) ──
 async function chooseModel() {
@@ -648,6 +772,14 @@ const go = (view) => {
   // Another conversation opens on its activity; coming back to the same one keeps the tab.
   if (view.name === 'session' && view.ws !== state.view.ws && view.ws !== state.view.from?.ws) state.sessionTab = 'activity';
   if (view.name === 'session' && view.ws) store('seeker.sessions.last', (state.lastSession = view.ws));
+  // What was being typed belongs to the session it was typed in: it waits there, and the next session shows its own.
+  const from = state.view.name === 'session' ? state.view.ws : null;
+  const to = view.name === 'session' ? view.ws : null;
+  if (from && from !== to) state.drafts.set(from, input.value);
+  if (to && to !== from) {
+    input.value = state.drafts.get(to) ?? '';
+    input.dispatchEvent(new Event('input'));
+  }
   state.view = view;
   render(true);
 };
@@ -666,14 +798,13 @@ const row = (icon, label, value, { tone = '', onclick = null, sub = null } = {})
   );
 
 function header() {
-  const initial = (state.device?.name ?? 'S').trim()[0]?.toUpperCase() ?? 'S';
-  const up = state.linked && state.online;
+  const { running } = switcher([...state.workspaces.values()], { up: state.linked && state.online });
   return h(
     'header',
     { class: 'brand' },
     h('span', { class: state.device?.settings?.animation === false ? 'mark still' : 'mark', icon: 'logo' }),
     h('div', { class: 'grow' }, h('div', { class: 'word' }, 'SEEKER'), h('div', { class: 'sub' }, 'REMOTE')),
-    h('button', { class: 'avatar', 'aria-label': `Settings — ${up ? 'connected' : 'not connected'}`, onclick: () => go({ name: 'settings' }) }, initial, h('i', { class: up ? 'on' : 'off' })),
+    h('button', { class: 'switch-btn', id: 'switcher', 'aria-label': `Switch agent session${running ? ` — ${running} running session${running === 1 ? '' : 's'}` : ''}`, 'aria-haspopup': 'dialog', onclick: openSwitcher }, h('span', { icon: 'swap' }), running > 0 && h('span', { class: 'count', 'aria-hidden': 'true' }, running)),
   );
 }
 
@@ -884,7 +1015,7 @@ function showUsage() {
 function homeNow() {
   const list = [...state.workspaces.values()];
   const link = connection(state);
-  const base = [state.homeTab, state.loaded, link.key, state.device?.name, state.device?.settings?.animation];
+  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation];
   if (state.homeTab === 'projects') {
     const rows = explorerRows(list, state.explorer);
     const local = localFolders(state.folders, list, state.explorer.localQuery);
@@ -1640,6 +1771,7 @@ function draw() {
       h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => go({ name: id }) }, h('span', { class: 'ico' }, h('span', { icon }), id === 'approvals' && state.approvals.length > 0 && h('span', { class: 'count' }, state.approvals.length)), label),
     ),
   );
+  drawSheet();
   document.title = state.approvals.length ? `(${state.approvals.length}) SEEKER Remote` : 'SEEKER Remote';
   fabs();
 }
