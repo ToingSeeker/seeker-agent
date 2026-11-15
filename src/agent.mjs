@@ -314,6 +314,13 @@ export class Agent {
     return target;
   }
 
+  /** Tells the user's hooks about something that happened. Never waits for them and never fails because of one. */
+  #observe(event, extra = {}, toolName = null) {
+    const hooks = (this.parent ?? this).shellHooks;
+    if (!hooks || this.review) return;
+    hooks.run(event, { toolName, extra }).catch(() => {});
+  }
+
   /** The agent of that name, as the task tool was asked for it. */
   #agentNamed(name) {
     if (name == null || name === '') return null;
@@ -608,12 +615,14 @@ export class Agent {
     helper.allowReview = false; // the conversation that learns is the user's, not a helper's
     this.#applyRole(helper, role);
     this.helper = helper;
+    this.#observe('subagent_start', { agent: role?.name ?? null, description: label });
     try {
       await helper.runTurn(prompt);
     } finally {
       this.helper = null;
     }
     const report = [...helper.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '';
+    this.#observe('subagent_stop', { agent: role?.name ?? null, description: label, status: helper.interrupted ? 'interrupted' : 'completed', report: report.slice(0, 4000) });
     // The helper's lines replaced this one as the current step; restore it so it can be closed.
     ui.toolStart('Delegating', 'Delegated', label);
     return report.trim();
@@ -659,6 +668,7 @@ export class Agent {
       helper.allowReview = false;
       this.#applyRole(helper, role);
       this.helpers.add(helper);
+      this.#observe('subagent_start', { agent: role?.name ?? null, description: task.description });
       const started = Date.now();
       let status = 'completed';
       try {
@@ -670,6 +680,7 @@ export class Agent {
         this.helpers.delete(helper);
       }
       const report = ([...helper.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '').trim();
+      this.#observe('subagent_stop', { agent: role?.name ?? null, description: task.description, status, report: report.slice(0, 4000) });
       ui.toolLine(`${status === 'completed' ? ui.c.green('✓') : ui.c.yellow('!')} ${tag} ${status} in ${Math.round((Date.now() - started) / 1000)}s — ${task.description}`);
       return { description: task.description, status: report ? status : status === 'completed' ? 'failed' : status, report };
     };
@@ -840,6 +851,7 @@ export class Agent {
   async compact({ midTask = false } = {}) {
     if (this.messages.length < 2) return false;
     const { ui } = this;
+    if (!this.parent) this.#observe('pre_compact', { tokens: this.contextTokens(), mid_task: midTask });
     const controller = this.controller ?? new AbortController();
 
     // The newest messages stay as they are; only what came before them is summarised.
@@ -880,6 +892,7 @@ export class Agent {
     this.messages = recent.length || midTask ? [head, ...recent] : [head, { role: 'assistant', content: 'Understood. I have the context and am ready to continue.' }];
     this.usedTokens = 0;
     ui.notice(`  ✂ conversation summarised (now ~${Math.round(this.#estimateTokens() / 100) / 10}k tokens)`);
+    if (!this.parent) this.#observe('post_compact', { tokens: this.#estimateTokens() });
     return true;
   }
 
@@ -1010,6 +1023,7 @@ export class Agent {
         ui.warn('  ⏹ cancelled');
       } else {
         ui.error(`  Error: ${err.message}`);
+        if (!this.parent) this.#observe('on_error', { message: String(err.message ?? err).slice(0, 2000) });
       }
     } finally {
       if (lookOnly && this.permissions) this.permissions.lookOnly = null;

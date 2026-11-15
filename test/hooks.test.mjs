@@ -90,3 +90,75 @@ test('in the agent loop a hook can veto a tool call and add to a message', async
   assert.equal(fs.existsSync(path.join(cwd, 'made.txt')), false);
   assert.match(agent.messages[2].content, /^Blocked by the user's hook: shell is off/);
 });
+
+test('the observe-only events tell a hook about helpers, summaries, errors and approval requests', async () => {
+  const { EVENTS } = await import('../src/hooks.mjs');
+  assert.deepEqual(EVENTS.slice(6), ['on_approval_request', 'pre_compact', 'post_compact', 'subagent_start', 'subagent_stop', 'on_error']);
+  const names = ['on_approval_request', 'pre_compact', 'post_compact', 'subagent_start', 'subagent_stop', 'on_error'];
+  // One script per event; each keeps what it was sent. What it prints must change nothing.
+  const config = { hooks: Object.fromEntries(names.map((n) => [n, [{ command: script(n, 'echo \'{"action":"block","message":"ignored"}\'') }]])) };
+  const hooks = new Hooks({ config, cwd: dir, warn: () => {} });
+  hooks.all.forEach(approve);
+  const until = async (name) => {
+    // The file exists a moment before it is written: wait for what it was sent to be whole.
+    for (let i = 0; i < 150; i++) {
+      try {
+        return seen(name);
+      } catch {
+        await new Promise((r) => setTimeout(r, 20));
+      }
+    }
+    return seen(name);
+  };
+
+  const replies = [
+    [{ message: { content: '', tool_calls: [{ function: { name: 'task', arguments: { description: 'look around', prompt: 'Report.' } } }] } }, { done: true }],
+    [{ message: { content: 'All fine.' }, done: true, prompt_eval_count: 5, eval_count: 2 }], // the helper
+    [{ message: { content: 'The helper says all is fine.' }, done: true, prompt_eval_count: 5, eval_count: 2 }],
+    [{ message: { content: 'A summary of what happened.' }, done: true }], // the summariser
+    'broken',
+  ];
+  const server = http.createServer((req, res) => {
+    req.resume().on('end', () => {
+      const reply = replies.shift();
+      if (reply === 'broken') return res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'the model crashed' }));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' }).end(reply.map((c) => JSON.stringify(c)).join('\n'));
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const cfg = { ...DEFAULTS, host: `http://127.0.0.1:${server.address().port}`, review: false, checkpoints: false };
+  const quiet = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? new Proxy({}, { get: () => (x) => String(x) }) : () => {}) });
+  const permissions = new Permissions({ mode: 'auto', cwd: dir, ask: null });
+  const agent = new Agent({ config: cfg, ui: quiet, permissions, provider: createProvider('ollama', cfg), info: { tools: true, thinking: false, context: null }, cwd: dir });
+  agent.shellHooks = hooks;
+
+  await agent.runTurn('have a helper look around');
+  const started = await until('subagent_start');
+  assert.deepEqual([started.hook_event_name, started.extra.agent, started.extra.description], ['subagent_start', null, 'look around']);
+  const stopped = await until('subagent_stop');
+  assert.deepEqual([stopped.extra.status, stopped.extra.report], ['completed', 'All fine.']);
+  assert.equal(agent.messages.at(-1).content, 'The helper says all is fine.', 'what a hook prints for these events stops nothing');
+
+  assert.equal(await agent.compact(), true);
+  const before = await until('pre_compact');
+  assert.ok(before.extra.tokens > 0 && before.extra.mid_task === false);
+  assert.ok((await until('post_compact')).extra.tokens > 0);
+
+  await agent.runTurn('and again');
+  server.close();
+  assert.match((await until('on_error')).extra.message, /crashed|500/);
+
+  // Being asked: the hook hears of it while the question is still open.
+  const asked = [];
+  const asking = new Permissions({ mode: 'ask', cwd: dir, ask: async (q) => (asked.push(q.tool.name), 'y') });
+  asking.onAsk = (tool, args, warning) => hooks.run('on_approval_request', { toolName: tool.name, extra: { summary: args.command, warning: warning ?? null } });
+  const { TOOL_BY_NAME } = await import('../src/tools.mjs');
+  assert.deepEqual(await asking.check(TOOL_BY_NAME.get('bash'), { command: 'npm install' }), { ok: true });
+  const request = await until('on_approval_request');
+  assert.deepEqual([request.tool_name, request.extra.summary, asked], ['bash', 'npm install', ['bash']]);
+  // Nothing is said when nothing is asked.
+  fs.rmSync(path.join(dir, 'on_approval_request.seen'));
+  await asking.check(TOOL_BY_NAME.get('read_file'), { path: 'a' });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(fs.existsSync(path.join(dir, 'on_approval_request.seen')), false);
+});
