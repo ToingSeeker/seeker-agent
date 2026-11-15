@@ -4,6 +4,9 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **`/review`** reads a change from git — since the last commit, staged, one commit, or against a branch —
+  and reports what is wrong with it. The turn can only look: edits and commands that change something are
+  refused, also with `--yolo`.
 - **The sandbox works on Linux**, with bubblewrap (`bwrap`), under the same rules as on macOS.
 - **A sandboxed command no longer reaches the network** beyond this machine unless `sandboxNetwork` is on.
   This is a change for anyone who already had the sandbox on: `npm install` and `git push` inside it now

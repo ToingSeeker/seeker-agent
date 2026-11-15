@@ -247,6 +247,23 @@ Put any of these in a message and its content is attached, so the model starts w
 Paths stay inside the working folder and credential files are never attached. Attachments over a quarter
 of the context are flagged; over half, they are refused.
 
+## Reviewing a change
+
+`/review` has SEEKER read a change and report what is wrong with it, most severe first, each with its file
+and line and a case where it goes wrong. Nothing is changed: for that turn, edits and commands that change
+something are refused whatever the approval mode is, also with `--yolo`.
+
+| Command | Reviews |
+| --- | --- |
+| `/review` | everything changed since the last commit, staged or not, and new files |
+| `/review staged` | what is staged |
+| `/review commit <sha>` | one commit |
+| `/review main` | what this branch adds on top of `main` (any branch or ref) |
+
+Words after that say what to look at: `/review staged error handling`. It works from the phone too. A change
+too large to hand over whole is given in part, and SEEKER reads the files for the rest. If you have a skill of
+your own named `review`, `/review` runs that instead.
+
 ## Undoing changes
 
 Before the first change of a message — a file written or edited, or a shell command that can destroy files —

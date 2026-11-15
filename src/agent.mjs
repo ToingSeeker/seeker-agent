@@ -964,6 +964,10 @@ export class Agent {
     if (!this.review) this.turnsSinceMemory++;
     ui.turnStart();
     let compactions = 0;
+    // A turn that may only look (/review): tools that change something are refused until it ends.
+    const lookOnly = this.lookOnlyNext ?? null;
+    this.lookOnlyNext = null;
+    if (lookOnly && this.permissions) this.permissions.lookOnly = lookOnly;
     try {
       for (let step = 0; ; step++) {
         if (step >= this.config.maxSteps) {
@@ -1008,6 +1012,7 @@ export class Agent {
         ui.error(`  Error: ${err.message}`);
       }
     } finally {
+      if (lookOnly && this.permissions) this.permissions.lookOnly = null;
       this.controller = null;
       ui.ensureNewline();
     }
