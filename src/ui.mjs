@@ -350,7 +350,10 @@ export class UI {
     if (display) {
       const lines = String(display).split('\n').filter((l) => l.trim());
       const width = this.cols() - 10;
-      for (const l of lines.slice(0, maxLines)) this.line(`${this.#stem()}${this.c.dim(truncate(l, width))}`);
+      // Output that is a diff keeps its meaning: what was added in green, what was removed in red.
+      const isDiff = lines.some((l) => /^(@@ |diff --git )/.test(l));
+      const paint = (l) => (isDiff && /^\+(?!\+\+ )/.test(l) ? this.c.green : isDiff && /^-(?!-- )/.test(l) ? this.c.red : this.c.dim);
+      for (const l of lines.slice(0, maxLines)) this.line(`${this.#stem()}${paint(l)(truncate(l, width))}`);
       if (lines.length > maxLines) this.line(`${this.#stem()}${this.c.dim(`… +${lines.length - maxLines} lines`)}`);
     }
     this.tool = null;
