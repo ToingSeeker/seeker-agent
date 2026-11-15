@@ -796,19 +796,20 @@ export const TOOLS = [
       properties: {
         description: { type: 'string', description: 'Three to five words naming the job' },
         prompt: { type: 'string', description: 'The full instructions for one helper' },
+        agent: { type: 'string', description: 'Optional: the name of one of the agents listed under "Agents" in your instructions, to give the helper that role. Leave out for a general helper.' },
         tasks: {
           type: 'array',
           description: 'Several jobs to run in parallel, up to 3. Each helper sees only its own prompt — repeat shared background in every one that needs it.',
           items: {
             type: 'object',
-            properties: { description: { type: 'string', description: 'Three to five words naming the job' }, prompt: { type: 'string', description: 'The full instructions for this helper' } },
+            properties: { description: { type: 'string', description: 'Three to five words naming the job' }, prompt: { type: 'string', description: 'The full instructions for this helper' }, agent: { type: 'string', description: 'Optional: the name of an agent to give this helper its role' } },
             required: ['prompt'],
           },
         },
       },
     },
     verbs: ['Delegating', 'Delegated'],
-    summary: (a) => (Array.isArray(a.tasks) && a.tasks.length ? `${a.tasks.length} tasks in parallel` : (a.description ?? String(a.prompt ?? '').slice(0, 60))),
+    summary: (a) => (Array.isArray(a.tasks) && a.tasks.length ? `${a.tasks.length} tasks in parallel` : `${a.agent ? `${a.agent}: ` : ''}${a.description ?? String(a.prompt ?? '').slice(0, 60)}`),
     async run(args, ctx) {
       let tasks = args.tasks;
       if (typeof tasks === 'string') {
@@ -821,7 +822,7 @@ export const TOOLS = [
       if (Array.isArray(tasks) && tasks.length) {
         if (!ctx.delegateMany) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
         if (tasks.length > 3) throw new ToolError(`At most 3 helpers can run at once; ${tasks.length} were asked for. Send them in batches.`);
-        const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : '') }));
+        const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : ''), agent: t?.agent || null }));
         if (jobs.some((j) => !j.prompt.trim())) throw new ToolError('Every task needs a "prompt".');
         const results = await ctx.delegateMany(jobs);
         const output = results.map((r, i) => `## Helper ${i + 1}: ${r.description} — ${r.status}\n${r.report || '(it returned nothing)'}`).join('\n\n');
@@ -829,7 +830,7 @@ export const TOOLS = [
       }
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new ToolError('"prompt" (one helper) or "tasks" (several) is required');
       if (!ctx.delegate) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
-      const report = await ctx.delegate(args.prompt, this.summary(args));
+      const report = await ctx.delegate(args.prompt, this.summary(args), args.agent || null);
       return { output: report || '(the helper returned nothing)', note: `${report.split('\n').filter((l) => l.trim()).length} lines reported` };
     },
   },

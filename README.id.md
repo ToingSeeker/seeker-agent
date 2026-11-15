@@ -419,6 +419,26 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   dengan pekerjaannya sendiri; pertanyaan izin diajukan satu per satu. `/config subagentModel <model>` menjalankannya
   di model yang lebih murah daripada percakapan.
 
+- **Agent buatan sendiri.** Pembantu bisa diberi peran, dan kalau mau model serta daftar tool sendiri, lewat sebuah
+  file: `~/.seeker/agents/<nama>.md` (milikmu, di semua proyek) atau `.seeker/agents/<nama>.md` (milik proyek ini;
+  yang bernama sama menggantikan milikmu).
+
+  ```
+  ---
+  name: reviewer
+  description: Membaca perubahan dan melaporkan bug, yang terparah dulu
+  model: claude-haiku-5-5        # opsional: model di penyedia yang dipakai, atau penyedia:model
+  tools: read_file, grep, glob   # opsional: hanya tool ini yang didapat
+  ---
+  Kamu mereview kode. Laporkan yang salah, dengan file dan baris. Jangan memperbaiki apa pun.
+  ```
+
+  SEEKER diberi tahu agent apa saja yang ada dan menyerahkan pekerjaan lewat tool `task` ("minta reviewer melihat
+  perubahan ini"). Agent mulai dengan konteks kosong, perannya sebagai instruksi, dan hanya tool yang tercantum.
+  Tanpa `model`, ia jalan di tempat pembantu biasa jalan (`subagentModel`). File milik proyek boleh memilih model
+  tapi tidak boleh memilih penyedia lain; file yang terbaca seperti prompt injection tidak dimuat. `/agents`
+  menampilkan daftarnya.
+
 `/goal`, `/loop`, dan `/heartbeat` hidup bersama sesinya: berakhir saat kamu keluar.
 
 ## Sebagai backend aplikasi lain
