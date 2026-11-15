@@ -1273,9 +1273,10 @@ function metrics(meta) {
   return h(
     'div',
     { class: 'metrics' },
-    card('layers', 'CONTEXT', pct == null ? '—' : `${pct}%`, `${kilo(meta.used)} / ${sizeOf(meta.limit)}`, h('div', { class: 'track' }, h('div', { class: `fill${pct > 80 ? ' warning' : ''}`, style: `width:${pct ?? 0}%` }))),
+    card('layers', 'CONTEXT', pct == null ? '—' : `${pct}%`, `${big(meta.used)} / ${sizeOf(meta.limit)}`, h('div', { class: 'track' }, h('div', { class: `fill${pct > 80 ? ' warning' : ''}`, style: `width:${pct ?? 0}%` }))),
     // Counted by the provider. Before its first report there is nothing true to show.
-    card('cube', 'TOKENS', tokens ? kilo(tokens.totalInput + tokens.totalOutput) : '—', tokens ? `${kilo(tokens.totalInput)} in · ${kilo(tokens.totalOutput)} out` : 'not reported yet'),
+    // In and out each get a line: side by side they do not fit a third of a phone's width.
+    card('cube', 'TOKENS', tokens ? big(tokens.totalInput + tokens.totalOutput) : '—', tokens ? `${big(tokens.totalInput)} in` : 'not reported yet', tokens && h('div', { class: 'small' }, `${big(tokens.totalOutput)} out`)),
     card('bolt', 'TOOLS', t ? String(t.total) : '—', !t ? 'not reported' : t.running ? 'one running' : t.failed ? `${t.failed} failed` : t.total ? 'all succeeded' : 'none yet'),
   );
 }
@@ -1757,7 +1758,7 @@ function draw() {
     runStatus(ws, st);
     queuePanel(ws, up);
     composerState();
-    $('tokens').textContent = `${kilo(ws.meta.used)} / ${sizeOf(ws.meta.limit)}`;
+    $('tokens').textContent = `${big(ws.meta.used)} / ${sizeOf(ws.meta.limit)}`;
     $('input').placeholder = !up ? 'Not connected…' : st.busy ? (ws.meta.terminal ? 'Working… a picture can still be sent' : ws.meta.can?.queue ? 'Write the next instruction…' : 'Seeker is working…') : ws.meta.terminal ? 'Message, or just a picture…' : 'Message or command…';
     // Said aloud once per change, for a reader who cannot see the banner turn colour.
     const say = `${ws.meta.name}: ${st.label.toLowerCase()}`;
