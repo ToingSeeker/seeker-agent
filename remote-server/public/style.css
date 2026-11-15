@@ -257,33 +257,33 @@ code {
   letter-spacing: 0.42em;
   color: var(--sk-text-muted);
 }
-.avatar {
+/* The quick switcher: its own mark (two arrows), never the robot, with the number of running sessions on its corner. */
+.switch-btn {
   position: relative;
   width: 44px;
   height: 44px;
   flex: none;
-  border-radius: 50%;
+  padding: 10px;
   border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
   background: var(--sk-surface);
-  display: grid;
-  place-items: center;
-  font-weight: 700;
+  color: var(--sk-primary);
+  transition: background var(--sk-motion-fast);
 }
-.avatar i {
+.switch-btn:active {
+  background: var(--sk-surface-hover);
+}
+.switch-btn .count {
   position: absolute;
-  right: 1px;
-  bottom: 1px;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
+  top: -7px;
+  right: -7px;
+  box-sizing: border-box;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 4px;
   border: 2px solid var(--sk-bg);
-  background: var(--sk-text-secondary);
-}
-.avatar i.on {
-  background: var(--sk-success);
-}
-.avatar i.off {
-  background: var(--sk-danger);
+  border-radius: 11px;
+  line-height: 17px;
 }
 
 /* ── dots, chips, tags ── */
@@ -2410,6 +2410,210 @@ pre {
   border-radius: 2px;
   background: var(--sk-border);
 }
+/* ── the quick switcher sheet ── */
+.sheet-sub {
+  margin: -6px 0 12px;
+  font-size: 13.5px;
+  color: var(--sk-text-secondary);
+}
+.sw-chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+/* On a narrow phone the three counters keep their words and give up their icons. */
+@media (max-width: 360px) {
+  .sw-chips {
+    gap: 6px;
+  }
+  .sw-chip {
+    font-size: 12.5px;
+  }
+  .sw-chip .ico {
+    display: none;
+  }
+}
+.sw-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--sk-border);
+  border-radius: 9px;
+  font-size: 13px;
+  color: var(--sk-text-secondary);
+  white-space: nowrap;
+}
+.sw-chip .ico {
+  width: 15px;
+  height: 15px;
+  color: var(--sk-text-muted);
+}
+.sw-chip.execution {
+  color: var(--sk-text-primary);
+}
+.sw-chip.execution .ico {
+  color: var(--sk-execution);
+}
+.sw-chip.warning {
+  color: var(--sk-text-primary);
+}
+.sw-chip.warning .ico {
+  color: var(--sk-warning);
+}
+.sw-list {
+  background: var(--sk-bg-secondary);
+}
+.sw-row {
+  min-height: 60px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.sw-row .grow {
+  gap: 2px;
+}
+.sw-row .meta {
+  font: 12.5px/1.4 var(--sans);
+  color: var(--sk-text-secondary);
+}
+.sw-row .doing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--sk-text-secondary);
+}
+.sw-row .doing .ico {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  color: var(--sk-text-muted);
+}
+.pill.reasoning {
+  color: var(--sk-reasoning);
+}
+.sw-action {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  margin-top: 10px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  font-size: 14.5px;
+  transition: background var(--sk-motion-fast);
+}
+.sw-action:active {
+  background: var(--sk-surface-hover);
+}
+.sw-action .n {
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: 7px;
+  background: var(--sk-surface-elevated);
+  font: 600 12.5px/1.5 var(--mono);
+  text-align: center;
+  color: var(--sk-primary);
+}
+.sw-action:disabled .n {
+  color: var(--sk-text-secondary);
+}
+.sw-action.all {
+  border-color: color-mix(in srgb, var(--sk-primary) 60%, var(--sk-border));
+  color: var(--sk-primary);
+  font-weight: 600;
+}
+.sw-action.all .chev {
+  color: var(--sk-primary);
+}
+.sheet-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: -8px 0 4px -6px;
+  padding: 0 8px 0 2px;
+  font-size: 13.5px;
+  color: var(--sk-text-secondary);
+}
+.sheet-back .ico {
+  width: 18px;
+  height: 18px;
+}
+.q-group {
+  padding: 4px 0 8px;
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.q-group .head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+}
+.q-group .name {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  font-weight: 650;
+  font-size: 15px;
+  text-align: left;
+}
+.q-group .btn {
+  width: auto;
+  margin: 0;
+  padding: 0 12px;
+}
+.q-group .paused {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: var(--sk-warning);
+}
+.q-group ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.q-group li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+}
+.q-group li .n {
+  flex: none;
+  padding-top: 11px;
+  color: var(--sk-text-muted);
+  font-size: 12.5px;
+}
+.q-group li .text {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.q-group li .x {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 13px;
+  color: var(--sk-text-secondary);
+}
+@media (hover: hover) {
+  .switch-btn:hover,
+  .sw-action:not(:disabled):hover {
+    background: var(--sk-surface-hover);
+  }
+}
+
 /* The title stays put while a long list scrolls under it, so the sheet reads as one scrolling panel. */
 #sheet h3 {
   position: sticky;

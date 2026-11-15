@@ -101,3 +101,54 @@ test('sessions: times are said the way people say them', () => {
   assert.equal(since(NOW - 30 * 60 * MIN, NOW), 'Yesterday');
   assert.equal(since(NOW - 3 * 24 * 60 * MIN, NOW), '3d ago');
 });
+
+// ── the quick switcher ──
+import { SWITCH_LIMIT, queues, switcher } from '../remote-server/public/sessions.js';
+
+const queued = (...texts) => ({ items: texts.map((text, i) => ({ id: `q${i}`, text, at: NOW })), paused: null });
+
+test('switcher: what needs the user comes first, then what runs, then what waits', () => {
+  const list = [
+    ws('i1', 'idle-one'),
+    ws('c1', 'done-old', { outcome: 'completed', lastAt: NOW - 600 * MIN }),
+    ws('c2', 'done-new', { outcome: 'completed', lastAt: NOW - MIN }),
+    ws('f1', 'failed', { outcome: 'failed', lastAt: NOW - 2 * MIN }),
+    ws('q1', 'waiting', { outcome: 'stopped', lastAt: NOW - 3 * MIN }, [], { ...queued('next thing'), paused: 'stopped' }),
+    ws('r1', 'runner', { status: 'working', phase: 'executing', activity: 'Running  npm test', lastAt: NOW - 30 * MIN, branch: 'feat/x', provider: 'Claude Code' }, [], queued('after this', 'and this')),
+    ws('t1', 'thinker', { status: 'working', phase: 'thinking', lastAt: NOW }),
+    ws('a1', 'asker', { status: 'approval', lastAt: NOW - 300 * MIN }),
+  ];
+  const model = switcher(list);
+  assert.deepEqual(model.rows.map((r) => r.name), ['asker', 'thinker', 'runner', 'waiting', 'done-new', 'done-old', 'failed', 'idle-one']);
+  assert.deepEqual([model.sessions, model.running, model.queued, model.more], [8, 2, 3, 0], 'two execute; three instructions wait; the approval is not counted as running');
+  const row = (name) => model.rows.find((r) => r.name === name);
+  assert.deepEqual([row('runner').label, row('runner').tone, row('runner').doing, row('runner').waiting], ['Running', 'execution', 'Running npm test', 2], 'a running session stays Running, with its queue beside it');
+  assert.deepEqual([row('thinker').label, row('thinker').tone], ['Thinking', 'reasoning']);
+  assert.deepEqual([row('asker').label, row('waiting').label, row('waiting').waiting], ['Approval needed', 'Queued', 1]);
+  assert.deepEqual(switcher([...list].reverse()).rows.map((r) => r.id), model.rows.map((r) => r.id), 'the same order however they arrive');
+});
+
+test('switcher: without the Mac nothing is called running', () => {
+  const list = [ws('r1', 'runner', { status: 'working', activity: 'Running tests', lastAt: NOW }), ws('a1', 'asker', { status: 'approval', lastAt: NOW }), ws('c1', 'done', { outcome: 'completed', lastAt: NOW })];
+  const model = switcher(list, { up: false });
+  assert.equal(model.running, 0, 'the badge does not show a count that cannot be confirmed');
+  assert.deepEqual(model.rows.map((r) => [r.name, r.label, r.live, r.doing]), [['asker', 'Disconnected', false, ''], ['runner', 'Disconnected', false, ''], ['done', 'Completed', false, '']], 'what had ended is still known');
+});
+
+test('switcher: two sessions in one folder stay two, and a long list is cut with a count', () => {
+  const twins = [ws('aaa', 'seeker', { lastAt: NOW }), ws('bbb', 'seeker', { lastAt: NOW, terminal: true })];
+  assert.deepEqual(switcher(twins).rows.map((r) => [r.id, r.terminal]), [['aaa', false], ['bbb', true]]);
+  const many = Array.from({ length: 30 }, (_, i) => ws(`id${i}`, `p${i}`, { lastAt: NOW - i * MIN, outcome: 'completed' }));
+  const model = switcher(many);
+  assert.deepEqual([model.rows.length, model.more, model.sessions], [SWITCH_LIMIT, 30 - SWITCH_LIMIT, 30]);
+  assert.deepEqual(switcher([]), { rows: [], more: 0, sessions: 0, running: 0, queued: 0 });
+});
+
+test('switcher: the waiting instructions are listed by session', () => {
+  const list = [ws('b', 'zeta', { status: 'working' }, [], queued('one', 'two')), ws('a', 'alpha', {}, [], { ...queued('three'), paused: 'failed' }), ws('c', 'empty')];
+  assert.deepEqual(queues(list), [
+    { id: 'a', name: 'alpha', paused: 'failed', busy: false, items: [{ id: 'q0', text: 'three' }] },
+    { id: 'b', name: 'zeta', paused: null, busy: true, items: [{ id: 'q0', text: 'one' }, { id: 'q1', text: 'two' }] },
+  ]);
+  assert.deepEqual(queues([{ meta: { id: 'x', name: 'x', status: 'idle' } }]), [], 'a daemon that sends no queue');
+});
