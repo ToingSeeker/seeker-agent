@@ -2,6 +2,7 @@
 // layer keys off: 'read' runs freely, 'write' / 'exec' / 'net' need approval.
 import { spawn, spawnSync } from 'node:child_process';
 import { hunkRows } from './hunks.mjs';
+import { SANDBOX_HINT, blockedBySandbox, shellCommand } from './sandbox.mjs';
 import fs from 'node:fs';
 import dns from 'node:dns';
 import fsp from 'node:fs/promises';
@@ -197,10 +198,11 @@ const TODO_MARK = { pending: '☐', in_progress: '◐', completed: '☑' };
 const processes = new Map();
 let processCount = 0;
 
-function startBackground(command, cwd) {
+function startBackground(command, cwd, sandbox = null) {
   const id = `p${++processCount}`;
   const env = { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0' };
-  const child = spawn(process.env.SHELL || '/bin/sh', ['-c', command], { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const start = shellCommand(process.env.SHELL || '/bin/sh', command, cwd, sandbox);
+  const child = spawn(start.cmd, start.argv, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const entry = { id, command, child, output: '', read: 0, done: false, code: null };
   const collect = (data) => {
     entry.output += data;
@@ -502,10 +504,16 @@ export const TOOLS = [
     },
     verbs: ['Running', 'Ran'],
     summary: (a) => `${a.command}${a.background === true || a.background === 'true' ? '  (background)' : ''}`,
-    async run(args, { cwd, signal }) {
+    async run(args, { cwd, signal, sandbox = null }) {
       if (typeof args.command !== 'string' || !args.command.trim()) throw new ToolError('"command" is required');
+      let start;
+      try {
+        start = shellCommand(process.env.SHELL || '/bin/sh', args.command, cwd, sandbox);
+      } catch (err) {
+        throw new ToolError(err.message);
+      }
       if (args.background === true || args.background === 'true') {
-        const entry = startBackground(args.command, cwd);
+        const entry = startBackground(args.command, cwd, sandbox);
         // A moment to see whether it starts at all.
         await new Promise((resolve) => setTimeout(resolve, 1500));
         const first = entry.output.trimEnd();
@@ -519,8 +527,7 @@ export const TOOLS = [
       }
       const seconds = Math.min(600, Math.max(1, Number(args.timeout) || 120));
       const env = { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0', CI: '1' };
-      const shell = process.env.SHELL || '/bin/sh';
-      const r = await runProcess(shell, ['-c', args.command], { cwd, signal, timeoutMs: seconds * 1000, env });
+      const r = await runProcess(start.cmd, start.argv, { cwd, signal, timeoutMs: seconds * 1000, env });
       if (r.error) throw new ToolError(`Could not start the shell: ${r.error.message}`);
       const body = r.output.trimEnd();
       let out = body || '(no output)';
@@ -533,6 +540,7 @@ export const TOOLS = [
         note = 'interrupted';
       } else if (r.code !== 0) {
         out += `\n\n[exit code ${r.code}]`;
+        if (start.sandboxed && blockedBySandbox(body)) out += `\n${SANDBOX_HINT}`;
         note = `exit ${r.code}`;
       }
       return { output: out, note, display: body };

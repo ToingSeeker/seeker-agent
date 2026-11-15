@@ -30,6 +30,7 @@ export const COMMANDS = [
   ['/clear', 'Start a new conversation'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/status', 'Show model and context usage'],
+  ['/sandbox', 'Run shell commands in a sandbox that writes only in the project (macOS): on · off'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
   ['/context', 'What fills the context: instructions, tools, messages, tool results'],
   ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
@@ -302,6 +303,7 @@ export async function runCommand(input, ctx) {
         ui.line(`  ${c.dim('fallback')} ${chain.length ? chain.map((f) => `${f.model} via ${f.provider}`).join(' → ') : c.dim('none — add "fallback" to ~/.seeker/config.json')}`);
         if (agent.primary) ui.line(`  ${c.dim('        ')} ${c.yellow(`standing in for ${agent.primary.model} via ${agent.primary.provider.label}`)}`);
         ui.line(`  ${c.dim('undo    ')} ${config.checkpoints === false ? 'checkpoints off' : 'checkpoints on (/rollback)'}`);
+        ui.line(`  ${c.dim('sandbox ')} ${config.sandbox ? 'on: shell commands write only in the project' : 'off'}`);
       }
       return;
     }
@@ -311,6 +313,24 @@ export async function runCommand(input, ctx) {
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
       return;
+
+    case 'sandbox': {
+      const { sandboxAvailable, writablePlaces } = await import('./sandbox.mjs');
+      const word = (rest[0] ?? '').toLowerCase();
+      if (word === 'on' || word === 'off') {
+        if (word === 'on' && !sandboxAvailable()) return ui.warn('  The sandbox needs macOS; on this machine shell commands cannot be sandboxed.');
+        await apply('sandbox', word === 'on');
+        return ui.notice(word === 'on' ? '  Sandbox on: shell commands write only in the project, the temporary folders and the package caches. Approvals are asked as before.' : '  Sandbox off: shell commands run with your own access.');
+      }
+      if (word) return ui.warn('  /sandbox on | off');
+      ui.line(`  ${c.dim('sandbox')} ${config.sandbox ? 'on' : 'off'}${sandboxAvailable() ? '' : c.yellow(' — not available on this machine (needs macOS)')}`);
+      if (config.sandbox && sandboxAvailable()) {
+        ui.line(`  ${c.dim('network')} ${config.sandboxNetwork === false ? 'cut off' : 'allowed'}`);
+        ui.line(`  ${c.dim('writes ')} ${writablePlaces(agent.cwd, { write: config.sandboxWrite ?? [] }).join('\n          ')}`);
+      }
+      ui.line(`  ${c.dim('It covers the shell commands SEEKER starts — not the tools of a provider that runs its own (Claude Code), and not your own !commands.')}`);
+      return;
+    }
 
     case 'effort': {
       const levels = agent.info?.effort ?? [];
@@ -678,7 +698,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).

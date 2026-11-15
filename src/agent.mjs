@@ -667,6 +667,8 @@ export class Agent {
       signal,
       state: this.state,
       skills: this.skills,
+      // Shell commands run under the sandbox when it is switched on (macOS).
+      sandbox: this.config.sandbox ? { write: this.config.sandboxWrite ?? [], network: this.config.sandboxNetwork !== false } : null,
       vision: this.caps.vision,
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
       delegate: this.withheld.has('task') ? null : (prompt, label) => this.#delegate(prompt, label),

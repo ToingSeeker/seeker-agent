@@ -13,6 +13,7 @@ const healthy = (over = {}) => ({
   get: async (url) => (url.endsWith('/api/tags') ? { ok: true, status: 200, json: { models: [{ name: DEFAULTS.model }] } } : { ok: true, status: 200, json: null }),
   listening: async () => true,
   resolves: () => true,
+  sandbox: () => true,
   ...over,
 });
 const run = (config = {}, probes = {}) => diagnose({ config: { ...DEFAULTS, ...config }, probes: healthy(probes), files });
@@ -47,6 +48,9 @@ test('doctor: each problem is named with what to do about it', async () => {
   assert.equal(find(await run({ provider: 'nope' }), 'Provider').level, 'fail');
   assert.match(find(await run({ fallback: [{ provider: 'typo', model: 'x' }] }), 'Backup models').detail, /unknown provider in "fallback": typo/);
 
+  assert.equal(find(await run({ sandbox: true }), 'Sandbox').level, 'ok');
+  assert.equal(find(await run({ sandbox: true }, { sandbox: () => false }), 'Sandbox').level, 'fail', 'on where there is none: commands would be refused');
+  assert.equal(find(await run(), 'Sandbox'), undefined);
   const noRemote = await run();
   assert.deepEqual([find(noRemote, 'Remote').level, find(noRemote, 'Relay')], ['info', undefined]);
   const relayDown = await run({ remote: { url: 'https://relay.example', secret: 's' } }, { get: async (url) => (url.includes('relay') ? { ok: false, status: 502 } : { ok: true, status: 200, json: { models: [{ name: DEFAULTS.model }] } }), listening: async () => false });
