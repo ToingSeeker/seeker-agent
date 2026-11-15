@@ -470,8 +470,11 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   sesi yang terbuka (atau dikirim ke HP oleh `seeker remote`). Job berjalan selama SEEKER terbuka; supaya tetap jalan
   tanpa SEEKER terbuka, suruh penjadwal sistem memanggil `seeker cron tick` tiap menit. `/cron` untuk melihat,
   menjeda, dan menghapusnya.
-- **Beberapa pembantu sekaligus.** Tool `task` bisa menjalankan sampai tiga agen pembantu berdampingan, masing-masing
-  dengan pekerjaannya sendiri; pertanyaan izin diajukan satu per satu. `/config subagentModel <model>` menjalankannya
+- **Beberapa pembantu sekaligus.** Tool `task` bisa membagikan sampai 20 pekerjaan dalam satu panggilan, masing-masing
+  ke satu agen pembantu dengan konteksnya sendiri. `/config maxHelpers <n>` menentukan berapa yang jalan berdampingan
+  (1 sampai 20, bawaan 20); sisanya menunggu giliran, dan laporannya kembali sesuai urutan pekerjaan diberikan.
+  Pertanyaan izin diajukan satu per satu. Tiap pembantu mengisi konteksnya sendiri, jadi dua puluh pembantu memakan
+  kira-kira dua puluh kali biaya satu: turunkan `maxHelpers` untuk model lokal atau penyedia dengan batas laju ketat. `/config subagentModel <model>` menjalankannya
   di model yang lebih murah daripada percakapan.
 
 - **Agent buatan sendiri.** Pembantu bisa diberi peran, dan kalau mau model serta daftar tool sendiri, lewat sebuah

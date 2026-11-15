@@ -224,8 +224,10 @@ test('several helpers run side by side and each report comes back', async () => 
   for (const withheld of ['task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']) assert.ok(!helperTools.includes(withheld), withheld);
   assert.equal(agent.helpers.size, 0);
 
-  const tooMany = await TOOL_BY_NAME.get('task').run({ tasks: [1, 2, 3, 4].map((n) => ({ prompt: `job ${n}` })) }, { delegateMany: async () => [] }).catch((e) => e.message);
-  assert.match(tooMany, /At most 3 helpers/);
+  const tooMany = await TOOL_BY_NAME.get('task').run({ tasks: Array.from({ length: 21 }, (_, n) => ({ prompt: `job ${n}` })) }, { delegateMany: async () => [] }).catch((e) => e.message);
+  assert.match(tooMany, /At most 20 helpers can be given work in one call; 21 were asked for/);
+  const twenty = await TOOL_BY_NAME.get('task').run({ tasks: Array.from({ length: 20 }, (_, n) => ({ prompt: `job ${n}` })) }, { delegateMany: async (jobs) => jobs.map((j) => ({ description: j.description, status: 'completed', report: 'ok' })) });
+  assert.equal(twenty.note, '20/20 completed');
 });
 
 test('@ references are expanded only when the caller says the user typed the text', async () => {
