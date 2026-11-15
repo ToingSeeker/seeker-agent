@@ -46,6 +46,13 @@ Esc closes the list. Typing narrows it (`/rev` also finds `/code-review`). Alt+E
 open, ↑↓ walk through earlier messages.
 The robot in the header blinks and looks around; `/config` → `animation` turns that off.
 
+SEEKER fills the terminal window like an app: the header stays at the top and the message box at the bottom
+while the conversation scrolls between them. Scroll with the mouse wheel or PageUp and PageDown; while you are
+reading further up, new output does not move the view, and the bar under the message box says how much is
+below. Sending a message, or a question from SEEKER, brings you back to the end. To select text with the
+mouse, hold Shift (Option in Terminal and iTerm2) while you drag. When SEEKER quits, the conversation is
+printed to the terminal, where its own scrollback keeps it.
+
 ## Images
 
 Name an image file in your message and the model sees the image, not just its path:
@@ -675,7 +682,7 @@ plain Node.
 | `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone |
 | `src/transfer.mjs` | whole files between the phone and the Mac: encrypted pieces through the relay, the inbox, the files an answer offers for download |
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
-| `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
+| `src/screen.mjs`, `src/input.mjs` | full-screen layout on the alternate screen (header pinned on top, input box at the bottom, the conversation scrolled inside SEEKER) and the input editor |
 
 What changed from version to version is in [CHANGELOG.md](CHANGELOG.md).
 

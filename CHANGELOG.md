@@ -4,6 +4,12 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **The terminal interface keeps its header and message box in place while you scroll.** It now runs on
+  the alternate screen and scrolls the conversation itself (mouse wheel, PageUp, PageDown); before, scrolling
+  the terminal back moved the header and the message box down with everything else. Selecting text takes
+  Shift (Option in Terminal and iTerm2) while dragging. When SEEKER quits, the conversation is printed to the
+  terminal for its scrollback.
+
 - **A skill with a list to choose from offers it to tick.** `/effects` with nothing after it shows its
   effects as a list: tick with Space in the terminal (Ctrl+A for all, type to filter), or in a sheet on the
   phone. What is ticked becomes the skill's arguments.
