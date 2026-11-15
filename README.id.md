@@ -14,7 +14,21 @@ lewat `/model` bisa juga memakai server lokal lain atau model cloud. Node murni,
 
 </details>
 
-<sub>Diambil dari antarmuka aslinya di proyek contoh; jawaban model pada tangkapan ini memakai naskah.</sub>
+<details>
+<summary>Daftar perintah di balik <code>/</code></summary>
+
+![Daftar perintah dan skill, satu sedang disorot](docs/tui-commands.png)
+
+</details>
+
+<details>
+<summary>Aplikasi di HP (<code>seeker remote</code>)</summary>
+
+![Aplikasi di HP: Home, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
+
+</details>
+
+<sub>Diambil dari antarmuka aslinya. Proyek-proyeknya dibuat untuk gambar ini dan jawaban modelnya memakai naskah.</sub>
 
 ```
 seeker                       # sesi interaktif di folder ini
@@ -83,6 +97,8 @@ diringkas. Lebih cepat dari itu justru lebih mahal: percakapan yang diubah dibac
 dari titik perubahannya. Tinjauan setelah menjawab hanya membaca bagian terbaru percakapan, yang dipendekkan.
 
 ## Remote control dari HP
+
+![Aplikasi di HP: Home, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
 
 `seeker remote` menjalankan agent di Mac dan menghubungkannya ke relay (`remote-server/`, di-deploy ke Railway).
 HP membuka aplikasi web di alamat relay itu.
