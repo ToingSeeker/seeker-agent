@@ -170,6 +170,7 @@ test('Claude provider: streams through the SDK, asks for summarised thinking and
   assert.match(`${sent.headers['x-api-key']} ${sent.headers.authorization}`, /sk-ant-test/);
   assert.match(sent.headers['anthropic-beta'], /server-side-fallback-2026-07-01/);
   assert.equal(sent.body.fallbacks, 'default');
+  assert.deepEqual(sent.body.cache_control, { type: 'ephemeral', ttl: '1h' }, 'the cached conversation survives a pause');
   assert.deepEqual(sent.body.thinking, { type: 'adaptive', display: 'summarized' });
   assert.equal(sent.body.max_tokens, 64000);
   assert.equal(sent.body.system, 'SYS');
@@ -326,4 +327,51 @@ test('permissions: a provider tool with no specific rule is asked about, then al
   assert.ok((await perms.check(tool, {})).ok);
   assert.equal(asked, 1);
   assert.equal((await new Permissions({ mode: 'ask', cwd: '/w', ask: null }).check(tool, {})).ok, false);
+});
+
+test('Claude provider: reasoning refused after a changed history is left out and the request sent once more; cacheTtl 5m is honoured', async () => {
+  const meta = { id: 'claude-haiku-4-5', type: 'model', max_input_tokens: 200000, max_tokens: 64000, capabilities: { thinking: { supported: true, types: { adaptive: { supported: false } } } } };
+  const refused = { type: 'error', error: { type: 'invalid_request_error', message: 'messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block.' } };
+  let posts = 0;
+  const fake = await server((req, res) => {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(meta));
+    }
+    if (++posts % 2 === 1) {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify(refused));
+    }
+    sse(res, [
+      { type: 'message_start', message: { id: 'm', type: 'message', role: 'assistant', model: meta.id, content: [], stop_reason: null, usage: { input_tokens: 1, output_tokens: 0 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } },
+      { type: 'message_stop' },
+    ]);
+  });
+  const messages = [
+    { role: 'user', content: 'hi' },
+    { role: 'assistant', content: 'hello', blocks: [{ type: 'thinking', thinking: '', signature: 'old' }, { type: 'text', text: 'hello' }] },
+    { role: 'user', content: 'again' },
+  ];
+  const provider = createProvider('anthropic', { ...DEFAULTS, cacheTtl: '5m', providers: { anthropic: { apiKey: 'k', baseUrl: fake.url } } });
+  const chunks = await collect(provider.chat({ model: 'claude-haiku-4-5', system: 's', messages }));
+  assert.equal(chunks[0].message.content, 'ok');
+  const [first, second] = fake.requests.filter((r) => r.method === 'POST' || r.body?.messages);
+  assert.deepEqual(first.body.messages[1].content.map((b) => b.type), ['thinking', 'text']);
+  assert.deepEqual(second.body.messages[1].content.map((b) => b.type), ['text'], 'sent again without the reasoning');
+  assert.deepEqual(second.body.cache_control, { type: 'ephemeral' });
+  // It is tried once: a request that is still refused is an error, not a loop.
+  posts = 2;
+  const stubborn = await server((req, res) => {
+    if (req.method === 'GET') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(meta));
+    res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify(refused));
+  });
+  const other = createProvider('anthropic', { ...DEFAULTS, providers: { anthropic: { apiKey: 'k', baseUrl: stubborn.url } } });
+  await assert.rejects(collect(other.chat({ model: 'claude-haiku-4-5', system: 's', messages })), /Invalid `signature`|different conversation/);
+  assert.equal(stubborn.requests.filter((r) => r.body?.messages).length, 2);
+  fake.close();
+  stubborn.close();
 });

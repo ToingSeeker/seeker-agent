@@ -61,6 +61,25 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
 Yang masuk ke system prompt hanya indeksnya, paling banyak 20% dari context window. Kalau indeks tidak muat (model lokal
 dengan konteks kecil), SEEKER diberi tahu letak file indeksnya dan mencarinya dengan grep saat perlu.
 
+### Menekan biaya sesi panjang
+
+Setiap langkah mengirim seluruh percakapan ke model lagi, jadi sesi yang panjang dibayar berkali-kali. Saat
+percakapan mencapai 80% jendela konteks, atau 300.000 token kalau itu lebih dulu, percakapan diringkas; bagian
+terbaru dan permintaanmu disimpan kata demi kata. Ubah pengaturan ini dengan `/config <nama> <nilai>`:
+
+- `compactAt` (300000) — ringkas pada jumlah token ini walau jendela modelnya lebih besar. `0` menunggu sampai
+  jendela hampir penuh.
+- `subagentModel` (kosong) — model untuk agen pembantu (tool `task`) dan tinjauan setelah menjawab: model dari
+  penyedia yang sedang dipakai (`claude-haiku-5-5`), atau `penyedia:model`. Kosong, atau `same`: model
+  percakapan.
+- `cacheTtl` (`1h`) — berapa lama Anthropic menyimpan cache percakapan di antara permintaan: `5m` atau `1h`,
+  hanya dua itu yang tersedia. Satu jam lebih mahal saat ditulis dan bertahan melewati jeda — membaca jawaban,
+  izin yang menunggumu. `5m` lebih murah kalau kamu tidak pernah berhenti lebih lama dari itu.
+
+Gambar dari giliran sebelumnya dikeluarkan dari percakapan setelah cache habis, atau saat percakapan
+diringkas. Lebih cepat dari itu justru lebih mahal: percakapan yang diubah dibaca dengan harga penuh mulai
+dari titik perubahannya. Tinjauan setelah menjawab hanya membaca bagian terbaru percakapan, yang dipendekkan.
+
 ## Remote control dari HP
 
 `seeker remote` menjalankan agent di Mac dan menghubungkannya ke relay (`remote-server/`, di-deploy ke Railway).
@@ -331,7 +350,8 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   tanpa SEEKER terbuka, suruh penjadwal sistem memanggil `seeker cron tick` tiap menit. `/cron` untuk melihat,
   menjeda, dan menghapusnya.
 - **Beberapa pembantu sekaligus.** Tool `task` bisa menjalankan sampai tiga agen pembantu berdampingan, masing-masing
-  dengan pekerjaannya sendiri; pertanyaan izin diajukan satu per satu.
+  dengan pekerjaannya sendiri; pertanyaan izin diajukan satu per satu. `/config subagentModel <model>` menjalankannya
+  di model yang lebih murah daripada percakapan.
 
 `/goal`, `/loop`, dan `/heartbeat` hidup bersama sesinya: berakhir saat kamu keluar.
 

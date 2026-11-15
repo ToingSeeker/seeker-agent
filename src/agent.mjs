@@ -6,7 +6,7 @@ import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
 import { decide, fallbackChain, reasonText } from './failover.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
-import { createProvider, keyPool } from './providers.mjs';
+import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
 import { recordUsage } from './usage.mjs';
 import { MAX_IMAGES_PER_MESSAGE, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
@@ -20,6 +20,8 @@ const KEEP_RECENT = 0.3;
 const SUMMARY_FILL = 0.7;
 // A turn that needs summarising this often is working on more than the context can hold.
 const MAX_COMPACTIONS_PER_TURN = 3;
+// How long a provider keeps a conversation cached when it does not say (most keep it about this long).
+const CACHE_MINUTES = 5;
 // Below this many tokens of context (and always on a local model), tools with a short description send that one.
 const COMPACT_TOOLS_BELOW = 64_000;
 
@@ -30,6 +32,8 @@ export const MAX_PARALLEL_HELPERS = 3;
 const MEMORY_REVIEW_EVERY_TURNS = 10;
 const SKILL_REVIEW_EVERY_STEPS = 10;
 const REVIEW_STEPS = 16;
+// The most of the conversation a review reads. It is sent in a form no cache holds, at full price.
+const REVIEW_REPLAY_TOKENS = 24_000;
 const REVIEW_TOOLS = new Set(['memory', 'skill_manage', 'skill', 'read_file', 'grep', 'glob']);
 // A message naming one of these has material to attach (see references.mjs).
 const HAS_REFERENCE = /(?<![\w/@])@(?:diff\b|staged\b|file:|folder:|git:|url:)/;
@@ -219,7 +223,8 @@ export class Agent {
     const budget = Math.max(2000, this.contextLimit() * SUMMARY_FILL * CHARS_PER_TOKEN - this.system.length - promptChars);
     const size = (list) => list.reduce((n, m) => n + JSON.stringify(m).length, 0);
     // A summary is text about text; the pictures themselves are not sent along.
-    messages = messages.map((m) => withoutImages(m, 'was shown here'));
+    // Nor is the model's replayed reasoning: it is only accepted in the conversation as it was.
+    messages = messages.map(({ blocks, ...m }) => withoutImages(m, 'was shown here'));
     if (size(messages) <= budget) return messages;
     // Tool output is the bulk; each result keeps its start and end.
     const results = messages.filter((m) => m.role === 'tool').length || 1;
@@ -239,12 +244,74 @@ export class Agent {
     return fitted;
   }
 
+  /** The size at which the conversation is summarised: most of the window, or the `compactAt` setting if that is less. */
+  compactCeiling() {
+    const full = this.contextLimit() * COMPACT_AT;
+    const set = Number(this.config.compactAt);
+    return set > 0 ? Math.min(full, set) : full;
+  }
+
+  /** Whether the provider's cache of this conversation has run out (or was never written). */
+  #cacheCold(now = Date.now()) {
+    const minutes = this.provider.kind === 'anthropic' ? (this.config.cacheTtl === '5m' ? 5 : 60) : CACHE_MINUTES;
+    return !this.lastRequestAt || now - this.lastRequestAt > minutes * 60_000;
+  }
+
+  /**
+   * Takes the pictures of earlier turns out of the history: a screenshot that was looked at and
+   * acted on is otherwise sent again with every step. Done only when the provider's cache has run
+   * out anyway — changing the history while it is cached would make the provider read all that
+   * follows at full price, which costs more than the pictures do.
+   * @returns {number} how many pictures were removed
+   */
+  dropPastImages({ force = false } = {}) {
+    const first = this.messages.findIndex((m) => m.images?.length);
+    if (first < 0 || (!force && !this.#cacheCold())) return 0;
+    let removed = 0;
+    this.messages = this.messages.map((m, i) => {
+      if (i < first) return m;
+      removed += m.images?.length ?? 0;
+      const plain = withoutImages(m, 'removed after its turn to save context');
+      if (!plain.blocks) return plain;
+      // Reasoning written after a changed message is not accepted back; the text and tool calls are.
+      const blocks = plain.blocks.filter((b) => b?.type !== 'thinking' && b?.type !== 'redacted_thinking');
+      const { blocks: _, ...rest } = plain;
+      return blocks.length ? { ...rest, blocks } : rest;
+    });
+    return removed;
+  }
+
+  /**
+   * The model helper agents and the review run on: the `subagentModel` setting, or the
+   * conversation's own. A setting that cannot be used is reported once and the own model is used.
+   */
+  async #helperTarget() {
+    const own = { provider: this.provider, model: this.model, info: this.info };
+    const wanted = String(this.config.subagentModel ?? '').trim();
+    if (!wanted) return own;
+    const key = `${this.provider.id}\n${wanted}`;
+    if (this.helperTarget?.key === key) return this.helperTarget.target;
+    let target = own;
+    try {
+      const split = wanted.indexOf(':');
+      const named = split > 0 && providerDefs(this.config).some((p) => p.id === wanted.slice(0, split));
+      const provider = named ? createProvider(wanted.slice(0, split), this.config) : this.provider;
+      const model = named ? wanted.slice(split + 1) : wanted;
+      if (provider.id !== this.provider.id || model !== this.model) target = { provider, model, info: await provider.describe(model) };
+    } catch (err) {
+      this.ui.warn(`  ⚠ subagentModel "${wanted}" cannot be used (${String(err.message ?? err).split('\n')[0]}); helpers run on ${this.model}.`);
+    }
+    this.helperTarget = { key, target };
+    return target;
+  }
+
   /** Tokens in play for the next request: the model's own count, or our estimate if history grew since. */
   contextTokens() {
     return Math.max(this.usedTokens, this.#estimateTokens());
   }
 
   #request(messages, { tools, think, signal }) {
+    this.lastRequestAt = Date.now();
     return this.provider.chat({
       model: this.model,
       system: this.system,
@@ -444,7 +511,8 @@ export class Agent {
 
   /**
    * Runs a helper agent on `prompt` and returns its final report. The helper has
-   * its own empty conversation and the same model, tools and approval rules; its
+   * its own empty conversation and the same tools and approval rules (and model, unless
+   * `subagentModel` names another); its
    * steps appear in the tree, its thinking and answer text do not.
    */
   async #delegate(prompt, label) {
@@ -462,7 +530,8 @@ export class Agent {
         },
       },
     );
-    const helper = new Agent({ config: { ...this.config, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: this.provider, info: this.info, cwd: this.cwd });
+    const on = await this.#helperTarget();
+    const helper = new Agent({ config: { ...this.config, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: on.provider, info: on.info, cwd: this.cwd });
     helper.extraTools = this.extraTools;
     // A helper never gets a tool its parent was denied (API server, scheduled job), and does not write memory, skills or jobs.
     helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
@@ -493,6 +562,7 @@ export class Agent {
     const { ui } = this;
     ui.toolOpen();
     let queue = Promise.resolve();
+    const on = await this.#helperTarget();
     const run = async (task, index) => {
       const tag = `helper ${index + 1}`;
       const quiet = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? ui.c : key === 'error' || key === 'warn' ? (text) => ui.toolLine(ui.c.dim(`${tag}: ${String(text).trim()}`)) : () => {}) });
@@ -509,7 +579,7 @@ export class Agent {
           return asked;
         },
       };
-      const helper = new Agent({ config: { ...this.config, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: this.provider, info: this.info, cwd: this.cwd });
+      const helper = new Agent({ config: { ...this.config, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: on.provider, info: on.info, cwd: this.cwd });
       helper.extraTools = this.extraTools;
       helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
       helper.parent = this;
@@ -648,18 +718,17 @@ export class Agent {
     const mayLearn = (name) => Boolean(this.permissions.mayLearn?.(name));
     if (!(memory && mayLearn('memory')) && !(skills && mayLearn('skill_manage'))) return;
     const unattended = { check: async (tool) => (tool.risk === 'read' || mayLearn(tool.name) ? { ok: true } : { ok: false, reason: 'Not allowed in an unattended review.' }) };
-    const { reviewPrompt, reviewOutcome } = await import('./review.mjs');
+    const { reviewPrompt, reviewOutcome, reviewReplay } = await import('./review.mjs');
+    const on = await this.#helperTarget();
     const silent = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? this.ui.c : () => {}) });
-    const helper = new Agent({ config: { ...this.config, maxSteps: REVIEW_STEPS, checkpoints: false }, ui: silent, permissions: unattended, provider: this.provider, info: this.info, cwd: this.cwd });
+    const helper = new Agent({ config: { ...this.config, model: on.model, maxSteps: REVIEW_STEPS, checkpoints: false }, ui: silent, permissions: unattended, provider: on.provider, info: on.info, cwd: this.cwd });
     helper.review = true;
     helper.parent = this;
-    helper.system = this.system; // the same prompt, so a provider's cache of it is reused
+    if (on.model === this.model) helper.system = this.system;
     helper.withheld = new Set(TOOLS.map((t) => t.name).filter((name) => !REVIEW_TOOLS.has(name) || (name === 'memory' && !(memory && mayLearn('memory'))) || (name === 'skill_manage' && !mayLearn('skill_manage'))));
-    // The conversation as it stands, without pictures; a long one is replayed from its recent part only.
-    let replay = this.messages.map(({ blocks, ...m }) => withoutImages(m, 'was shown here'));
-    const room = this.contextLimit() * 0.5 * CHARS_PER_TOKEN;
-    while (replay.length > 2 && replay.reduce((n, m) => n + messageChars(m), 0) > room) replay = replay.slice(1);
-    while (replay.length && replay[0].role !== 'user') replay = replay.slice(1);
+    // The recent part of the conversation, without pictures or replayed reasoning and with long tool
+    // output cut short: a review is sent apart from the conversation's cache, so its size is its price.
+    const replay = reviewReplay(this.messages, Math.min(REVIEW_REPLAY_TOKENS, helper.contextLimit() * 0.5) * CHARS_PER_TOKEN);
     if (!replay.length) return;
     helper.messages = replay;
     const before = replay.length;
@@ -695,7 +764,7 @@ export class Agent {
     const controller = this.controller ?? new AbortController();
 
     // The newest messages stay as they are; only what came before them is summarised.
-    const room = this.contextLimit() * KEEP_RECENT * CHARS_PER_TOKEN;
+    const room = (this.compactCeiling() / COMPACT_AT) * KEEP_RECENT * CHARS_PER_TOKEN;
     let cut = this.messages.length;
     let size = 0;
     while (cut > 0 && size + messageChars(this.messages[cut - 1]) <= room) size += messageChars(this.messages[--cut]);
@@ -703,7 +772,9 @@ export class Agent {
     while (cut < this.messages.length && this.messages[cut].role === 'tool') cut++;
     if (cut < 2) cut = this.messages.length; // nothing worth summarising would be left out — summarise it all
     const older = this.messages.slice(0, cut);
-    const recent = this.messages.slice(cut).map(({ blocks, ...message }) => message); // replayed reasoning is only valid in an unedited history
+    // Replayed reasoning is only valid in an unedited history, and pictures of turns that are over are not carried across.
+    const current = this.messages.findLastIndex((m) => m.role === 'user');
+    const recent = this.messages.slice(cut).map(({ blocks, ...message }, i) => (cut + i < current ? withoutImages(message, 'removed after its turn to save context') : message));
 
     // The newest real request; after an earlier summary it is the one that summary carried along.
     const latest = [...this.messages].reverse().find((m) => m.role === 'user');
@@ -798,6 +869,7 @@ export class Agent {
     }
     if (references && HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
     this.#attachImages(message, sent);
+    if (!this.review) this.dropPastImages();
     if (this.newSkills.length && !this.provider.ownTools) {
       const fresh = this.skills.filter((s) => this.newSkills.includes(s.name));
       if (fresh.length) message.content += `\n\n[Skills added since this session started, not yet in your skill list — load one with the skill tool when it fits: ${fresh.map((s) => `${s.name} (${s.description})`).join('; ')}]`;
@@ -813,7 +885,7 @@ export class Agent {
           ui.warn(`  Stopped after ${this.config.maxSteps} steps. Say "continue" to keep going.`);
           break;
         }
-        if (this.contextTokens() > this.contextLimit() * COMPACT_AT) {
+        if (this.contextTokens() > this.compactCeiling()) {
           if (compactions >= MAX_COMPACTIONS_PER_TURN) {
             ui.warn('  This task needs more context than the model has: it filled up again right after being summarised.\n  Raise the context with /ctx, switch to a larger model with /model, or ask for the work in smaller parts.');
             break;

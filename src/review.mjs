@@ -2,6 +2,9 @@
 // a look back over the conversation for facts worth remembering and lessons worth
 // keeping in a skill.
 
+import { withoutImages } from './images.mjs';
+import { clip } from './tools.mjs';
+
 const MEMORY_ROUTING = `There are three places a fact can go. Choose one:
   • target='user' — the person: who they are, what they like, how they talk and work, personal details they shared, what they expect from you.
   • target='memory' — the surroundings you work in, true in all projects: oddities of tools, how the machine is set up, configuration traps, paths and endpoints you need.
@@ -62,4 +65,34 @@ export function reviewOutcome(messages) {
     if (m.tool_name === 'skill_manage') parts.push(...(result.done ?? []).map((d) => `skill: ${d}`));
   }
   return parts.length ? `learned from this conversation — ${[...new Set(parts)].join(' · ')}` : null;
+}
+
+/**
+ * What a review reads: the newest part of the conversation that fits `room` characters, opening on
+ * a message of the user's. Pictures and the model's replayed reasoning are left out, and long tool
+ * output keeps only its start and end.
+ */
+export function reviewReplay(messages, room, { each = 1200 } = {}) {
+  const size = (m) => JSON.stringify(m).length;
+  const plain = messages.map(({ blocks, ...m }) => {
+    const bare = withoutImages(m, 'was shown here');
+    return bare.role === 'tool' ? { ...bare, content: clip(String(bare.content ?? ''), each) } : bare;
+  });
+  const newest = (list, budget) => {
+    let from = list.length;
+    let used = 0;
+    while (from > 0 && used + size(list[from - 1]) <= budget) used += size(list[--from]);
+    return list.slice(from);
+  };
+  let replay = newest(plain, room);
+  while (replay.length && replay[0].role !== 'user') replay = replay.slice(1);
+  if (replay.length) return replay;
+  // One long turn: its request, then as much of its end as fits.
+  const asked = plain.findLastIndex((m) => m.role === 'user');
+  if (asked < 0) return [];
+  const head = plain[asked].content.length > room / 4 ? { ...plain[asked], content: clip(plain[asked].content, Math.floor(room / 4)) } : plain[asked];
+  let tail = newest(plain.slice(asked + 1), room - size(head));
+  // A tool result cannot open the kept part: it belongs to the call just before it.
+  while (tail.length && tail[0].role === 'tool') tail = tail.slice(1);
+  return [head, ...tail];
 }
