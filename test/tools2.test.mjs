@@ -338,6 +338,58 @@ test('images: an oversized or non-file "image" is refused before it is read', as
   assert.throws(() => loadImage(path.join(dir, 'folder.png')), /not a file/);
 });
 
+/** A real PNG of noise, too large to send as its own preview. */
+function noisePng(width, height) {
+  const table = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, sum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8); // 8-bit RGB
+  let seed = 7;
+  const rows = [];
+  for (let y = 0; y < height; y++) {
+    const row = Buffer.alloc(1 + width * 3);
+    for (let i = 1; i < row.length; i++) row[i] = (seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff) >>> 16;
+    rows.push(row);
+  }
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', header), chunk('IDAT', zlib.deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+}
+
+test('images: a picture shown on the phone is a small preview, or nothing when none small enough can be made', async () => {
+  const { MAX_PREVIEW_CHARS, imageType, previewOf } = await import('../src/images.mjs');
+  const big = { name: 'shot.png', mime: 'image/png', data: noisePng(900, 600).toString('base64') };
+  assert.ok(big.data.length > MAX_PREVIEW_CHARS);
+  const preview = previewOf(big);
+  if (process.platform === 'darwin') {
+    assert.equal(preview.mime, 'image/jpeg', 'macOS shrinks it with sips');
+    assert.ok(preview.data.length <= MAX_PREVIEW_CHARS);
+    assert.equal(imageType(Buffer.from(preview.data, 'base64')), 'image/jpeg');
+  } else assert.equal(preview, null);
+  // When the converter fails, a large picture gets no preview and a small one is sent as it is.
+  const failing = { run: () => ({ status: 1 }), platform: 'darwin' };
+  assert.equal(previewOf(big, failing), null);
+  const small = { name: 'tiny.png', mime: 'image/png', data: noisePng(4, 4).toString('base64') };
+  assert.deepEqual(previewOf(small, failing), { mime: 'image/png', data: small.data });
+  assert.deepEqual(previewOf(small, { platform: 'linux' }), { mime: 'image/png', data: small.data });
+});
+
 test('previews: overwriting a file and replacing every occurrence are stated, not hidden', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-preview-'));
   fs.writeFileSync(path.join(cwd, 'old.txt'), 'a\nb\nc\nx = 1\nx = 1\n');

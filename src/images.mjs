@@ -73,6 +73,40 @@ export function receivedImages(list, max = 4) {
   });
 }
 
+// A preview sent to the phone with a tool step: big enough to make out a screenshot, small enough
+// that a few of them fit in a snapshot (the relay takes at most 4 MB per message).
+export const PREVIEW_SIDE = 480;
+export const MAX_PREVIEW_CHARS = 80_000;
+
+/**
+ * A small JPEG of an image, for showing on the phone. Made with `sips` on macOS; elsewhere, or if
+ * that fails, the image itself when it is already small enough.
+ * @param {{ mime: string, data: string }} image  `data` base64
+ * @returns {{ mime: string, data: string } | null}  null when no preview small enough could be made
+ */
+export function previewOf(image, { run = spawnSync, platform = process.platform } = {}) {
+  if (platform === 'darwin') {
+    let folder = null;
+    try {
+      folder = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-preview-'));
+      const source = path.join(folder, `source.${image.mime.split('/')[1]}`);
+      fs.writeFileSync(source, Buffer.from(image.data, 'base64'), { mode: 0o600 });
+      for (const [side, quality] of [[PREVIEW_SIDE, 60], [320, 45]]) {
+        const out = path.join(folder, `preview-${side}.jpg`);
+        const result = run('sips', ['-Z', String(side), '-s', 'format', 'jpeg', '-s', 'formatOptions', String(quality), source, '--out', out], { timeout: 10_000 });
+        if (result.status !== 0 || !fs.existsSync(out)) break;
+        const data = fs.readFileSync(out).toString('base64');
+        if (data.length <= MAX_PREVIEW_CHARS && imageType(Buffer.from(data.slice(0, 24), 'base64')) === 'image/jpeg') return { mime: 'image/jpeg', data };
+      }
+    } catch {
+      // No preview then; the phone shows the file's name.
+    } finally {
+      if (folder) fs.rmSync(folder, { recursive: true, force: true });
+    }
+  }
+  return image.data.length <= MAX_PREVIEW_CHARS ? { mime: image.mime, data: image.data } : null;
+}
+
 /** Writes images to a folder only this user can open, for a provider that reads files itself. */
 export function saveImages(images, dir = os.tmpdir()) {
   const folder = fs.mkdtempSync(path.join(dir, 'seeker-image-'));
