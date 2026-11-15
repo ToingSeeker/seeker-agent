@@ -30,6 +30,7 @@ Usage:
   seeker serve               offer SEEKER as an OpenAI-compatible API on this machine (needs SEEKER_API_KEY; --port 8642)
   seeker gateway             answer in Telegram, Discord or Slack (tokens and allow lists in the config: see the README)
   seeker acp                 run as an agent inside an editor that speaks the Agent Client Protocol (Zed, …)
+  seeker doctor              check what SEEKER needs on this machine and say how to fix what is missing
   seeker cron tick           run scheduled jobs that are due (for the system scheduler); seeker cron list shows them
 
 Options:
@@ -177,6 +178,16 @@ export async function main(argv) {
   if (opts.noThink) config.think = false;
   if (opts.noCheckpoints) config.checkpoints = false;
   if (opts.yolo) config.permissionMode = 'auto';
+
+  if (opts.prompt.length === 1 && opts.prompt[0] === 'doctor') {
+    const { diagnose, report } = await import('./doctor.mjs');
+    const { colorDepth, terminalPalette } = await import('./theme.mjs');
+    const c = terminalPalette(colorDepth(process.env, Boolean(process.stdout.isTTY)));
+    const results = await diagnose({ config });
+    const paint = (level, text) => ({ ok: c.green, warn: c.yellow, fail: c.red, info: c.dim })[level](text);
+    console.log(report(results, paint).join('\n'));
+    process.exit(results.some((r) => r.level === 'fail') ? 1 : 0);
+  }
 
   const cronCommand = opts.prompt[0] === 'cron' && ['tick', 'list'].includes(opts.prompt[1]) && opts.prompt.length === 2 ? opts.prompt[1] : null;
   const serve = opts.prompt.length === 1 && opts.prompt[0] === 'serve';
