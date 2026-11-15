@@ -49,6 +49,13 @@ dari mode rencana. Status bar menampilkan `PLAN` selama aktif. Berlaku juga dari
 Ketik `/` untuk daftar perintah dan skill: ↑↓ berpindah di dalamnya, Tab melengkapi yang disorot, Enter
 menjalankannya, Esc menutup daftar. Mengetik mempersempit daftar (`/rev` juga menemukan `/code-review`). Alt+Enter
 untuk baris baru; saat daftar tertutup, ↑↓ menelusuri pesan sebelumnya.
+
+SEEKER mengisi jendela terminal seperti sebuah aplikasi: header tetap di atas dan kotak pesan di bawah, sementara
+percakapan bergulir di antaranya. Gulir dengan roda mouse atau PageUp dan PageDown; selama kamu membaca di bagian
+atas, keluaran baru tidak menggeser tampilan, dan baris di bawah kotak pesan menyebutkan berapa yang ada di bawah.
+Mengirim pesan, atau pertanyaan dari SEEKER, membawamu kembali ke bagian akhir. Untuk memilih teks dengan mouse,
+tahan Shift (Option di Terminal dan iTerm2) sambil menyeret. Saat SEEKER ditutup, percakapannya dicetak ke
+terminal, dan scrollback terminal menyimpannya.
 Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya.
 
 `seeker doctor` memeriksa apa yang dibutuhkan SEEKER di mesin ini — Node, git, paket yang terpasang, siapa yang
@@ -652,7 +659,7 @@ rantainya.
 | `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau dan gambar utuh untuk HP |
 | `src/transfer.mjs` | file utuh antara HP dan Mac: potongan terenkripsi lewat relay, folder kiriman, dan file yang ditawarkan jawaban untuk didownload |
 | `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
-| `src/screen.mjs` | tata letak layar penuh: header menempel di atas, kotak input di bawah, percakapan di tengah (baris lama masuk scrollback terminal) |
+| `src/screen.mjs` | tata letak layar penuh di layar alternatif: header menempel di atas, kotak input di bawah, percakapan digulir di dalam SEEKER |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |
 | `src/input.mjs` | editor input (raw key press, riwayat, paste) |
 | `src/menu.mjs` | menu `/config` dan pemilih `/model`, `/resume` |
