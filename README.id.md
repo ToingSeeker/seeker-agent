@@ -85,6 +85,14 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
   grafik per hari, dan riwayatnya. Hari sebelum penghitungan dimulai ditampilkan sebagai tidak tercatat, bukan nol.
 - `~/.seeker/memory/` — catatan dari sesi-sesi sebelumnya; `MEMORY.md` adalah indeksnya (satu baris per catatan).
 - `~/.seeker/memory/projects/<folder>/` — catatan khusus satu proyek, dimuat saat SEEKER dijalankan di folder itu.
+- **Skill yang punya daftar pilihan** menawarkannya untuk dicentang saat dipanggil tanpa apa-apa di belakangnya:
+  `/effects` menampilkan efek-efeknya; ↑↓ berpindah, Spasi mencentang, Ctrl+A mencentang semua yang terdaftar,
+  mengetik menyaring, Enter mengirim. Di HP daftar yang sama terbuka sebagai sheet dengan penyaring dan tombol
+  "Select all". Yang dicentang sampai ke skill seolah kamu mengetik `/effects orbit, spotlight`. Sebuah skill
+  punya daftar seperti itu kalau foldernya berisi `choices.json` (`["a", "b"]` atau
+  `[{ "value": "a", "description": "…" }]`), kalau frontmatter-nya punya `choices: a, b, c`, atau kalau ia
+  menyebut perintahnya menerima sebuah nama (`/effects <name>`) dan mencantumkan paling sedikit enam nama itu
+  dalam tabel dengan tiap nama ditulis sebagai kode.
 
 Yang masuk ke system prompt hanya indeksnya, paling banyak 20% dari context window. Kalau indeks tidak muat (model lokal
 dengan konteks kecil), SEEKER diberi tahu letak file indeksnya dan mencarinya dengan grep saat perlu.

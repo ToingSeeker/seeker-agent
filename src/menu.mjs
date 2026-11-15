@@ -105,6 +105,86 @@ export async function pickList({ term, ui, title, items: all, initial = 0, filte
 }
 
 /**
+ * Lets the user tick any number of rows: ↑↓ move, Space ticks, Ctrl+A ticks all that are listed (or
+ * unticks them, if they all are), Enter sends what is ticked.
+ * Typing narrows the list; what was ticked stays ticked while it is hidden.
+ * @param {{ term, ui, title: string, items: { label: string, hint?: string }[] }} opts
+ * @returns {Promise<number[]|null>} the ticked indexes into `items`, in list order; null if cancelled
+ */
+export async function pickMany({ term, ui, title, items: all }) {
+  const { c } = ui;
+  const { screen } = ui;
+  const labelWidth = Math.min(28, Math.max(...all.map((i) => i.label.length)));
+  const ticked = new Set();
+  let query = '';
+  let items = all;
+  let selected = 0;
+  let top = 0;
+  let done = null;
+  const visible = () => Math.min(items.length, 12);
+  const narrow = () => {
+    const q = query.toLowerCase();
+    items = q ? all.filter((i) => `${i.label} ${i.hint ?? ''}`.toLowerCase().includes(q)) : all;
+    selected = 0;
+    top = 0;
+  };
+  const rows = () => {
+    const { width } = screen;
+    if (selected < top) top = selected;
+    if (selected >= top + visible()) top = selected - visible() + 1;
+    const lines = ['', `  ${c.accentBold(title)}  ${c.dim('filter:')} ${query}${c.dim('▏')}`];
+    if (!items.length) lines.push(`    ${c.dim('nothing matches')}`);
+    for (let i = top; i < top + visible(); i++) {
+      const item = items[i];
+      const box = ticked.has(item) ? c.green('[x]') : c.dim('[ ]');
+      const label = truncate(item.label, labelWidth).padEnd(labelWidth);
+      const hint = truncate(item.hint ?? '', Math.max(0, width - labelWidth - 12));
+      lines.push(i === selected ? `  ${c.accent('❯')} ${box} ${c.accent(label)}  ${hint}` : `    ${box} ${label}  ${c.dim(hint)}`);
+    }
+    const place = items.length > visible() ? ` · ${selected + 1}/${items.length}` : '';
+    lines.push(`  ${c.dim(`${ticked.size} ticked · ↑↓ move · Space tick · Ctrl+A all · Enter send · type to filter · Esc cancel${place}`)}`);
+    return lines;
+  };
+
+  const idle = screen.footer.idle;
+  screen.setFooter({ idle: 'Tick with Space in the list above · Enter sends what is ticked' });
+  screen.setLive(rows());
+  await term.captureKeys((key) => {
+    const { name, text } = key;
+    if (name === 'escape' || (key.ctrl && (name === 'c' || name === 'd'))) return true;
+    if (name === 'return') {
+      done = all.map((item, i) => (ticked.has(item) ? i : -1)).filter((i) => i >= 0);
+      return true;
+    }
+    if (key.ctrl && name === 'a') {
+      // Everything in the list as it is filtered now; pressed again when all of it is ticked, it unticks it.
+      const allTicked = items.length > 0 && items.every((item) => ticked.has(item));
+      for (const item of items) allTicked ? ticked.delete(item) : ticked.add(item);
+    } else if (name === 'up') selected = items.length ? (selected - 1 + items.length) % items.length : 0;
+    else if (name === 'down' || name === 'tab') selected = items.length ? (selected + 1) % items.length : 0;
+    else if (name === 'pageup') selected = Math.max(0, selected - visible());
+    else if (name === 'pagedown') selected = Math.min(Math.max(0, items.length - 1), selected + visible());
+    else if (name === 'space') {
+      const item = items[selected];
+      if (!item) return false;
+      if (ticked.has(item)) ticked.delete(item);
+      else ticked.add(item);
+    } else if (name === 'backspace') {
+      query = query.slice(0, -1);
+      narrow();
+    } else if (text && !key.ctrl && !key.meta && text.length === 1 && text > ' ' && text !== '\x7f') {
+      query += text;
+      narrow();
+    } else return false;
+    screen.setLive(rows());
+    return false;
+  });
+  screen.setLive([]);
+  screen.setFooter({ idle });
+  return done;
+}
+
+/**
  * The settings screen: arrow keys to move and change, every change saved at once.
  * @param {{ term, ui, config, modelNames: string[], apply: (key: string, value: unknown) => Promise<void> }} deps
  *        `apply` persists a setting and pushes it into the running session.
