@@ -15,7 +15,8 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
   phone. What is ticked becomes the skill's arguments.
   It also works when files are sent along with the command, and in a terminal session shown on the phone.
 - **On the phone, `/skills` opens a list of the skills to search and tap, and `/config` the settings**,
-  each with its value and the values it can take, changed with a tap.
+  each with its value and the values it can take, changed with a tap. The context size (`numCtx`) is offered
+  only for an Ollama model; for a cloud model a tap there would have capped its context.
 
 ## 0.4.0 — 2026-11-16
 

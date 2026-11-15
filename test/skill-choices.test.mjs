@@ -129,6 +129,12 @@ test('phone: /skills is answered with a list to tap, /config with the settings t
   const items = lists[1].settings;
   const by = Object.fromEntries(items.map((i) => [i.key, i]));
   assert.ok(!by.model && !by.host, 'the model has its own list, and the address of a local server is not for a phone');
+  assert.ok(!by.numCtx, 'the context size is Ollama\'s; this agent has no provider that takes it');
+  await runPhoneCommand('/config', { ...ctx, agent: { ...agent, provider: { kind: 'claude-code' } } });
+  assert.ok(!lists.at(-1).settings.some((i) => i.key === 'numCtx'), 'not offered for a cloud model, whose context it would cap');
+  await runPhoneCommand('/config', { ...ctx, agent: { ...agent, provider: { kind: 'ollama' } } });
+  assert.deepEqual(lists.at(-1).settings.find((i) => i.key === 'numCtx').options, ['8192', '16384', '32768', '65536', '131072']);
+  lists.splice(2);
   assert.deepEqual([by.think.value, by.think.options], ['off', ['on', 'off']]);
   assert.deepEqual([by.effort.value, by.effort.options[0]], ['default', 'default']);
   assert.deepEqual(by.sandboxWrite.options, [], 'a value without a list is typed');
