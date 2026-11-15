@@ -317,8 +317,11 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   command. Replies are kept in `~/.seeker/cron/output` and shown in the open session (or pushed to your phone by
   `seeker remote`). Jobs run while SEEKER is open; to run them with nothing open, have the system scheduler call
   `seeker cron tick` every minute. `/cron` lists, pauses and removes them.
-- **Several helpers at once.** The `task` tool can run up to three helper agents side by side, each on its own
-  piece of work; approval questions are put one at a time. `/config subagentModel <model>` runs them on a
+- **Several helpers at once.** The `task` tool can hand out up to 20 jobs in one call, each to a helper agent
+  with a context of its own. `/config maxHelpers <n>` says how many run side by side (1 to 20, default 20);
+  the others wait their turn, and the reports come back in the order the jobs were given. Approval questions
+  are put one at a time. Every helper fills a context of its own, so twenty cost about twenty times one:
+  lower `maxHelpers` for a local model or a provider with tight rate limits. `/config subagentModel <model>` runs them on a
   cheaper model than the conversation.
 
 - **Agents of your own.** A helper can be given a role, and optionally a model and a set of tools, in a file:
