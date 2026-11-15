@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { Agent } from './agent.mjs';
 import { isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
+import { Picker } from './picker.mjs';
 import { RemoteDaemon, Workspace, remoteCredentials, stayAwake } from './remote.mjs';
 import { saveImages } from './images.mjs';
 import { TerminalLink, teeUi, terminalId } from './link.mjs';
@@ -645,10 +646,20 @@ export async function main(argv) {
     watchSchedule();
   };
 
-  const suggest = (text) =>
-    matchCommands(text, agent.skills)
-      .slice(0, 6)
-      .map(([name, description]) => `  ${c.accent(name.padEnd(12))} ${c.dim(truncate(description, Math.max(10, ui.cols() - 18)))}`);
+  // The commands that match what is typed, in a list the arrow keys move through.
+  const picker = new Picker((text) => matchCommands(text, agent.skills));
+  const suggest = ({ rows, selected, index, total, above, below }) => {
+    if (!total) return [];
+    const wide = Math.min(28, Math.max(12, ...rows.map(([name]) => name.length)));
+    const lines = rows.map(([name, description], i) => {
+      const label = truncate(name, wide).padEnd(wide);
+      const about = truncate(description ?? '', Math.max(10, ui.cols() - wide - 6));
+      return i === selected ? `${c.accent('›')} ${c.bold(c.accent(label))} ${about}` : `  ${c.accent(label)} ${c.dim(about)}`;
+    });
+    const more = [above && `↑ ${above} more`, below && `↓ ${below} more`].filter(Boolean).join(' · ');
+    lines.push(c.dim(`  ${index + 1}/${total}${more ? ` · ${more}` : ''} · ↑↓ choose · Tab complete · Enter run · Esc close`));
+    return lines;
+  };
   const complete = (text) => {
     const [first] = matchCommands(text, agent.skills);
     return first && first[0] !== text ? `${first[0]} ` : null;
@@ -662,7 +673,7 @@ export async function main(argv) {
 
   for (;;) {
     ui.ensureNewline();
-    const input = await term.readInput({ placeholder: 'Ask Seeker to build, fix, or explore…', suggest, complete });
+    const input = await term.readInput({ placeholder: 'Ask Seeker to build, fix, or explore…', suggest, complete, picker });
     if (input === null) break;
     if (typeof input === 'object') {
       // Sent from the phone: never a `!` shell line. A /command or /skill runs as it would typed here, minus

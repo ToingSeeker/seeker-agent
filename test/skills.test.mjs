@@ -188,3 +188,45 @@ test('plugin skills are namespaced, and the skill list shrinks to fit the contex
   assert.ok(/only their names are listed/.test(namesOnly) && namesOnly.includes('group:skill-number-0, group:skill-number-1,'), 'names only at 64k');
   assert.match(skillsSection(many, 8192), /500 skills are installed — too many to list/);
 });
+
+test('the command list: arrows move the highlight, Tab completes, Enter runs, Esc closes', async () => {
+  const { Picker } = await import('../src/picker.mjs');
+  const { matchCommands } = await import('../src/commands.mjs');
+  const skills = [{ name: 'review', description: 'Review code' }, { name: 'code-review', description: 'Review a diff' }];
+  assert.deepEqual(matchCommands('/review', skills).map((m) => m[0]), ['/review', '/code-review'], 'the exact name first, then names that contain it');
+
+  const names = Array.from({ length: 20 }, (_, i) => [`/cmd${String(i).padStart(2, '0')}`, `command ${i}`]);
+  const picker = new Picker((text) => (text.startsWith('/') && !/\s/.test(text) ? names.filter(([n]) => n.startsWith(text)) : []), 8);
+  const press = (name, text, recalled) => picker.key({ name }, text, recalled);
+
+  let view = picker.view('/');
+  assert.deepEqual([view.total, view.rows.length, view.selected, view.above, view.below], [20, 8, 0, 0, 12]);
+  assert.deepEqual(press('down', '/'), {});
+  assert.deepEqual(press('down', '/'), {});
+  assert.equal(picker.view('/').rows[picker.view('/').selected][0], '/cmd02');
+  assert.deepEqual(press('tab', '/'), { replace: '/cmd02 ' });
+  assert.deepEqual(press('return', '/'), { replace: '/cmd02', submit: true });
+
+  // Up from the first entry goes to the last, and the window follows the highlight.
+  picker.view('/c');
+  press('up', '/c');
+  view = picker.view('/c');
+  assert.deepEqual([view.index, view.above, view.below, view.rows[view.selected][0]], [19, 12, 0, '/cmd19']);
+  press('pageup', '/c');
+  assert.equal(picker.view('/c').index, 11);
+  // Typing narrows the list and the highlight starts again at the top.
+  view = picker.view('/cmd1');
+  assert.deepEqual([view.total, view.index], [10, 0]);
+
+  // Esc hides the list for this text; the keys are the editor's again until something else is typed.
+  assert.deepEqual(press('escape', '/cmd1'), {});
+  assert.equal(picker.view('/cmd1').total, 0);
+  assert.equal(press('down', '/cmd1'), null);
+  assert.equal(picker.view('/cmd').total, 20);
+
+  // Not the list's: text without a match, a message recalled from history, and other keys.
+  assert.equal(press('down', 'hello'), null);
+  assert.equal(press('up', '/cmd', true), null, 'arrows keep walking through earlier messages');
+  assert.equal(press('left', '/cmd'), null);
+  assert.equal(picker.key({ name: 'return', shift: true }, '/cmd'), null);
+});

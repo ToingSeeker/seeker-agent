@@ -162,7 +162,7 @@ export class Terminal {
    * @param {(state: object) => 'clear'|'cancel'|'ignore'} opts.onCtrlC
    * @returns {Promise<string|null>} the text, or null if cancelled
    */
-  #edit({ draw, width, multiline, useHistory, complete, onCtrlC, initial = '', expose = null }) {
+  #edit({ draw, width, multiline, useHistory, complete, onCtrlC, initial = '', expose = null, picker = null }) {
     const state = { text: initial, cursor: initial.length };
     let result = null;
     let pasting = false;
@@ -192,8 +192,20 @@ export class Terminal {
       state.cursor = l.starts[row] + Math.min(l.cursorCol, l.rows[row].length);
     };
 
+    const recalled = () => historyAt !== this.history.length;
     const onKey = (key) => {
       const { name, text } = key;
+      // The list of commands under the box takes the keys that move in it and choose from it.
+      const picked = pasting ? null : picker?.key(key, state.text, recalled());
+      if (picked) {
+        if (picked.replace !== undefined) replace(picked.replace);
+        if (picked.submit) {
+          result = state.text;
+          return true;
+        }
+        draw(state, recalled());
+        return false;
+      }
       if (name === 'paste-start') pasting = true;
       else if (name === 'paste-end') pasting = false;
       else if (pasting && (name === 'return' || name === 'enter')) insert(multiline ? '\n' : ' ');
@@ -247,7 +259,7 @@ export class Terminal {
         else if (pasting) insert('  ');
       } else if (isPrintable(text, key)) insert(text);
       else return false;
-      draw(state);
+      draw(state, recalled());
       return false;
     };
 
@@ -261,15 +273,16 @@ export class Terminal {
    * Reads one message in the input box.
    * @param {object} opts
    * @param {string} opts.placeholder
-   * @param {(text: string) => string[]} [opts.suggest]   rows shown under the box
+   * @param {(view: object) => string[]} [opts.suggest]   rows shown under the box, for the picker's view
+   * @param {import('./picker.mjs').Picker} [opts.picker]   the list of commands the arrow keys move in
    * @param {(text: string) => string|null} [opts.complete]
    * @returns {Promise<string|object|null>} null = the user wants to leave; '' = nothing typed (or woken by wake()); an object = what inject() was given
    */
-  async readInput({ placeholder, suggest, complete }) {
+  async readInput({ placeholder, suggest, complete, picker }) {
     let exitArmedAt = 0;
     const armed = () => Date.now() - exitArmedAt < 2000;
-    const draw = (state) => {
-      this.screen.setFooter({ input: { ...state, placeholder }, suggestions: suggest?.(state.text) ?? [], exitArmed: armed() });
+    const draw = (state, recalled = false) => {
+      this.screen.setFooter({ input: { ...state, placeholder }, suggestions: (picker && suggest?.(picker.view(state.text, recalled))) ?? [], exitArmed: armed() });
     };
     this.woken = false;
     const text = await this.#edit({
@@ -278,6 +291,7 @@ export class Terminal {
       multiline: true,
       useHistory: true,
       complete,
+      picker,
       initial: this.draft,
       expose: (box) => (this.reading = box),
       onCtrlC: (state) => {
