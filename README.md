@@ -374,6 +374,10 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   filter for terminal sessions. Under **On your Mac**, the project folders found in your home folder open
   with one tap. The **+** opens a folder by its path, or makes a new one for a new project. A new folder can
   only be made inside your home folder, and never in a hidden one.
+- **Quick switcher** — the two-arrow button at the top right of Home, Sessions and Settings opens a sheet with
+  every session, the ones that need you first, what each is doing, and how many are running (the number on
+  the button). Tap one to go there; nothing else is stopped by switching. *Queued instructions* lists what
+  waits in every session, to remove or resume. What you were typing stays with the session you typed it in.
 - **Sessions** — every open project as one compact row: its name, the latest instruction, a small status pill
   (Executing, Approval needed, Queued, Failed, Stopped, Completed, Idle), the model, tool runs and when it was
   last active. Search by project, instruction or model; filter by status (the counts are live); sort by
