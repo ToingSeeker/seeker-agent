@@ -223,6 +223,8 @@ export class Permissions {
       return { ok: false, reason: 'Permission denied: this session is non-interactive. The user must rerun with --yolo to allow this action.' };
     }
 
+    // Somebody is about to be kept waiting: a hook of theirs may want to tell them (a sound, a notification).
+    this.onAsk?.(tool, args, warning);
     const answer = await this.ask({ tool, args, warning, always: always?.label ?? null });
     if (answer === null) return { ok: false, reason: 'The user interrupted before answering.' };
     if (answer === 'y') return { ok: true };

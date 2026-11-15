@@ -405,7 +405,10 @@ Commands of your own that run at fixed points and can veto or adjust what happen
 { "hooks": { "pre_tool_call": [{ "matcher": "bash|write_file", "command": "~/bin/guard.sh", "timeout": 60 }] } }
 ```
 
-Events: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`.
+Events: `pre_tool_call`, `post_tool_call`, `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end`,
+and six that only tell a hook what happened: `on_approval_request` (SEEKER is waiting for your answer — a place
+for a sound or a notification), `pre_compact` and `post_compact` (the conversation is summarised),
+`subagent_start` and `subagent_stop` (a helper, with its report), and `on_error` (a turn failed).
 A hook gets one line of JSON on stdin (`hook_event_name`, `tool_name`, `tool_input`, `cwd`, …). A `pre_tool_call`
 hook may print `{"action":"block","message":"…"}` (or exit with code 2) to stop the call, or
 `{"action":"modify","args":{…}}` to change its arguments; a `pre_llm_call` hook may block the message or print
