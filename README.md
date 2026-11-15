@@ -15,7 +15,21 @@ Plain Node, no build step.
 
 </details>
 
-<sub>Captured from the real interface in a demo project; the model replies in these captures are scripted.</sub>
+<details>
+<summary>The list of commands behind <code>/</code></summary>
+
+![The list of commands and skills, with one highlighted](docs/tui-commands.png)
+
+</details>
+
+<details>
+<summary>The phone app (<code>seeker remote</code>)</summary>
+
+![The phone app: Home, the list of sessions, and a session waiting for approval](docs/remote.png)
+
+</details>
+
+<sub>Captured from the real interface. The projects are made up for the pictures and the model replies are scripted.</sub>
 
 ```
 seeker                       # interactive session in this folder
@@ -302,6 +316,8 @@ elsewhere. `keyStrategy` is `fill_first` (default), `round_robin`, `least_used` 
 the chain.
 
 ## Remote control from a phone
+
+![The phone app: Home, the list of sessions, and a session waiting for approval](docs/remote.png)
 
 `seeker remote` runs the agent on your computer and connects it to a relay (`remote-server/`, a
 dependency-free Node server you deploy yourself, for example on Railway). The phone opens the web app
