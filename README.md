@@ -173,6 +173,13 @@ switching it on is refused, and a config that has it on makes shell commands fai
   one; `/config bundledSkills off` hides them all.
 - `~/.seeker/skills/<name>/SKILL.md` and `.seeker/skills/<name>/SKILL.md` — skills, called as `/name`.
   Plugin skills live in `~/.seeker/plugins/<plugin>/skills/…` and are called as `/plugin:name`.
+- **A skill with a list to choose from** offers it to tick when you call it with nothing after it: `/effects`
+  shows its effects, ↑↓ move, Space ticks, Ctrl+A ticks all that are listed, typing filters, Enter sends. On
+  the phone the same list opens as a sheet with a filter and "Select all". What you tick reaches the skill as
+  if you had typed `/effects orbit, spotlight`. A skill has such a list when its folder holds a
+  `choices.json` (`["a", "b"]` or `[{ "value": "a", "description": "…" }]`), when its frontmatter has
+  `choices: a, b, c`, or when it says its command takes a name (`/effects <name>`) and lists at least six of
+  them in a table with each name in code.
 - MCP servers: `mcpServers` in the config or `.seeker/mcp.json`; manage them with `/mcp`. A server defined by a
   project file is a command somebody else wrote: it is listed but not started until you approve it in `/mcp`,
   and again if its entry changes.

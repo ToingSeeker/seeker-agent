@@ -326,6 +326,11 @@ function apply(event) {
     case 'download':
       downloadArrived(event);
       break;
+    case 'choose':
+      // The Mac answers a skill that has a list to pick from with that list. Only the phone that is
+      // looking at that session shows it; the event reaches every phone.
+      if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) chooseMany(event);
+      break;
     case 'toast':
       state.opening = 0;
       // It may be the Mac refusing an answer that came too late: nothing is waiting on one any more.
@@ -884,6 +889,70 @@ function searchBox(name, value, placeholder, onchange) {
     h('input', { class: 'field', 'data-field': name, type: 'text', inputmode: 'search', enterkeyhint: 'search', value, placeholder, 'aria-label': placeholder.replace(/…$/, ''), autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', oninput: (e) => (onchange(e.target.value), render()) }),
     value && h('button', { class: 'clear', 'aria-label': 'Clear the search', icon: 'cross', onclick: () => (onchange(''), render(true)) }),
   );
+}
+
+/**
+ * A list to tick, sent by the Mac for a skill that has one (/effects and its forty-odd effects).
+ * What is ticked goes back as `/skill a, b`, the way it would have been typed. The boxes are the
+ * browser's own and the list is filtered by hiding rows, so typing never rebuilds what is on screen.
+ */
+function chooseMany({ ws, skill, title, items }) {
+  const boxes = items.map((item) => h('input', { type: 'checkbox', value: item.value }));
+  const rows = items.map((item, i) => h('label', { class: 'ck-row' }, boxes[i], h('span', { class: 'grow' }, h('span', { class: 'name mono' }, item.value), item.description && h('span', { class: 'sub' }, item.description))));
+  const send = h('button', { class: 'btn primary', type: 'button', disabled: true }, 'Tick at least one');
+  const picked = () => boxes.filter((box) => box.checked).map((box) => box.value);
+  const count = () => {
+    const n = picked().length;
+    send.disabled = !n;
+    send.textContent = n ? `Use ${n} selected` : 'Tick at least one';
+  };
+  send.addEventListener('click', () => {
+    const values = picked();
+    if (!values.length) return;
+    closeSheet();
+    sendText(ws, `/${skill} ${values.join(', ')}`);
+  });
+  const none = h('p', { class: 'quiet pad', hidden: true }, 'Nothing matches.');
+  const filter =
+    items.length > 8 &&
+    h('input', {
+      class: 'field ck-filter',
+      type: 'text',
+      inputmode: 'search',
+      enterkeyhint: 'search',
+      autocapitalize: 'off',
+      autocomplete: 'off',
+      placeholder: `Filter ${items.length} choices…`,
+      'aria-label': 'Filter the list',
+      oninput: (e) => {
+        const q = e.target.value.trim().toLowerCase();
+        let shown = 0;
+        rows.forEach((row, i) => {
+          row.hidden = Boolean(q) && !`${items[i].value} ${items[i].description ?? ''}`.toLowerCase().includes(q);
+          if (!row.hidden) shown += 1;
+        });
+        none.hidden = shown > 0;
+      },
+    });
+  // Ticks everything the filter leaves in view; when all of that is ticked already, it unticks it.
+  const shown = () => boxes.filter((box, i) => !rows[i].hidden);
+  const every = h('button', { class: 'btn quiet small ck-all', type: 'button' }, 'Select all');
+  const relabel = () => {
+    const visible = shown();
+    every.disabled = !visible.length;
+    every.textContent = visible.length && visible.every((box) => box.checked) ? 'Clear all' : visible.length < boxes.length ? `Select these ${visible.length}` : 'Select all';
+  };
+  every.addEventListener('click', () => {
+    const visible = shown();
+    const all = visible.every((box) => box.checked);
+    for (const box of visible) box.checked = !all;
+    count();
+    relabel();
+  });
+  const list = h('div', { class: 'ck-list', role: 'group', 'aria-label': title }, rows, none);
+  list.addEventListener('change', () => (count(), relabel()));
+  if (filter) filter.addEventListener('input', relabel);
+  sheet(title, h('div', { class: 'ck-top' }, filter, every), list, h('div', { class: 'ck-foot' }, send));
 }
 
 /** A sheet of choices with the one in force ticked. */
