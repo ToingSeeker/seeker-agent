@@ -789,6 +789,11 @@ export async function runPhoneCommand(input, ctx) {
     const words = arg.toLowerCase().split(/\s+/).filter(Boolean);
     const found = agent.skills.filter((s) => words.every((w) => `${s.name} ${s.description}`.toLowerCase().includes(w)));
     if (!found.length) return ui.notice(words.length ? `  No skill matches "${arg}".` : '  No skills yet.');
+    // On its own, the phone shows them as a list to search and tap, instead of a wall of names.
+    if (ctx.choose && !words.length) {
+      const brief = (text) => (text.length > 140 ? `${text.slice(0, 140).replace(/\s+\S*$/, '')}…` : text);
+      return void ctx.choose({ mode: 'one', title: `${found.length} skill${found.length > 1 ? 's' : ''}${words.length ? ` matching "${arg}"` : ''}`, items: found.map((s) => ({ value: s.name, description: brief(String(s.description ?? '').replace(/\s+/g, ' ')) })) });
+    }
     const shown = found.slice(0, 60);
     ui.notice(`  ${found.length} skill${found.length > 1 ? 's' : ''}${words.length ? ` matching "${arg}"` : ''} — run one with /<name>:\n${shown.map((s) => `  /${s.name}`).join('\n')}${found.length > shown.length ? `\n  … ${found.length - shown.length} more; narrow it with /skills <word>` : ''}`);
     return;
@@ -813,6 +818,16 @@ export async function runPhoneCommand(input, ctx) {
       return ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
     }
     const [key, ...valueParts] = name === 'ctx' ? ['numCtx', arg] : rest;
+    // /config on its own: the phone shows every setting with its value, to change with a tap.
+    if (!key && name !== 'ctx' && ctx.settings) {
+      const { CHOICES } = await import('./menu.mjs');
+      const shown = (v) => (Array.isArray(v) ? v.join(', ') : v === true ? 'on' : v === false ? 'off' : v === '' || v == null ? 'default' : String(v));
+      return void ctx.settings(
+        Object.keys(SETTINGS)
+          .filter((k) => k !== 'model' && k !== 'host')
+          .map((k) => ({ key: k, value: shown(config[k]), help: SETTINGS[k].help, options: (CHOICES[k] ?? []).map(shown) })),
+      );
+    }
     if (!key || !valueParts.length) return ui.notice(`  /config <setting> <value>. Settings: ${Object.keys(SETTINGS).filter((k) => k !== 'model').join(', ')}. The app’s Settings tab has them too.`);
     if (key === 'model') return ui.notice(`  ${PHONE_ELSEWHERE.model}`);
     ctx.configure(key, valueParts.join(' '));
