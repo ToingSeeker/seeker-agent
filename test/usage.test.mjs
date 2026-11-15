@@ -16,14 +16,14 @@ const at = (y, m, d, h = 12) => new Date(y, m - 1, d, h).getTime();
 
 test('usage: every reply is added to its day and to the running total', () => {
   const file = scratch();
-  assert.deepEqual(readUsage(file), { since: null, total: { input: 0, cached: 0, output: 0, replies: 0 }, days: {} }, 'nothing counted yet');
+  assert.deepEqual(readUsage(file), { since: null, total: { input: 0, cached: 0, output: 0, replies: 0, written: 0, known: 0 }, days: {} }, 'nothing counted yet');
   assert.equal(recordUsage({ input: 1000, cached: 800, output: 50 }, { file, now: at(2026, 11, 14, 23) }), true);
   recordUsage({ input: 200, output: 20 }, { file, now: at(2026, 11, 15, 0) });
   recordUsage({ input: 300.4, output: 30 }, { file, now: at(2026, 11, 15, 9) });
   const ledger = readUsage(file);
   assert.equal(ledger.since, at(2026, 11, 14, 23), 'counting began with the first reply');
-  assert.deepEqual(ledger.days, { '2026-11-14': { input: 1000, cached: 800, output: 50, replies: 1 }, '2026-11-15': { input: 500, cached: 0, output: 50, replies: 2 } });
-  assert.deepEqual(ledger.total, { input: 1500, cached: 800, output: 100, replies: 3 });
+  assert.deepEqual(ledger.days, { '2026-11-14': { input: 1000, cached: 800, output: 50, replies: 1, written: 0, known: 1000 }, '2026-11-15': { input: 500, cached: 0, output: 50, replies: 2, written: 0, known: 0 } });
+  assert.deepEqual(ledger.total, { input: 1500, cached: 800, output: 100, replies: 3, written: 0, known: 1000 });
   assert.equal(dayOf(at(2026, 1, 5, 0)), '2026-01-05', 'the day is the local calendar day');
 });
 
@@ -48,9 +48,9 @@ test('usage: the summary is today, the last seven days and the total', () => {
   recordUsage({ input: 40, output: 4 }, { file, now: at(2026, 11, 13) });
   recordUsage({ input: 7, output: 3 }, { file, now: at(2026, 11, 15) });
   const summary = usageSummary({ file, now: at(2026, 11, 15, 18) });
-  assert.deepEqual(summary.today, { day: '2026-11-15', input: 7, cached: 0, output: 3, replies: 1 });
+  assert.deepEqual(summary.today, { day: '2026-11-15', input: 7, cached: 0, output: 3, replies: 1, written: 0, known: 0 });
   assert.deepEqual(summary.week.map((d) => [d.day, d.input + d.output]), [['2026-11-15', 10], ['2026-11-14', 0], ['2026-11-13', 44], ['2026-11-12', 0], ['2026-11-11', 0], ['2026-11-10', 0], ['2026-11-09', 0]]);
-  assert.deepEqual(summary.total, { input: 147, cached: 0, output: 17, replies: 3 }, 'the total keeps what the week no longer shows');
+  assert.deepEqual(summary.total, { input: 147, cached: 0, output: 17, replies: 3, written: 0, known: 0 }, 'the total keeps what the week no longer shows');
   assert.equal(summary.since, at(2026, 10, 1));
   // A new day starts at zero without anything being written.
   assert.equal(usageSummary({ file, now: at(2026, 11, 16, 1) }).today.input, 0);
@@ -59,8 +59,8 @@ test('usage: the summary is today, the last seven days and the total', () => {
 });
 
 test('usage: Claude Code turns are counted with their cache reads named', () => {
-  assert.deepEqual(spentOf({ input_tokens: 12, cache_read_input_tokens: 9000, cache_creation_input_tokens: 500, output_tokens: 340 }), { input: 9512, cached: 9000, output: 340 });
-  assert.deepEqual(spentOf(), { input: 0, cached: 0, output: 0 });
+  assert.deepEqual(spentOf({ input_tokens: 12, cache_read_input_tokens: 9000, cache_creation_input_tokens: 500, output_tokens: 340 }), { input: 9512, cached: 9000, written: 500, output: 340 });
+  assert.deepEqual(spentOf(), { input: 0, cached: 0, written: 0, output: 0 });
 });
 
 test('usage: the ledger is kept outside the code, where a clone cannot carry it', () => {
