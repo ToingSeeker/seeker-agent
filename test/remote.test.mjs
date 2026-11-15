@@ -526,6 +526,53 @@ test('remote control: pictures sent from the phone reach the model, and what is 
   model.closeAllConnections();
 });
 
+test('remote control: a picture the agent opens with read_file is previewed on the phone, and old previews leave the snapshot', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  // Not a real PNG past its signature, so no converter can shrink it: the preview is the file itself.
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(40, 7)]);
+  fs.writeFileSync(path.join(cwd, 'shot.png'), png);
+  const secret = 'test-secret-that-is-long-enough-123456';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const script = [];
+  for (let i = 0; i < 8; i++) script.push([call('read_file', { path: 'shot.png' })], [done(`Seen ${i + 1}.`)]);
+  const { host, close } = await fakeOllama(script);
+  const config = { ...DEFAULTS, host, bundledSkills: false, remote: { url, secret } };
+  const build = async (folder, ui, asker) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info: { tools: true, thinking: false, vision: true, context: null }, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  await until(() => me.state.online && me.state.workspaces.size === 1);
+  const [ws] = [...me.state.workspaces.values()];
+
+  await me.send('message', { ws: ws.id, text: 'look at shot.png' });
+  await until(() => me.state.workspaces.get(ws.id).items.some((i) => i.kind === 'assistant' && i.text === 'Seen 1.'));
+  const step = me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'tool');
+  assert.equal(step.state, 'done');
+  assert.deepEqual(step.images, [{ name: 'shot.png', mime: 'image/png', thumb: png.toString('base64') }], 'the phone gets a preview of the picture the tool opened');
+  await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+
+  for (let i = 2; i <= 8; i++) {
+    await me.send('message', { ws: ws.id, text: `again ${i}` });
+    await until(() => me.state.workspaces.get(ws.id).items.some((item) => item.kind === 'assistant' && item.text === `Seen ${i}.`));
+    await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+  }
+  const kept = daemon.snapshot().workspaces[0].items.filter((i) => i.kind === 'tool');
+  assert.equal(kept.length, 8);
+  assert.deepEqual(kept.map((i) => Boolean(i.images[0].thumb)), [false, false, true, true, true, true, true, true], 'a snapshot keeps only the six latest previews');
+  assert.equal(kept[0].images[0].name, 'shot.png', 'an older step still names its picture');
+
+  me.close();
+  await daemon.stop();
+  await running;
+  relay.close();
+  relay.closeAllConnections();
+  close();
+});
+
 test('remote: the phone is told what the agent is doing, how the turn ended, and what it cost', async (t) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
   const secret = 'a-fourth-long-secret-for-the-status-test-1';

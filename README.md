@@ -66,6 +66,12 @@ From the phone app, the picture button next to the message box attaches up to fo
 They are made smaller on the phone, then encrypted like everything else it sends. (An existing relay has
 to be deployed again once to get the updated app.)
 
+It works the other way too: when the agent opens an image with `read_file` (a screenshot it just took, a
+photo in a zip it unpacked), the phone shows a preview under that step. The preview is made on the Mac
+(with `sips` on macOS; elsewhere only an image already small enough is shown) and is encrypted like the
+rest. Only the six latest previews of a project are kept when the phone reloads; older steps keep the
+file's name.
+
 ## Install
 
 Needs Node ≥ 22. For local use, also Ollama and a model that supports tool calling.
@@ -524,7 +530,7 @@ plain Node.
 | `src/commands.mjs`, `src/menu.mjs` | slash commands, the `/config` menu, the `/model` and `/resume` pickers |
 | `src/ui.mjs`, `src/markdown.mjs`, `src/text.mjs` | rendering: header, panels, tool-step tree, status bar; measuring and wrapping coloured text |
 | `src/theme.mjs` | the one palette for the terminal and the phone app (amber brand, blue tool at work, purple thinking, green done, red failed); written as 24-bit, 256 or 16 colours depending on the terminal, none with `NO_COLOR` |
-| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard |
+| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews for the phone |
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
 
