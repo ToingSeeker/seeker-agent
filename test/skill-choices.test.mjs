@@ -109,3 +109,34 @@ test('choices: /skill with nothing after it offers the list; what is ticked beco
   const plain = await runPhoneCommand('/effects', { ...ctx, choose: undefined });
   assert.match(plain.prompt, /^Skill "effects"/);
 });
+
+test('phone: /skills is answered with a list to tap, /config with the settings to change', async () => {
+  const lists = [];
+  const shown = [];
+  const ui = { c: new Proxy({}, { get: () => (x) => String(x) }), notice: (t) => void shown.push(t), warn: (t) => void shown.push(t) };
+  const agent = { cwd: os.tmpdir(), reload() {}, skills: [skill(), { name: 'video-editing', description: 'Edit video with ffmpeg', body: 'x', dir: tmp(), source: 'bundled' }] };
+  const config = { ...DEFAULTS, think: false, effort: '' };
+  const ctx = { agent, ui, term: null, config, permissions: new Permissions({ mode: 'ask', cwd: os.tmpdir(), ask: null }), session: null, hub: null, configure() {}, choose: (l) => lists.push(l), settings: (items) => lists.push({ settings: items }) };
+
+  assert.equal(await runPhoneCommand('/skills', ctx), undefined);
+  assert.deepEqual([lists[0].mode, lists[0].title, lists[0].items.map((i) => i.value)], ['one', '2 skills', ['effects', 'video-editing']]);
+  // With words after it, the matches are said, as before.
+  await runPhoneCommand('/skills ffmpeg', ctx);
+  assert.match(shown.at(-1), /1 skill matching "ffmpeg"[\s\S]*\/video-editing/);
+  assert.equal(lists.length, 1);
+
+  await runPhoneCommand('/config', ctx);
+  const items = lists[1].settings;
+  const by = Object.fromEntries(items.map((i) => [i.key, i]));
+  assert.ok(!by.model && !by.host, 'the model has its own list, and the address of a local server is not for a phone');
+  assert.deepEqual([by.think.value, by.think.options], ['off', ['on', 'off']]);
+  assert.deepEqual([by.effort.value, by.effort.options[0]], ['default', 'default']);
+  assert.deepEqual(by.sandboxWrite.options, [], 'a value without a list is typed');
+  assert.ok(by.maxHelpers.help.length > 0);
+  // Without the phone to show the list, the usage line is said.
+  assert.equal(lists.length, 2);
+  await runPhoneCommand('/config', { ...ctx, settings: undefined });
+  assert.match(shown.at(-1), /\/config <setting> <value>/);
+  await runPhoneCommand('/skills', { ...ctx, choose: undefined });
+  assert.match(shown.at(-1), /2 skills — run one with/);
+});

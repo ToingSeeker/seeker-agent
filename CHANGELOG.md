@@ -14,6 +14,8 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
   effects as a list: tick with Space in the terminal (Ctrl+A for all, type to filter), or in a sheet on the
   phone. What is ticked becomes the skill's arguments.
   It also works when files are sent along with the command, and in a terminal session shown on the phone.
+- **On the phone, `/skills` opens a list of the skills to search and tap, and `/config` the settings**,
+  each with its value and the values it can take, changed with a tap.
 
 ## 0.4.0 — 2026-11-16
 

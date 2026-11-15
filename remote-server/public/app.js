@@ -329,7 +329,10 @@ function apply(event) {
     case 'choose':
       // The Mac answers a skill that has a list to pick from with that list. Only the phone that is
       // looking at that session shows it; the event reaches every phone.
-      if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) chooseMany(event);
+      if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) (event.mode === 'one' ? chooseOne : chooseMany)(event);
+      break;
+    case 'settings':
+      if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) showSettings(event);
       break;
     case 'toast':
       state.opening = 0;
@@ -954,6 +957,75 @@ function chooseMany({ ws, skill, title, items, attachment }) {
   list.addEventListener('change', () => (count(), relabel()));
   if (filter) filter.addEventListener('input', relabel);
   sheet(title, h('div', { class: 'ck-top' }, filter, every), list, h('div', { class: 'ck-foot' }, send));
+}
+
+/** A filter box over `rows` (each matched against its text), with a line for when nothing matches. */
+function filterRows(rows, texts, placeholder) {
+  const none = h('p', { class: 'quiet pad', hidden: true }, 'Nothing matches.');
+  const field = h('input', {
+    class: 'field ck-filter',
+    type: 'text',
+    inputmode: 'search',
+    enterkeyhint: 'search',
+    autocapitalize: 'off',
+    autocomplete: 'off',
+    placeholder,
+    'aria-label': 'Filter the list',
+    oninput: (e) => {
+      const words = e.target.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      let shown = 0;
+      rows.forEach((row, i) => {
+        row.hidden = !words.every((w) => texts[i].includes(w));
+        if (!row.hidden) shown += 1;
+      });
+      none.hidden = shown > 0;
+    },
+  });
+  return { field, none };
+}
+
+/** The skills, sent by the Mac for /skills: search them, tap one, and it is put in the message box to send. */
+function chooseOne({ title, items }) {
+  const pick = (value) => () => {
+    closeSheet();
+    input.value = `/${value} `;
+    grow();
+    suggest();
+    input.focus();
+  };
+  const rows = items.map((item) => h('button', { class: 'ck-row one', type: 'button', onclick: pick(item.value) }, h('span', { class: 'grow' }, h('span', { class: 'name mono' }, `/${item.value}`), item.description && h('span', { class: 'sub' }, item.description))));
+  const { field, none } = filterRows(rows, items.map((i) => `${i.value} ${i.description ?? ''}`.toLowerCase()), `Search ${items.length} skills…`);
+  sheet(title, items.length > 8 && h('div', { class: 'ck-top' }, field), h('div', { class: 'ck-list', role: 'list' }, rows, none), h('p', { class: 'quiet small' }, 'Tap one to put it in the message box; add what it should work on, then send.'));
+}
+
+/** The settings, sent by the Mac for /config: a value is changed with a tap; one without a list of values is typed. */
+function showSettings({ ws, items }) {
+  const row = (item) => {
+    const options = item.options ?? [];
+    const set = (value) => () => {
+      closeSheet();
+      sendText(ws, `/config ${item.key} ${value === 'default' ? 'default' : value}`);
+    };
+    const type = () => {
+      closeSheet();
+      input.value = `/config ${item.key} `;
+      grow();
+      suggest();
+      input.focus();
+    };
+    return h(
+      'div',
+      { class: 'st-row' },
+      h('div', { class: 'st-head' }, h('span', { class: 'name mono' }, item.key), h('span', { class: 'st-value mono' }, item.value)),
+      h('span', { class: 'sub' }, item.help),
+      options.length
+        ? h('div', { class: 'st-options', role: 'group', 'aria-label': item.key }, options.map((value) => h('button', { type: 'button', class: value === item.value ? 'on' : '', 'aria-pressed': String(value === item.value), disabled: value === item.value, onclick: set(value) }, value)))
+        : h('button', { class: 'btn quiet small st-type', type: 'button', onclick: type }, 'Type a value'),
+    );
+  };
+  const rows = items.map(row);
+  const { field, none } = filterRows(rows, items.map((i) => `${i.key} ${i.help}`.toLowerCase()), `Search ${items.length} settings…`);
+  sheet('Settings', h('p', { class: 'tu-sub' }, 'For the projects opened from the phone. A change is saved at once.'), h('div', { class: 'ck-top' }, field), h('div', { class: 'ck-list' }, rows, none));
 }
 
 /** A sheet of choices with the one in force ticked. */
@@ -2475,7 +2547,7 @@ function slashCommands() {
     { name: '/skills', about: 'list skills; run one with /<name>', off: busy, run: run('/skills') },
     { name: '/compact', about: 'summarise to free up context', off: busy, run: run('/compact') },
     { name: '/think', about: 'thinking mode on/off', off: busy || terminal, run: run('/think') },
-    { name: '/config', about: '/config <setting> <value>', off: busy || terminal, run: fill('/config') },
+    { name: '/config', about: 'settings: change one with a tap', off: busy || terminal, run: run('/config') },
     { name: '/memory', about: 'what SEEKER remembers', off: busy, run: run('/memory') },
     { name: '/goal', about: 'keep working until a goal is done', off: busy || !terminal, run: fill('/goal') },
     { name: '/help', about: 'commands that work from here', off: busy, run: run('/help') },
