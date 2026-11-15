@@ -2,6 +2,12 @@
 
 What changed in SEEKER, newest first. Versions follow the number in `package.json`.
 
+## Unreleased
+
+- **A skill with a list to choose from offers it to tick.** `/effects` with nothing after it shows its
+  effects as a list: tick with Space in the terminal (Ctrl+A for all, type to filter), or in a sheet on the
+  phone. What is ticked becomes the skill's arguments.
+
 ## 0.4.0 — 2026-11-16
 
 Closing gaps found by comparing SEEKER with other terminal agents, and two things to do with video.

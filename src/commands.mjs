@@ -3,9 +3,9 @@ import { saveClipboardImage } from './images.mjs';
 import { SETTINGS, saveConfig, saveProviderConfig } from './config.mjs';
 import { isConnectionRefused } from './http.mjs';
 import { serverFingerprint } from './mcp.mjs';
-import { configMenu, pickList } from './menu.mjs';
+import { configMenu, pickList, pickMany } from './menu.mjs';
 import { apiKey, createProvider, keyPool, needsKey, providerDefs } from './providers.mjs';
-import { renderSkill } from './skills.mjs';
+import { renderSkill, skillChoices } from './skills.mjs';
 import { contextSize, kilo } from './ui.mjs';
 
 const INIT_PROMPT = `Explore this project (list the root, read the README and the main manifest/config files, look at the folder structure) and then write a SEEKER.md file in the working directory. It should give a future coding session what it needs: what the project is, the tech stack, how to install / run / test / build it (exact commands), the folder layout, and conventions or gotchas visible in the code. Keep it under 80 lines and include only what you verified.`;
@@ -699,6 +699,20 @@ export async function runCommand(input, ctx) {
     default: {
       const skill = agent.skills.find((s) => s.name === name.toLowerCase());
       if (skill) import('./skill-manage.mjs').then((m) => m.recordUse(skill.name), () => {});
+      // A skill with a list to choose from, called with nothing after it: the list is offered to tick,
+      // instead of expecting its names to be remembered.
+      const choices = skill && !arg ? skillChoices(skill) : [];
+      if (choices.length >= 2) {
+        const title = `/${skill.name} — tick what to use`;
+        if (term) {
+          const picked = await pickMany({ term, ui, title, items: choices.map((choice) => ({ label: choice.value, hint: choice.description })) });
+          if (picked === null) return ui.notice(`  /${skill.name} cancelled.`);
+          const chosen = picked.map((i) => choices[i].value).join(', ');
+          return { prompt: renderSkill(skill, chosen), label: `/${skill.name}${chosen ? ` ${chosen}` : ''}` };
+        }
+        // On the phone the list is shown there; what is ticked comes back as `/skill a, b`.
+        if (ctx.choose) return void ctx.choose({ skill: skill.name, title, items: choices });
+      }
       if (skill) return { prompt: renderSkill(skill, arg), label: `/${skill.name}${arg ? ` ${arg}` : ''}` };
       ui.warn(`  Unknown command: /${name} — type /help`);
     }

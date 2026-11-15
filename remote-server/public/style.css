@@ -1121,6 +1121,86 @@ button.stat:active {
   height: 14px;
 }
 /* The token sheet: the total first, then a line per day. */
+/* ── a list to tick (a skill's choices) ── */
+.ck-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ck-top .ck-filter {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+.ck-top .ck-all {
+  flex: none;
+  width: auto;
+  margin: 0 0 0 auto;
+  white-space: nowrap;
+}
+.ck-list {
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-lg);
+  background: var(--sk-bg-secondary);
+  overflow: hidden;
+}
+.ck-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 48px;
+  padding: 11px 14px;
+  cursor: pointer;
+}
+.ck-row[hidden] {
+  display: none;
+}
+.ck-row + .ck-row {
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.ck-row:active {
+  background: var(--sk-surface-hover);
+}
+.ck-row input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--sk-primary);
+}
+.ck-row .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ck-row .name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sk-text-primary);
+}
+.ck-row .sub {
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--sk-text-secondary);
+}
+.ck-row:has(input:checked) .name {
+  color: var(--sk-primary);
+}
+/* The button stays in reach however long the list is. */
+.ck-foot {
+  position: sticky;
+  /* The sheet has padding under its content; the bar reaches down over it, so no row shows beneath the button. */
+  bottom: calc(-18px - env(safe-area-inset-bottom));
+  margin: 12px -2px calc(-18px - env(safe-area-inset-bottom));
+  padding: 10px 2px calc(18px + env(safe-area-inset-bottom));
+  background: var(--sk-surface);
+}
+.ck-foot .btn {
+  width: 100%;
+}
+
 /* ── token usage ── */
 .tu-sub {
   margin: -4px 0 0;
