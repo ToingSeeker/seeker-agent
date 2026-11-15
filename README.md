@@ -150,6 +150,10 @@ most recent part and your request word for word.
 
 ### Keeping the cost of a long session down
 
+`/context` shows what fills the conversation, part by part (instructions, tool definitions, your messages,
+replies, tool results, pictures) and how far it is from being summarised. `/usage` shows the tokens used:
+the total, new and cached input, output, and the last seven days. Both work from the phone.
+
 Every step sends the whole conversation to the model again, so a long session is paid for many times over.
 Change these with `/config <name> <value>`:
 

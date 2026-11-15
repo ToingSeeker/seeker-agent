@@ -306,6 +306,37 @@ export class Agent {
     return target;
   }
 
+  /**
+   * What fills the context, part by part, in tokens. The parts are estimates from their size in
+   * characters; when the model's own count of the last request is higher than their sum, the
+   * difference is listed as such instead of being hidden.
+   */
+  contextBreakdown() {
+    const tokens = (chars) => Math.ceil(chars / CHARS_PER_TOKEN);
+    this.#estimateTokens(); // refreshes the size of the tool definitions
+    const size = { summary: 0, user: 0, assistant: 0, tool: 0, images: 0 };
+    for (const m of this.messages) {
+      const all = messageChars(m);
+      const { images, ...rest } = m;
+      const text = images?.length ? JSON.stringify(rest).length : all;
+      size.images += all - text;
+      size[m.compacted ? 'summary' : (m.role in size ? m.role : 'user')] += text;
+    }
+    const parts = [
+      { key: 'system', label: 'Instructions, memory and skills', tokens: tokens(this.system.length) },
+      { key: 'tools', label: 'Tool definitions', tokens: this.caps.tools && !this.provider.ownTools ? tokens(this.toolSize?.chars ?? 0) : 0 },
+      { key: 'summary', label: 'Summary of the earlier conversation', tokens: tokens(size.summary) },
+      { key: 'user', label: 'Your messages', tokens: tokens(size.user) },
+      { key: 'assistant', label: 'Replies and tool calls', tokens: tokens(size.assistant) },
+      { key: 'tool', label: 'Tool results', tokens: tokens(size.tool) },
+      { key: 'images', label: 'Pictures', tokens: tokens(size.images) },
+    ];
+    const estimated = parts.reduce((n, p) => n + p.tokens, 0);
+    const used = this.contextTokens();
+    if (used > estimated) parts.push({ key: 'uncounted', label: "Counted by the model, not by these estimates", tokens: used - estimated });
+    return { limit: this.contextLimit(), ceiling: Math.round(this.compactCeiling()), used: Math.max(used, estimated), messages: this.messages.length, parts: parts.filter((p) => p.tokens > 0) };
+  }
+
   /** Tokens in play for the next request: the model's own count, or our estimate if history grew since. */
   contextTokens() {
     return Math.max(this.usedTokens, this.#estimateTokens());
