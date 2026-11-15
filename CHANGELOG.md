@@ -2,6 +2,12 @@
 
 What changed in SEEKER, newest first. Versions follow the number in `package.json`.
 
+## Unreleased
+
+- **Video editing.** A bundled `video-editing` skill with a Python script on top of ffmpeg: trim, join,
+  reframe, change speed, cut out silences, burn in captions or a title, level or replace the sound, add music,
+  make a GIF, compress to a size. Each edit writes a new file and reports what it made.
+
 ## 0.3.0 — 2026-11-15
 
 Two guards and helpers that were put off from 0.2.0.
