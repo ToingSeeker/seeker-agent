@@ -10,6 +10,7 @@
 
 import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, summary, workspaces as explorerRows } from './home.js';
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
+import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
@@ -1000,20 +1001,122 @@ function workspaceExplorer(model) {
 const spent = (counts) => (counts?.input ?? 0) + (counts?.output ?? 0);
 const big = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M` : kilo(n));
 
-/** Token use as the Mac has counted it: today, the last seven days, and everything since counting began. */
-function showUsage() {
-  const { usage } = state;
-  if (!usage) return;
-  const line = (label, value, sub) => h('div', { class: 'u-row' }, h('span', { class: 'grow' }, h('span', {}, label), sub && h('span', { class: 'sub' }, sub)), h('b', { class: 'mono', title: value.toLocaleString() }, value.toLocaleString()));
-  // What was read from the provider's cache costs a small fraction of what was sent new; the two are told apart.
-  const detail = (c) => `${c.cached ? `${big(Math.max(0, c.input - c.cached))} new + ${big(c.cached)} from cache in` : `${big(c.input)} in`} · ${big(c.output)} out`;
-  const dayName = (day, i) => (i === 0 ? 'Today' : i === 1 ? 'Yesterday' : new Date(`${day}T12:00:00`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }));
-  sheet(
-    'Token usage',
-    h('div', { class: 'u-total' }, h('span', { class: 'cap' }, usage.since ? `SINCE ${new Date(usage.since).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()}` : 'TOTAL'), h('b', {}, spent(usage.total).toLocaleString()), h('span', { class: 'sub' }, `${detail(usage.total)} · ${usage.total.replies.toLocaleString()} model repl${usage.total.replies === 1 ? 'y' : 'ies'}`)),
-    h('div', { class: 'u-list' }, usage.week.map((d, i) => line(dayName(d.day, i), spent(d), spent(d) ? detail(d) : null))),
-    h('p', { class: 'muted small' }, 'Counted on your Mac, in its own settings folder, from the day this counter was added. Earlier use was not recorded. Input read from the provider\'s cache is billed at a fraction of new input.'),
+// ── token usage: what the Mac has counted, as totals, a split of the input, a chart and a history ──
+const usageUi = { range: '7', day: null, more: false };
+const HISTORY_ROWS = 14;
+
+/** The counts of one day, spelled out. Shown under the chart and under the day's row in the history. */
+function usageDay(d, today) {
+  const title = `${dayLabel(d.day, today)}${dayLabel(d.day, today).includes(',') ? '' : ` · ${shortDay(d.day)}`}`;
+  if (d.coverage === 'unavailable') return h('div', { class: 'tu-day', role: 'status' }, h('b', {}, title), h('p', {}, 'Not recorded. Counting had not begun on this day, so what was used is unknown.'));
+  const c = d.counts;
+  const cell = (label, value) => h('div', {}, h('span', {}, label), h('b', {}, value));
+  return h(
+    'div',
+    { class: 'tu-day', role: 'status' },
+    h('b', {}, title),
+    d.coverage === 'zero' ? h('p', {}, 'Counting was on and nothing was used.') : h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? '—' : c.cachedInput.toLocaleString()), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString())),
+    d.partial && h('p', {}, 'Counting began on this day: it holds only what came after that moment.'),
   );
+}
+
+function usageChart(v) {
+  const top = v.ticks.at(-1);
+  const show = labelled(v.days.length, 7);
+  const pick = (day) => () => ((usageUi.day = usageUi.day === day ? null : day), drawSheet());
+  const wide = v.days.length > 45;
+  return h(
+    'div',
+    { class: 'tu-chart' },
+    h('div', { class: 'tu-axis', 'aria-hidden': 'true' }, [...v.ticks].reverse().map((t) => h('span', {}, t === 0 ? '0' : compact(t).replace('.0', '')))),
+    h(
+      'div',
+      { class: 'tu-scroll' },
+      h(
+        'div',
+        { class: 'tu-plot', role: 'group', 'aria-label': 'Tokens per day', style: wide ? `min-width:${v.days.length * 7}px` : '' },
+        h('div', { class: 'tu-grid', 'aria-hidden': 'true' }, v.ticks.map(() => h('i'))),
+        v.days.map((d, i) => {
+          const total = d.counts?.total ?? 0;
+          const said = d.coverage === 'unavailable' ? 'not recorded' : `${total.toLocaleString()} tokens`;
+          return h(
+            'button',
+            { class: `tu-bar ${d.coverage}${usageUi.day === d.day ? ' on' : ''}${d.day === v.today ? ' today' : ''}`, type: 'button', 'data-key': `bar-${d.day}`, 'aria-pressed': String(usageUi.day === d.day), 'aria-label': `${fullDay(d.day)}: ${said}`, onclick: pick(d.day) },
+            h('i', { style: `height:${total && top ? Math.max(1.5, (total / top) * 100) : 0}%` }),
+            h('span', { class: show(i) ? '' : 'skip' }, shortDay(d.day)),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+/** Token use as the Mac has counted it. The sheet stays open while counts arrive and keeps the range and day chosen. */
+function showUsage() {
+  Object.assign(usageUi, { day: null, more: false });
+  openLive('Token usage', () => {
+    const up = state.linked && state.online;
+    const { usage } = state;
+    const signature = JSON.stringify([usage, usageUi, up, state.loaded]);
+    return { signature, content: () => usageSheet(usage, up) };
+  });
+}
+
+function usageSheet(usage, up) {
+  const stale = !up && h('p', { class: 'tu-note warn', role: 'status' }, 'Mac is disconnected. Usage data may be outdated.');
+  if (!usage) {
+    // Nothing from the Mac yet is not "nothing used": the shape of the panel, without a number in it.
+    if (!state.loaded) return [h('div', { class: 'tu-skeleton', 'aria-busy': 'true', 'aria-label': 'Loading token usage' }, h('i'), h('i'), h('i'), h('i'))];
+    return [stale, h('div', { class: 'empty' }, h('b', {}, 'Token usage is not reported'), 'SEEKER on this Mac does not send its token counts. Update it and start `seeker remote` again.')];
+  }
+  const v = usageView(usage, { range: usageUi.range });
+  const since = v.sinceDay && `Since ${fullDay(v.sinceDay)}`;
+  if (v.empty) return [h('p', { class: 'tu-sub' }, ['Usage analytics', since].filter(Boolean).join(' · ')), stale, h('div', { class: 'empty' }, h('b', {}, 'No token usage recorded yet.'), 'Counts appear here after the first reply of a model on your Mac.')];
+
+  const all = v.lifetime;
+  const metric = (label, value, hint) => h('div', { class: 'tu-metric' }, h('span', {}, label), h('b', { title: hint ?? null }, value));
+  const composition =
+    all.cacheRatio == null
+      ? h('p', { class: 'tu-note' }, 'The provider in use does not report how much input it read from its cache, so no share is shown.')
+      : [
+          h('div', { class: 'tu-bar-split', role: 'img', 'aria-label': `Input: ${percent(all.newRatio)} new, ${percent(all.cacheRatio)} cached` }, h('i', { class: 'new', style: `flex-grow:${all.newRatio}` }), h('i', { class: 'cached', style: `flex-grow:${all.cacheRatio}` })),
+          h('div', { class: 'tu-legend' }, h('span', {}, h('i', { class: 'new' }), 'New input', h('b', {}, percent(all.newRatio)), h('em', {}, compact(all.measuredInput - all.cachedInput))), h('span', {}, h('i', { class: 'cached' }), 'Cached input', h('b', {}, percent(all.cacheRatio)), h('em', {}, compact(all.cachedInput)))),
+          all.partial && h('p', { class: 'tu-note' }, `Measured over ${compact(all.measuredInput)} of input. The other ${compact(all.newInput + all.cachedInput - all.measuredInput)} came from a provider that does not report its cache.`),
+          all.written > 0 && h('p', { class: 'tu-note' }, `${compact(all.written)} of the new input was written to the cache, which providers bill above plain input.`),
+        ];
+
+  const chosen = usageUi.day && v.days.find((d) => d.day === usageUi.day);
+  const history = [...v.days].reverse();
+  const listed = usageUi.more ? history : history.slice(0, HISTORY_ROWS);
+  const row = (d) => {
+    const open = usageUi.day === d.day;
+    const value = d.counts?.total.toLocaleString();
+    return [
+      h('button', { class: `tu-row${open ? ' on' : ''}`, type: 'button', 'data-key': `row-${d.day}`, 'aria-expanded': String(open), onclick: () => ((usageUi.day = open ? null : d.day), drawSheet()) }, h('span', { class: 'grow' }, dayLabel(d.day, v.today)), d.coverage === 'unavailable' ? h('span', { class: 'none' }, 'Not recorded') : h('b', {}, value)),
+      open && usageDay(d, v.today),
+    ];
+  };
+
+  return [
+    h('p', { class: 'tu-sub' }, ['Usage analytics', since].filter(Boolean).join(' · ')),
+    stale,
+    h('div', { class: 'tu-total' }, h('b', {}, compact(all.total)), h('span', {}, `${all.total.toLocaleString()} total tokens`)),
+    h('div', { class: 'tu-metrics' }, metric('New input', compact(all.newInput), all.newInput.toLocaleString()), metric('Cached input', all.cacheRatio == null ? '—' : compact(all.cachedInput), all.cacheRatio == null ? 'Not reported by the provider' : all.cachedInput.toLocaleString()), metric('Output', compact(all.output), all.output.toLocaleString()), metric('Model replies', all.replies.toLocaleString())),
+
+    h('div', { class: 'tu-head' }, h('h4', {}, 'Input composition'), all.cacheRatio != null && h('span', { class: 'tu-chip' }, `${percent(all.cacheRatio)} cached input`)),
+    composition,
+
+    h('div', { class: 'tu-head' }, h('h4', {}, 'Daily usage'), h('div', { class: 'tu-range', role: 'group', 'aria-label': 'Range' }, RANGES.map(([id, label]) => h('button', { type: 'button', 'data-key': `range-${id}`, class: usageUi.range === id ? 'on' : '', 'aria-pressed': String(usageUi.range === id), 'aria-label': label, onclick: () => (Object.assign(usageUi, { range: id, day: null, more: false }), drawSheet()) }, id === 'all' ? 'All' : `${id}d`)))),
+    h('p', { class: 'tu-sub' }, RANGES.find(([id]) => id === usageUi.range)[1], v.period ? ` · ${compact(v.period.total)} tokens · ${v.period.replies.toLocaleString()} model replies` : ' · not recorded'),
+    usageChart(v),
+    chosen ? usageDay(chosen, v.today) : h('p', { class: 'tu-note' }, 'Tap a bar for that day\'s counts.'),
+
+    h('div', { class: 'tu-head' }, h('h4', {}, 'Usage history')),
+    h('div', { class: 'tu-list' }, listed.flatMap(row)),
+    history.length > HISTORY_ROWS && h('button', { class: 'btn quiet small', type: 'button', 'data-key': 'more', onclick: () => ((usageUi.more = !usageUi.more), drawSheet()) }, usageUi.more ? 'Show fewer days' : `Show ${history.length - HISTORY_ROWS} earlier days`),
+
+    h('p', { class: 'tu-note foot' }, `Counted on your Mac${v.sinceDay ? ` since ${fullDay(v.sinceDay)}, when this counter was added` : ''}. What was used before that was never recorded and cannot be recovered. The figures are the providers' own counts, by the Mac's calendar day. Cached input is part of the total. Token counts are not charges: providers price new input, cached input and output differently.`),
+  ];
 }
 
 /** What Home shows now, and a signature of it: the screen is redrawn only when that changes. */

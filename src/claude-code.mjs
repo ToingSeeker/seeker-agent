@@ -184,5 +184,6 @@ export function claudeCodeProvider(def, config, deps = {}) {
 /** Anthropic's usage block as ledger counts: everything sent (cache reads included, and named), and what was written. */
 export function spentOf(usage = {}) {
   const cached = usage.cache_read_input_tokens ?? 0;
-  return { input: (usage.input_tokens ?? 0) + cached + (usage.cache_creation_input_tokens ?? 0), cached, output: usage.output_tokens ?? 0 };
+  const written = usage.cache_creation_input_tokens ?? 0;
+  return { input: (usage.input_tokens ?? 0) + cached + written, cached, written, output: usage.output_tokens ?? 0 };
 }

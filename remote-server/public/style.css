@@ -36,6 +36,10 @@
   /* Error */
   --sk-danger: #F16D76;
   --sk-danger-soft: rgba(241, 109, 118, 0.12);
+  /* Token analytics: the two kinds of input, and output */
+  --sk-new-input: #E4D9C5;
+  --sk-cached-input: #FFAA25;
+  --sk-output: #81858F;
   /* Warning */
   --sk-warning: #FFB547;
   --sk-warning-soft: rgba(255, 181, 71, 0.1);
@@ -1117,41 +1121,364 @@ button.stat:active {
   height: 14px;
 }
 /* The token sheet: the total first, then a line per day. */
-.u-total {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 0 14px;
-}
-.u-total .cap {
-  font: 700 11px/1 var(--mono);
-  letter-spacing: 0.12em;
+/* ── token usage ── */
+.tu-sub {
+  margin: -4px 0 0;
+  font-size: 13px;
   color: var(--sk-text-secondary);
 }
-.u-total b {
-  font: 700 30px/1.25 var(--sans);
-  font-variant-numeric: tabular-nums;
-}
-.u-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 48px;
-  padding: 7px 0;
-  border-top: 1px solid var(--sk-border-subtle);
-}
-.u-row .grow {
+.tu-total {
   display: flex;
   flex-direction: column;
+  padding: 14px 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+.tu-total b {
+  font: 750 44px/1.05 var(--sans);
+  letter-spacing: -0.02em;
+}
+.tu-total span {
+  margin-top: 4px;
+  font-size: 13.5px;
+  color: var(--sk-text-secondary);
+}
+.tu-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tu-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface-elevated);
+  padding: 10px 12px 11px;
 }
-.u-row b {
+.tu-metric span {
+  font-size: 12.5px;
+  color: var(--sk-text-secondary);
+}
+.tu-metric b {
+  font: 700 20px/1.15 var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+.tu-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.tu-head h4 {
+  flex: 1;
+  margin: 0;
+  font: 650 15.5px/1.2 var(--sans);
+}
+.tu-chip {
   flex: none;
-  font-size: 14px;
+  border-radius: 999px;
+  background: var(--sk-primary-soft);
+  padding: 4px 10px;
+  font-size: 12.5px;
   font-weight: 600;
+  color: var(--sk-cached-input);
+  font-variant-numeric: tabular-nums;
 }
-.u-list + p {
-  margin: 12px 0 0;
+.tu-bar-split {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.tu-bar-split i {
+  min-width: 3px;
+  flex-basis: 0;
+}
+.tu-bar-split .new,
+.tu-legend i.new {
+  background: var(--sk-new-input);
+}
+.tu-bar-split .cached,
+.tu-legend i.cached {
+  background: var(--sk-cached-input);
+}
+.tu-legend {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--sk-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tu-legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tu-legend i {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.tu-legend b {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--sk-text-primary);
+}
+.tu-legend em {
+  width: 64px;
+  text-align: right;
+  font-style: normal;
+  color: var(--sk-text-muted);
+}
+.tu-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--sk-text-muted);
+}
+.tu-note.warn {
+  color: var(--sk-warning);
+}
+.tu-note.foot {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.tu-range {
+  display: flex;
+  flex: none;
+  border: 1px solid var(--sk-border);
+  border-radius: 9px;
+  background: var(--sk-surface);
+  padding: 2px;
+}
+.tu-range button {
+  position: relative;
+  min-width: 40px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  padding: 0 8px;
+  font: 600 12.5px/1 var(--sans);
+  color: var(--sk-text-secondary);
+}
+/* It looks 28px tall; the finger gets 44. */
+.tu-range button::after {
+  content: '';
+  position: absolute;
+  inset: -8px 0;
+}
+.tu-range button.on {
+  background: var(--sk-primary-soft);
+  color: var(--sk-primary);
+}
+.tu-chart {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  font: 11px/1 var(--mono);
+  color: var(--sk-text-muted);
+}
+.tu-axis {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 132px;
+  text-align: right;
+}
+.tu-axis span {
+  transform: translateY(-50%);
+}
+.tu-axis span:last-child {
+  transform: translateY(50%);
+}
+.tu-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.tu-plot {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 154px;
+}
+.tu-grid {
+  position: absolute;
+  inset: 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.tu-grid i {
+  height: 1px;
+  background: var(--sk-border-subtle);
+}
+.tu-grid i:last-child {
+  background: var(--sk-border-strong);
+}
+.tu-bar {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 2px;
+  border: 0;
+  background: none;
+  padding: 0 0 22px;
+  color: inherit;
+  font: inherit;
+}
+.tu-bar i {
+  display: block;
+  width: 100%;
+  max-width: 44px;
+  margin: 0 auto;
+  border-radius: 3px 3px 0 0;
+  background: var(--sk-primary-deep);
+}
+.tu-bar.today i,
+.tu-bar.on i {
+  background: var(--sk-cached-input);
+}
+/* A day with no record is not a day of zero: it is drawn as a gap with a mark, not as an empty bar. */
+.tu-bar.unavailable::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 30px;
+  width: 6px;
+  height: 1px;
+  margin-left: -3px;
+  background: var(--sk-text-muted);
+}
+.tu-bar.on::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 22px;
+  border-radius: 4px;
+  background: var(--sk-primary-soft);
+}
+.tu-bar span {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.tu-bar span.skip {
+  display: none;
+}
+.tu-bar.today span,
+.tu-bar.on span {
+  color: var(--sk-cached-input);
+}
+.tu-bar:focus-visible {
+  outline: 2px solid var(--sk-primary);
+  outline-offset: 1px;
+}
+.tu-day {
+  margin-top: 10px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface-elevated);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.tu-day p {
+  margin: 4px 0 0;
+  color: var(--sk-text-secondary);
+}
+.tu-day-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.tu-day-grid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--sk-text-secondary);
+}
+.tu-day-grid b {
+  font-weight: 600;
+  color: var(--sk-text-primary);
+}
+.tu-list .tu-day {
+  margin: 0 0 10px;
+}
+.tu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-top: 1px solid var(--sk-border-subtle);
+  background: none;
+  padding: 6px 0;
+  text-align: left;
+  font: 14.5px/1.3 var(--sans);
+  color: var(--sk-text-primary);
+}
+.tu-row:first-child {
+  border-top: 0;
+}
+.tu-row b {
+  flex: none;
+  font: 600 13.5px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.tu-row .none {
+  font-size: 12.5px;
+  color: var(--sk-text-muted);
+}
+.tu-row .none + b {
+  color: var(--sk-text-muted);
+}
+.tu-row.on .grow {
+  color: var(--sk-primary);
+}
+.tu-skeleton {
+  display: grid;
+  gap: 10px;
+  padding: 8px 0 20px;
+}
+.tu-skeleton i {
+  height: 56px;
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface-elevated);
+}
+.tu-skeleton i:first-child {
+  width: 46%;
+  height: 46px;
+}
+@media (min-width: 640px) {
+  .tu-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .tu-day-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .tu-bar i {
+    transition: background var(--sk-motion-fast);
+  }
 }
 
 /* ── workspace explorer ── */
