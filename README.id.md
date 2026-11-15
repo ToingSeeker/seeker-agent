@@ -36,9 +36,16 @@ seeker "perbaiki bug login"  # langsung dengan pesan pertama
 seeker -c                    # lanjutkan percakapan terakhir di folder ini
 seeker -p "jelaskan repo"    # sekali jawab, bisa di-pipe
 seeker --yolo                # tanpa tanya izin (perintah berbahaya tetap ditanyakan)
+seeker --plan                # mulai di mode rencana: melihat dan mengusulkan, tidak mengubah apa pun
 ```
 
-Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/help`, `/exit`, dan `!perintah`.
+Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/plan`, `/help`, `/exit`, dan `!perintah`.
+
+**Mode rencana.** `/plan` (atau `seeker --plan`) membuat SEEKER melihat dulu lalu menjawab dengan rencana: langkahnya,
+file yang disentuh tiap langkah, dan cara memeriksa hasilnya. Membaca, mencari, dan perintah shell yang tidak
+mengubah apa pun tetap jalan; edit, perintah lain, dan penyimpanan memori ditolak tanpa bertanya, juga dengan
+`--yolo`. `/plan go` menyetujui rencana dan memulai pekerjaan dengan aturan izin yang biasa; `/plan off` keluar
+dari mode rencana. Status bar menampilkan `PLAN` selama aktif. Berlaku juga dari HP.
 Ketik `/` untuk daftar perintah dan skill: ↑↓ berpindah di dalamnya, Tab melengkapi yang disorot, Enter
 menjalankannya, Esc menutup daftar. Mengetik mempersempit daftar (`/rev` juga menemukan `/code-review`). Alt+Enter
 untuk baris baru; saat daftar tertutup, ↑↓ menelusuri pesan sebelumnya.

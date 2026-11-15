@@ -395,12 +395,12 @@ export class UI {
     return padEnd(c.dim(left.replace(ANSI, '')), width - visibleLength(right)) + right;
   }
 
-  statusBar(width, { model, cwd, used, limit, provider, tokensPerSecond, yolo }) {
+  statusBar(width, { model, cwd, used, limit, provider, tokensPerSecond, yolo, plan }) {
     const { c } = this;
     const speed = tokensPerSecond ? ` • ${Math.round(tokensPerSecond)} tok/s` : '';
     const right = `${kilo(used)} tokens • ${contextSize(limit)} context${speed}`;
     const online = `● ${provider.label}${provider.local ? ' online' : ''}`;
-    const mode = yolo ? '   YOLO' : '';
+    const mode = plan ? '   PLAN' : yolo ? '   YOLO' : '';
     const fixed = 1 + online.length + 3 + model.length + mode.length + 3 + 2 + right.length;
     const path = truncateStart(tildify(cwd), Math.max(0, width - fixed));
     const left = ` ${c.green(online)}   ${model}${c.yellow(mode)}   ${c.dim(path)}`;
