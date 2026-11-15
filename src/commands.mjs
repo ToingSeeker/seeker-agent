@@ -30,6 +30,8 @@ export const COMMANDS = [
   ['/clear', 'Start a new conversation'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/status', 'Show model and context usage'],
+  ['/context', 'What fills the context: instructions, tools, messages, tool results'],
+  ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
   ['/think', 'Toggle thinking mode'],
   ['/yolo', 'Toggle running edits and commands without asking'],
   ['/plan', 'Plan first: SEEKER looks and proposes, changes nothing (/plan go carries it out · /plan off)'],
@@ -290,7 +292,7 @@ export async function runCommand(input, ctx) {
       ui.line(`  ${c.dim('context ')} ${kilo(used)} / ${contextSize(limit)} tokens (${Math.round((used / limit) * 100)}%)`);
       ui.line(`  ${c.dim('thinking')} ${config.think && agent.caps.thinking ? 'on' : 'off'}`);
       ui.line(`  ${c.dim('images  ')} ${agent.provider.ownTools || agent.caps.vision ? 'yes' : 'no, this model cannot see images'}`);
-      ui.line(`  ${c.dim('approval')} ${permissions.mode === 'auto' ? 'automatic (YOLO)' : 'ask first'}`);
+      ui.line(`  ${c.dim('approval')} ${permissions.planning ? 'plan mode: nothing is changed until /plan go' : permissions.mode === 'auto' ? 'automatic (YOLO)' : 'ask first'}`);
       {
         const { fallbackChain } = await import('./failover.mjs');
         const chain = fallbackChain(config);
@@ -308,6 +310,45 @@ export async function runCommand(input, ctx) {
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
       return;
+
+    case 'context': {
+      const b = agent.contextBreakdown();
+      const share = (n) => `${((n / b.limit) * 100).toFixed(n / b.limit < 0.1 ? 1 : 0)}%`;
+      const wide = Math.max(...b.parts.map((p) => p.label.length));
+      ui.line(`  ${c.bold(`${kilo(b.used)} of ${contextSize(b.limit)} tokens`)} ${c.dim(`(${share(b.used)}) · ${b.messages} message${b.messages === 1 ? '' : 's'}`)}`);
+      for (const p of b.parts) {
+        const cells = Math.max(p.tokens ? 1 : 0, Math.round((p.tokens / b.limit) * 30));
+        ui.line(`  ${p.label.padEnd(wide)}  ${kilo(p.tokens).padStart(7)}  ${share(p.tokens).padStart(5)}  ${c.accent('█'.repeat(cells))}`);
+      }
+      const free = Math.max(0, b.limit - b.used);
+      ui.line(`  ${c.dim(`${'Free'.padEnd(wide)}  ${kilo(free).padStart(7)}  ${share(free).padStart(5)}`)}`);
+      ui.line(`  ${c.dim(b.used >= b.ceiling ? `Over ${kilo(b.ceiling)}: the conversation is summarised at the next step.` : `Summarised at ${kilo(b.ceiling)} tokens (${kilo(b.ceiling - b.used)} to go). /compact does it now.`)}`);
+      ui.line(`  ${c.dim('Sizes are estimates from the text; the total uses the model\'s own count when it has one.')}`);
+      return;
+    }
+
+    case 'usage': {
+      const { usageSummary } = await import('./usage.mjs');
+      const { view, compact, percent, dayLabel } = await import('../remote-server/public/usage.js');
+      const v = view(usageSummary(), { range: '7' });
+      if (v.empty) return ui.notice('  No token usage recorded yet. Counts appear after the first reply of a model.');
+      const t = v.lifetime;
+      ui.line(`  ${c.bold(`${compact(t.total)} tokens`)} ${c.dim(`(${t.total.toLocaleString()})${v.sinceDay ? ` since ${v.sinceDay}` : ''}`)}`);
+      ui.line(`  ${c.dim('new input   ')} ${compact(t.newInput).padStart(8)}`);
+      ui.line(`  ${c.dim('cached input')} ${(t.cacheRatio == null ? '—' : compact(t.cachedInput)).padStart(8)}  ${c.dim(t.cacheRatio == null ? 'not reported by the provider' : `${percent(t.cacheRatio)} of input${t.partial ? ' that reports its cache' : ''}`)}`);
+      if (t.written) ui.line(`  ${c.dim('cache writes')} ${compact(t.written).padStart(8)}  ${c.dim('part of new input')}`);
+      ui.line(`  ${c.dim('output      ')} ${compact(t.output).padStart(8)}`);
+      ui.line(`  ${c.dim('replies     ')} ${t.replies.toLocaleString().padStart(8)}`);
+      ui.line('');
+      const top = Math.max(1, ...v.days.map((d) => d.counts?.total ?? 0));
+      for (const d of [...v.days].reverse()) {
+        const label = dayLabel(d.day, v.today).padEnd(12);
+        if (d.coverage === 'unavailable') ui.line(`  ${c.dim(`${label} not recorded`)}`);
+        else ui.line(`  ${label} ${compact(d.counts.total).padStart(8)}  ${c.accent('█'.repeat(d.counts.total ? Math.max(1, Math.round((d.counts.total / top) * 24)) : 0))}`);
+      }
+      ui.line(`  ${c.dim('Counted on this machine (~/.seeker/usage.json). Token counts are not charges.')}`);
+      return;
+    }
 
     case 'plan': {
       const word = (rest[0] ?? '').toLowerCase();
@@ -594,6 +635,8 @@ export const PHONE_COMMANDS = [
   ['/yolo', 'Toggle running edits and commands without asking'],
   ['/plan', 'Plan first, change nothing: /plan · /plan go carries it out · /plan off'],
   ['/status', 'Show model, context and approval mode'],
+  ['/context', 'What fills the context, part by part'],
+  ['/usage', 'Tokens used: total, cached share, the last 7 days'],
   ['/compact', 'Summarise the conversation to free up context'],
   ['/think', 'Toggle thinking mode'],
   ['/config', '/config <setting> <value> — e.g. /config permissionMode auto'],
@@ -606,7 +649,7 @@ export const PHONE_COMMANDS = [
   ['/help', 'Show the commands that work from the phone'],
 ];
 
-const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan']);
+const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage']);
 const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
 const PHONE_ELSEWHERE = {
   model: 'Type /model on its own: the app opens its model list.',
@@ -615,7 +658,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).
