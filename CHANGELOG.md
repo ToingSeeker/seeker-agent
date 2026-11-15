@@ -2,6 +2,12 @@
 
 What changed in SEEKER, newest first. Versions follow the number in `package.json`.
 
+## Unreleased
+
+- **Sandbox for shell commands (macOS).** `/sandbox on` runs the commands SEEKER starts under Seatbelt:
+  they write only in the project, the temporary folders and the package caches, and cannot read SEEKER's
+  settings file. `sandboxWrite` allows more folders; `sandboxNetwork off` cuts the network.
+
 ## 0.2.0 — 2026-11-15
 
 The first tagged version. It gathers what was built since the version number was first set to 0.1.0, which

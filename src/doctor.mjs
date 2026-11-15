@@ -7,6 +7,7 @@ import path from 'node:path';
 import { HOME_DIR, VERSION, configPath } from './config.mjs';
 import { LINK_FILE } from './link.mjs';
 import { needsKey, providerDefs } from './providers.mjs';
+import { sandboxAvailable } from './sandbox.mjs';
 import { USAGE_FILE } from './usage.mjs';
 
 const NODE_MAJOR = 22;
@@ -44,6 +45,7 @@ export const PROBES = {
       probe.once('connect', () => (probe.destroy(), resolve(true)));
       probe.once('error', () => resolve(false));
     }),
+  sandbox: () => sandboxAvailable(),
   resolves: (name) => {
     try {
       import.meta.resolve(name);
@@ -112,6 +114,9 @@ export async function diagnose({ config, probes = PROBES, files = { config: conf
 
   const usageMode = probes.mode(files.usage);
   if (usageMode != null && usageMode & 0o077) say('warn', 'Token ledger', `${files.usage} can be read by other users of this machine`, `chmod 600 ${files.usage}`);
+
+  if (config.sandbox && !probes.sandbox()) say('fail', 'Sandbox', 'switched on, but this machine has none (it needs macOS)', 'Shell commands are refused until it is switched off: /config sandbox off');
+  else if (config.sandbox) say('ok', 'Sandbox', 'on: shell commands write only in the project');
 
   if (!(await probes.has('pdftotext'))) say('info', 'PDF reading', 'pdftotext is not installed: read_file cannot read PDFs (brew install poppler)');
   return out;
