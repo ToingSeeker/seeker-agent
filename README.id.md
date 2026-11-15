@@ -512,6 +512,18 @@ panggilan, atau `{"action":"modify","args":{…}}` untuk mengubah argumennya; ho
 atau mencetak `{"context":"…"}` untuk menambahinya. Hook yang gagal tidak menghentikan pekerjaan kecuali diberi
 `"fail_closed": true`. Tidak ada hook yang berjalan sebelum kamu menyetujui perintah persis itu di `/hooks`.
 
+## Mengedit video
+
+Skill bawaan `video-editing` (`/video-editing`, atau cukup minta: "potong jadi 20 detik pertama dan jadikan 9:16")
+mengedit file video yang sudah kamu punya. Skill ini membawa skrip Python di atas ffmpeg, satu perintah per edit:
+potong, gabung klip, ubah rasio ke vertikal atau persegi, ubah kecepatan, buang jeda sunyi, tanam subtitle atau
+judul, ratakan atau ganti suara, tambah musik di bawah suara bicara, buat GIF, kompres ke ukuran tertentu. Setiap
+edit menulis file baru dan tidak pernah menimpa file asalnya, lalu melaporkan durasi, ukuran, dan resolusi hasilnya
+supaya SEEKER bisa memeriksanya; setelah itu SEEKER melihat frame hasilnya sebelum bilang selesai.
+
+Butuh `ffmpeg` dan `python3`; subtitle dan judul juga butuh Pillow (`pip install pillow`). Drag file ke terminal
+untuk menyebutkannya. Untuk merencanakan video dari sebuah brief, ada skill `video-production`.
+
 ## Membaca dan memeriksa file
 
 `read_file` juga membaca PDF (butuh `pdftotext`), file Word dan OpenDocument, `.xlsx`, notebook, dan database SQLite
