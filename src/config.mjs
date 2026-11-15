@@ -43,12 +43,13 @@ export const DEFAULTS = {
   // Let SEEKER save memory and skills without asking each session. Off: it asks the first time (and the
   // unattended review saves nothing until you have said "always").
   autoLearn: false,
-  // Run the shell commands the model starts under a sandbox (macOS): they read as usual and write only in
-  // the project, the temporary folders and the package caches. Extra folders they may write to go in
-  // sandboxWrite; sandboxNetwork false also cuts them off from the network.
+  // Run the shell commands the model starts under a sandbox (Seatbelt on macOS, bubblewrap on Linux): they
+  // read as usual and write only in the project, the temporary folders and the package caches, and reach no
+  // network beyond this machine. Extra folders they may write to go in sandboxWrite; sandboxNetwork true
+  // lets them out (package installs, git push).
   sandbox: false,
   sandboxWrite: [],
-  sandboxNetwork: true,
+  sandboxNetwork: false,
   // How hard an Anthropic model works on a reply: low, medium, high, xhigh or max. Empty: the model's own
   // default. Lower is cheaper and faster; it applies where the model has such a setting.
   effort: '',
@@ -78,8 +79,8 @@ export const SETTINGS = {
   autoLearn: { parse: bool, help: 'save memory and skills without asking' },
   bundledSkills: { parse: bool, help: "offer the skills that ship with SEEKER (yours always load)" },
   review: { parse: bool, help: 'learn from finished work: save facts and skills after a reply' },
-  sandbox: { parse: bool, help: 'run shell commands in a sandbox that writes only in the project (macOS)' },
-  sandboxNetwork: { parse: bool, help: 'let sandboxed commands reach the network' },
+  sandbox: { parse: bool, help: 'run shell commands in a sandbox that writes only in the project (macOS, Linux with bubblewrap)' },
+  sandboxNetwork: { parse: bool, help: 'let sandboxed commands reach the network (package installs, git push)' },
   sandboxWrite: { parse: (v) => (['none', 'off', '-', ''].includes(v.toLowerCase()) ? [] : v.split(',').map((p) => p.trim()).filter(Boolean)), help: 'extra folders sandboxed commands may write to, comma separated ("none" to clear)' },
   effort: { parse: (v) => (['', 'default', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : ['low', 'medium', 'high', 'xhigh', 'max'].includes(v.toLowerCase()) ? v.toLowerCase() : undefined), help: 'how hard Anthropic models work on a reply: low, medium, high, xhigh, max ("default" to clear)' },
   subagentModel: { parse: (v) => (['same', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : v), help: 'model for helper agents and the review: "model" or "provider:model" ("same" to clear)' },

@@ -127,14 +127,16 @@ edits, other commands and saving memory are refused without asking you, also wit
 approves the plan and starts the work under your usual approval rules; `/plan off` leaves plan mode. The
 status bar shows `PLAN` while it is on. It works from the phone as well.
 
-**Sandbox (macOS).** `/sandbox on` runs the shell commands SEEKER starts under Seatbelt: they read as usual
-and write only in the project, the temporary folders and the package caches (`~/.npm`, `~/.cache`,
-`~/Library/Caches`, …). SEEKER's own settings file, which holds API keys, cannot be read by them. A
-worktree's history outside the folder stays writable, so commits work. `/config sandboxWrite <path>,<path>`
-allows more folders, and `/config sandboxNetwork off` cuts the commands off from the network. Approvals are
-asked exactly as before; the sandbox is a second guard, not a replacement. It does not cover a provider that
-runs its own tools (Claude Code) or the `!commands` you type yourself. On a machine without it, switching it
-on is refused, and a config that has it on makes shell commands fail rather than run unguarded.
+**Sandbox (macOS and Linux).** `/sandbox on` runs the shell commands SEEKER starts under the system's own
+sandbox — Seatbelt on macOS, bubblewrap (`bwrap`) on Linux. They read as usual and write only in the project,
+the temporary folders and the package caches (`~/.npm`, `~/.cache`, `~/Library/Caches`, …). SEEKER's own
+settings file, which holds API keys, cannot be read by them. A worktree's history outside the folder stays
+writable, so commits work. They reach no network beyond this machine: a test that talks to `127.0.0.1` works,
+`npm install` and `git push` do not until you allow them with `/config sandboxNetwork on`.
+`/config sandboxWrite <path>,<path>` allows more folders. Approvals are asked exactly as before; the sandbox
+is a second guard, not a replacement. It does not cover a provider that runs its own tools (Claude Code) or
+the `!commands` you type yourself. On a machine without one (Windows, or Linux without bubblewrap),
+switching it on is refused, and a config that has it on makes shell commands fail rather than run unguarded.
 
 ## Instructions, memory and skills
 
