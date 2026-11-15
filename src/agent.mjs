@@ -698,7 +698,11 @@ export class Agent {
       const checkpoints = await import('./checkpoints.mjs');
       if (tool.risk !== 'write' && !checkpoints.isDestructiveCommand(String(args.command ?? ''))) return;
       this.turn.checkpointed = true;
-      await checkpoints.snapshot(this.cwd, `before ${tool.name}: ${String(tool.summary(args) ?? '').slice(0, 80)}`);
+      const id = await checkpoints.snapshot(this.cwd, `before ${tool.name}: ${String(tool.summary(args) ?? '').slice(0, 80)}`);
+      // The message that led to this change remembers the snapshot, so /rollback can take the
+      // conversation back to before it as well. A helper's change belongs to the message it works for.
+      const asked = (this.parent ?? this).turn?.message;
+      if (id && asked && !asked.checkpoint) asked.checkpoint = id;
     } catch {
       // A snapshot that cannot be taken never stops the work.
     }
@@ -889,6 +893,7 @@ export class Agent {
       this.newSkills = [];
     }
     this.messages.push(message);
+    this.turn.message = message;
     if (!this.review) this.turnsSinceMemory++;
     ui.turnStart();
     let compactions = 0;
