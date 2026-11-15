@@ -2,7 +2,50 @@
 // Code's Read, Edit, Bash and so on. SEEKER does not execute these; it only
 // displays them and, where approval is needed, asks the user.
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { hunkRows } from './hunks.mjs';
+
 const lines = (text) => String(text ?? '').split('\n');
+
+/** `text` with the first `from` (or every one) turned into `to`; null when `from` is not in it. */
+const swap = (text, from, to, all = false) => {
+  if (typeof from !== 'string' || typeof to !== 'string' || !from || !text.includes(from)) return null;
+  const parts = text.split(from);
+  return all ? parts.join(to) : parts[0] + to + parts.slice(1).join(from);
+};
+
+/**
+ * The change as numbered lines of the file, for the terminal. The file is read as it is now:
+ * usually before the change, sometimes just after it (a tool that needed no approval is reported
+ * once it has run), so the change is looked for in both directions. Null when it cannot be placed.
+ */
+function hunkOf(name, input, cwd) {
+  try {
+    const file = path.resolve(cwd || '.', String(input.file_path ?? ''));
+    const now = fs.existsSync(file) && fs.statSync(file).isFile() ? fs.readFileSync(file, 'utf8') : null;
+    let was = null;
+    let will = null;
+    if (name === 'Write') {
+      if (typeof input.content !== 'string' || now === input.content) return null;
+      [was, will] = [now, input.content];
+    } else if (now != null) {
+      const edits = name === 'MultiEdit' ? (Array.isArray(input.edits) ? input.edits : []) : [input];
+      const run = (text, forward) => edits.reduce((t, e) => (t == null ? null : forward ? swap(t, e.old_string, e.new_string, e.replace_all) : swap(t, e.new_string, e.old_string, e.replace_all)), text);
+      const after = run(now, true);
+      if (after != null) [was, will] = [now, after];
+      else {
+        const before = [...edits].reverse().reduce((t, e) => (t == null ? null : swap(t, e.new_string, e.old_string, e.replace_all)), now);
+        if (before != null) [was, will] = [before, now];
+      }
+    }
+    if (will == null) return null;
+    const hunk = hunkRows(was == null ? [] : was.split('\n'), will.split('\n'));
+    return hunk.rows.length ? hunk : null;
+  } catch {
+    return null; // a file that cannot be read is still shown, the plain way
+  }
+}
 const preview = (removed, added) => ({
   removed: removed.slice(0, 12),
   added: added.slice(0, 12),
@@ -29,6 +72,10 @@ export function describeExternal(name, input = {}, cwd = '') {
   const about = describe(name, input);
   // Claude Code reports absolute paths; inside the project the relative one reads better.
   if (cwd && about.summary.startsWith(`${cwd}/`)) about.summary = about.summary.slice(cwd.length + 1);
+  if (about.diff && ['Edit', 'MultiEdit', 'Write'].includes(name)) {
+    const hunk = hunkOf(name, input, cwd);
+    if (hunk) about.diff.hunk = hunk;
+  }
   return about;
 }
 

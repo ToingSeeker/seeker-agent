@@ -262,3 +262,35 @@ test('an edit is shown as numbered lines: what goes, what comes, and the lines a
   const fresh = TOOL_BY_NAME.get('write_file').preview({ path: 'new.js', content: 'one\ntwo' }, { cwd: dir });
   assert.deepEqual(show(fresh.hunk.rows), ['1+one', '2+two']);
 });
+
+test('an edit made by the provider\'s own tools is shown as numbered lines too, before or just after it ran', async () => {
+  const { describeExternal } = await import('../src/external-tools.mjs');
+  const show = (rows) => rows.map((r) => (r.gap ? '...' : `${r.n}${r.kind}${r.text}`));
+  const dir = fs.realpathSync(tmp());
+  const file = path.join(dir, 'a.css');
+  const before = ['.a {', '  color: red;', '}', '.b {', '  color: blue;', '}'];
+  fs.writeFileSync(file, before.join('\n'));
+
+  const edit = { file_path: file, old_string: '  color: red;', new_string: '  color: green;\n  margin: 0;' };
+  const asked = describeExternal('Edit', edit, dir);
+  assert.equal(asked.summary, 'a.css');
+  assert.deepEqual(show(asked.diff.hunk.rows), ['1 .a {', '2-  color: red;', '2+  color: green;', '3+  margin: 0;', '4 }', '5 .b {', '6   color: blue;']);
+  assert.deepEqual(asked.diff.removed, ['  color: red;'], 'the phone still gets the plain lines');
+
+  // Reported once it has already run: the same picture, read back from the changed file.
+  fs.writeFileSync(file, before.join('\n').replace(edit.old_string, edit.new_string));
+  assert.deepEqual(show(describeExternal('Edit', edit, dir).diff.hunk.rows), show(asked.diff.hunk.rows));
+
+  fs.writeFileSync(file, before.join('\n'));
+  const multi = describeExternal('MultiEdit', { file_path: file, edits: [{ old_string: 'red', new_string: 'black' }, { old_string: 'blue', new_string: 'white' }] }, dir);
+  assert.deepEqual([multi.diff.hunk.added, multi.diff.hunk.removed], [2, 2]);
+  const write = describeExternal('Write', { file_path: file, content: [...before, '.c {}'].join('\n') }, dir);
+  assert.deepEqual(show(write.diff.hunk.rows), ['4 .b {', '5   color: blue;', '6 }', '7+.c {}']);
+  const fresh = describeExternal('Write', { file_path: path.join(dir, 'new.css'), content: '.n {}' }, dir);
+  assert.deepEqual(show(fresh.diff.hunk.rows), ['1+.n {}']);
+  // A change that cannot be found in the file falls back to the plain lines, with nothing invented.
+  const lost = describeExternal('Edit', { file_path: file, old_string: 'not there', new_string: 'x' }, dir);
+  assert.equal(lost.diff.hunk, undefined);
+  assert.deepEqual(lost.diff.added, ['x']);
+  assert.equal(describeExternal('Edit', { file_path: path.join(dir, 'missing.css'), old_string: 'a', new_string: 'b' }, dir).diff.hunk, undefined);
+});
