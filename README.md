@@ -93,6 +93,10 @@ ollama pull qwen3.5:27b      # or any other tool-calling model
 `.npmrc` sets `omit=optional` so the Claude Agent SDK's bundled binary (about 320 MB) is not
 downloaded; the Claude Code provider uses the `claude` already installed on your machine.
 
+`seeker doctor` checks what SEEKER needs on this machine — Node, git, the installed packages, who can read the
+settings file, whether the chosen provider answers or has its key, the relay and the remote daemon — and says
+how to fix what is missing. It changes nothing and prints no key.
+
 ## Models and providers
 
 `/model` picks where the model runs, then one of the models that provider lists at that moment:
