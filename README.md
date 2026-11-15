@@ -263,6 +263,25 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   piece of work; approval questions are put one at a time. `/config subagentModel <model>` runs them on a
   cheaper model than the conversation.
 
+- **Agents of your own.** A helper can be given a role, and optionally a model and a set of tools, in a file:
+  `~/.seeker/agents/<name>.md` (yours, in every project) or `.seeker/agents/<name>.md` (this project's; one of
+  the same name replaces yours).
+
+  ```
+  ---
+  name: reviewer
+  description: Reads a change and reports bugs, most severe first
+  model: claude-haiku-5-5        # optional: a model on the provider in use, or provider:model
+  tools: read_file, grep, glob   # optional: the only tools it gets
+  ---
+  You review code. Report what is wrong, with file and line. Do not fix anything.
+  ```
+
+  SEEKER is told which agents exist and hands work to one through its `task` tool ("have the reviewer look at
+  this change"). The agent starts with an empty context, its role as instructions, and only the tools listed.
+  Without `model` it runs where helpers run (`subagentModel`). A project's file may pick a model but not
+  another provider; a file that reads like a prompt injection is not loaded. `/agents` lists them.
+
 These three (`/goal`, `/loop`, `/heartbeat`) live with the session: they end when you quit.
 
 ## As a backend for other apps

@@ -5,6 +5,7 @@ import { HOME_DIR, projectSlug } from './config.mjs';
 import { discoverContextFiles } from './context-files.mjs';
 import { MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, memoryBlocks } from './memory.mjs';
 import { BUNDLED_SKILLS_DIR } from './skills.mjs';
+import { agentsSection } from './agents.mjs';
 
 export { projectSlug };
 
@@ -111,7 +112,7 @@ function skillRoots(cwd, skillDirs = []) {
   return { plugins, dirs };
 }
 
-export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768 }) {
+export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], agents = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768 }) {
   const memory = memorySection(cwd, contextLimit);
   const own = memoryBlocks(cwd);
   const where = provider.local
@@ -164,6 +165,7 @@ export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], pro
   ];
   parts.push(`# Memory and skills\n${MEMORY_GUIDANCE}\n\n${SESSION_SEARCH_GUIDANCE}\n\nWhen you work out a non-trivial workflow, record it with skill_manage for future reuse.`);
   if (skills.length) parts.push(skillsSection(skills, contextLimit));
+  if (agents.length) parts.push(agentsSection(agents));
   for (const { file, text } of instructions) {
     parts.push(`# Project instructions (${file})\nThe user wrote these; follow them.\n\n${text}`);
   }
