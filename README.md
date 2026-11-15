@@ -110,7 +110,26 @@ patterns are asked about even with `--yolo`.
   and again if its entry changes.
 
 Only the memory index goes into the system prompt, capped at 20% of the context window. When the
-conversation reaches 80% of the window it is summarised, keeping the most recent part and your request word for word.
+conversation reaches 80% of the window, or 300,000 tokens if that comes first, it is summarised, keeping the
+most recent part and your request word for word.
+
+### Keeping the cost of a long session down
+
+Every step sends the whole conversation to the model again, so a long session is paid for many times over.
+Change these with `/config <name> <value>`:
+
+- `compactAt` (300000) — summarise at this many tokens even when the model's window is larger. `0` waits
+  until the window is nearly full.
+- `subagentModel` (empty) — the model helper agents (the `task` tool) and the look back after a reply run
+  on: a model of the provider in use (`claude-haiku-5-5`), or `provider:model`. Empty, or `same`: the model of
+  the conversation.
+- `cacheTtl` (`1h`) — how long Anthropic keeps the conversation cached between requests: `5m` or `1h`, the
+  two it offers. An hour costs more to write and survives a pause — reading an answer, an approval that
+  waits for you. `5m` is cheaper if you never stop for longer than that.
+
+Pictures from earlier turns are taken out of the conversation once the cache has run out, or when it is
+summarised. Sooner would cost more than it saves: a changed conversation is read at full price from the
+change onward. The look back after a reply reads only the recent part of the conversation, cut down.
 
 ## Learning across sessions
 
@@ -179,7 +198,8 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   `seeker remote`). Jobs run while SEEKER is open; to run them with nothing open, have the system scheduler call
   `seeker cron tick` every minute. `/cron` lists, pauses and removes them.
 - **Several helpers at once.** The `task` tool can run up to three helper agents side by side, each on its own
-  piece of work; approval questions are put one at a time.
+  piece of work; approval questions are put one at a time. `/config subagentModel <model>` runs them on a
+  cheaper model than the conversation.
 
 These three (`/goal`, `/loop`, `/heartbeat`) live with the session: they end when you quit.
 

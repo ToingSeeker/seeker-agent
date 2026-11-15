@@ -106,6 +106,14 @@ export function toOllamaMessages(system, messages) {
 
 const claudeImage = (i) => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: i.data } });
 
+/** Claude messages without the model's replayed reasoning; a turn left empty by that is dropped. */
+export function withoutReasoning(messages) {
+  const reasoning = (b) => b?.type === 'thinking' || b?.type === 'redacted_thinking';
+  return messages
+    .map((m) => (m.role === 'assistant' && Array.isArray(m.content) ? { ...m, content: m.content.filter((b) => !reasoning(b)) } : m))
+    .filter((m) => !Array.isArray(m.content) || m.content.length);
+}
+
 export function toClaudeMessages(messages) {
   const out = [];
   for (const m of messages) {
@@ -324,7 +332,8 @@ function anthropicProvider(def, config) {
       max_tokens: Math.min(CLAUDE_MAX_OUTPUT, meta.max_tokens ?? CLAUDE_MAX_OUTPUT),
       system,
       messages: toClaudeMessages(messages),
-      cache_control: { type: 'ephemeral' },
+      // The whole conversation so far is cached; each request reads it back at a fraction of the price.
+      cache_control: config.cacheTtl === '5m' ? { type: 'ephemeral' } : { type: 'ephemeral', ttl: '1h' },
     };
     if (tools?.length) {
       // Eager streaming sends large inputs (file contents) as they are written instead of in one burst.
@@ -338,6 +347,7 @@ function anthropicProvider(def, config) {
     // Reasoning is hidden by default on current models; ask for the readable summary.
     if (meta.capabilities?.thinking?.types?.adaptive?.supported) params.thinking = { type: 'adaptive', display: 'summarized' };
 
+    let stripped = false;
     for (let attempt = 0; ; attempt++) {
       const stream = CLAUDE_FALLBACK.has(model)
         ? c.beta.messages.stream({ ...params, betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }, { signal })
@@ -352,6 +362,13 @@ function anthropicProvider(def, config) {
         }
         message = await stream.finalMessage();
       } catch (err) {
+        // Replayed reasoning is only accepted in the conversation it was written in. If the history
+        // was changed under it, the request is sent once more without the reasoning.
+        if (!signal?.aborted && !stripped && err instanceof sdk.BadRequestError && /thinking/i.test(err.message) && /signature|different conversation/i.test(err.message)) {
+          stripped = true;
+          params.messages = withoutReasoning(params.messages);
+          continue;
+        }
         if (signal?.aborted || err instanceof sdk.APIError) throw explain(err);
         // With eager streaming a tool input can arrive as unparseable JSON; that turn is simply asked again.
         if (attempt >= 2) throw new Error('Anthropic: the model kept sending a tool call that could not be read');

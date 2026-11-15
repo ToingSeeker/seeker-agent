@@ -43,6 +43,15 @@ export const DEFAULTS = {
   // Let SEEKER save memory and skills without asking each session. Off: it asks the first time (and the
   // unattended review saves nothing until you have said "always").
   autoLearn: false,
+  // The model helper agents (the task tool) and the unattended review run on: "model" on the provider
+  // in use, or "provider:model". Empty: the same model as the conversation.
+  subagentModel: '',
+  // Summarise the conversation once it holds this many tokens, even in a larger window: every step
+  // sends the whole of it again. 0: only when the window is nearly full.
+  compactAt: 300_000,
+  // How long a provider that caches the conversation keeps it between requests (Anthropic): '5m' or '1h'.
+  // An hour costs more to write and survives a pause — reading an answer, waiting for an approval.
+  cacheTtl: '1h',
 };
 
 /** Settings `/config` may change, with how to read each from text. Returns undefined when the text is invalid. */
@@ -60,6 +69,9 @@ export const SETTINGS = {
   autoLearn: { parse: bool, help: 'save memory and skills without asking' },
   bundledSkills: { parse: bool, help: "offer the skills that ship with SEEKER (yours always load)" },
   review: { parse: bool, help: 'learn from finished work: save facts and skills after a reply' },
+  subagentModel: { parse: (v) => (['same', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : v), help: 'model for helper agents and the review: "model" or "provider:model" ("same" to clear)' },
+  compactAt: { parse: int(0), help: 'summarise the conversation at this many tokens (0: only when the window is full)' },
+  cacheTtl: { parse: (v) => (['5m', '1h'].includes(v) ? v : undefined), help: 'how long Anthropic keeps the conversation cached: 5m or 1h' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },
   host: {
     parse: (v) => {
