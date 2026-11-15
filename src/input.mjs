@@ -4,6 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { PassThrough } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
 import { HOME_DIR } from './config.mjs';
 import { layout } from './text.mjs';
 
@@ -50,11 +52,26 @@ export class Terminal {
       if (Array.isArray(saved)) this.history = saved.filter((h) => typeof h === 'string');
     } catch {}
 
-    readline.emitKeypressEvents(process.stdin);
+    // What is typed passes through here first: the mouse wheel arrives as escape codes, which are
+    // taken out and turned into scrolling before the rest is read as keys.
+    this.input = new PassThrough();
+    readline.emitKeypressEvents(this.input);
     process.stdin.setRawMode(true);
     process.stdin.resume();
+    const decoder = new StringDecoder('utf8');
+    let held = '';
+    this.onData = (chunk) => {
+      let text = held + decoder.write(chunk);
+      held = '';
+      // A mouse report cut off at the end of a read waits for the rest of it.
+      const cut = /\x1b\[<[\d;]*$/.exec(text);
+      if (cut) [text, held] = [text.slice(0, cut.index), cut[0]];
+      text = text.replace(/\x1b\[<(\d+);\d+;\d+[Mm]/g, (_, button) => (this.#mouse(Number(button)), ''));
+      if (text) this.input.write(text);
+    };
+    process.stdin.on('data', this.onData);
     this.listener = (text, key) => this.#dispatch(text, key ?? {});
-    process.stdin.on('keypress', this.listener);
+    this.input.on('keypress', this.listener);
     // Input ending (the terminal went away) cancels the current read and every later one.
     this.closed = false;
     process.stdin.on('end', () => {
@@ -74,15 +91,30 @@ export class Terminal {
     try {
       process.stdin.setRawMode(false);
     } catch {}
-    process.stdin.off('keypress', this.listener);
+    this.input.off('keypress', this.listener);
+    process.stdin.off('data', this.onData);
     process.stdin.pause();
-    this.out.write('\x1b[?2004l\x1b[?25h');
+    this.out.write('\x1b[?1000l\x1b[?1006l\x1b[?2004l\x1b[?25h');
   }
 
   #dispatch(text, key) {
     if (this.handler) return this.handler(text, key);
-    // Nothing is reading: the agent is working, and only Ctrl+C means anything.
+    // Nothing is reading: the agent is working. Ctrl+C stops it, and the conversation can be scrolled.
     if (key.ctrl && key.name === 'c') this.onInterrupt?.();
+    else this.scrollKey(key);
+  }
+
+  /** The mouse wheel scrolls the conversation; clicks and the rest of the mouse are let go. */
+  #mouse(button) {
+    if (!(button & 64) || button & 128) return;
+    this.screen?.scrollBy((button & 1) === 0 ? 3 : -3);
+  }
+
+  /** PageUp and PageDown scroll the conversation a page. Returns whether the key was one of them. */
+  scrollKey(key) {
+    if (!this.screen || (key.name !== 'pageup' && key.name !== 'pagedown')) return false;
+    this.screen.scrollBy(key.name === 'pageup' ? this.screen.page : -this.screen.page);
+    return true;
   }
 
   /**
@@ -258,6 +290,7 @@ export class Terminal {
         if (completed) replace(completed);
         else if (pasting) insert('  ');
       } else if (isPrintable(text, key)) insert(text);
+      else if (this.scrollKey(key)) return false;
       else return false;
       draw(state, recalled());
       return false;
@@ -303,6 +336,8 @@ export class Terminal {
     });
     const typed = this.reading?.text() ?? '';
     this.reading = null;
+    // What was just sent is followed: the view goes back to the newest rows.
+    this.screen?.scrollToBottom();
     this.draft = '';
     this.screen.setFooter({ input: null, suggestions: [], exitArmed: false });
     if (this.injected !== undefined) {
@@ -341,6 +376,8 @@ export class Terminal {
    */
   async ask(placeholder, { mask = false } = {}) {
     let interrupted = false;
+    // A question is answered where it can be seen.
+    this.screen?.scrollToBottom();
     const text = await this.#edit({
       draw: (state) => this.screen.setFooter({ input: { ...state, placeholder, mask }, suggestions: [] }),
       width: () => Math.max(10, this.screen.width - 6),

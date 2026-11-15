@@ -1,15 +1,20 @@
 // The full-screen layout: a header pinned to the top, the conversation in the
 // middle, and the input box with its bars pinned to the bottom.
 //
-// It runs on the normal screen, not the alternate one, so the terminal's own
-// scrollback, mouse wheel and text selection keep working. A conversation row
-// that has to leave the middle area is first written onto the top screen row
-// and the whole screen is scrolled by one line, which is what moves a row into
-// scrollback; the header is then painted back over it. Only rows that differ
-// from what is already on screen are repainted.
+// It runs on the terminal's alternate screen, like a full-screen app: the header and the input box
+// stay where they are while the conversation is scrolled — with the mouse wheel or PageUp and
+// PageDown — inside SEEKER. The terminal's own scrollback is not used while it runs, so the pinned
+// rows never end up in the middle of it. When SEEKER closes, the conversation is printed to the
+// normal screen, where the terminal's scrollback keeps it. Only rows that differ from what is
+// already on screen are repainted.
 import { activeSgr, clipAnsi, layout, padEnd, truncate, visibleLength, wrapAnsi } from './text.mjs';
 
 const MAX_INPUT_ROWS = 8;
+// Conversation rows kept to scroll back through; older ones are let go.
+const MAX_HISTORY = 20_000;
+// The terminal sends the mouse wheel as escape codes once asked (1000), in the form that has no limit on size (1006).
+const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
+const MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 // Anything but colour codes would move the cursor and break the layout.
 const NON_SGR = /\x1b\[[0-9;?]*[A-LN-Za-ln-z]|\x1b\][^\x07]*\x07|\x1b[^[\]]/g;
 
@@ -24,7 +29,8 @@ export class Screen {
     this.out = out;
     this.header = header;
     this.c = colors;
-    this.rows = []; // finished conversation rows not yet in scrollback
+    this.rows = []; // finished conversation rows, oldest first
+    this.top = null; // the first row shown while scrolled back; null while following the newest
     this.partial = ''; // the line still being written
     this.live = []; // temporary rows under the conversation (spinner, menus)
     this.painted = [];
@@ -52,25 +58,56 @@ export class Screen {
   }
 
   start() {
-    // Scroll whatever the shell left on screen into scrollback, then take over.
-    this.out.write(`\x1b[${this.height};1H${'\n'.repeat(this.height)}`);
+    // The shell's screen is kept as it is and comes back when SEEKER closes.
+    this.out.write(`\x1b[?1049h${MOUSE_ON}\x1b[2J`);
     this.started = true;
     this.painted = [];
     this.out.on('resize', this.onResize);
+    // However SEEKER ends, the terminal is given back as it was, with the conversation on it.
+    this.onExit = () => this.close();
+    process.on('exit', this.onExit);
     this.render();
   }
 
-  /** Leaves the conversation on screen, clears the input area and parks the cursor there. */
+  /** Gives the terminal back and prints the conversation there, so its scrollback keeps it. */
   close() {
     if (!this.started) return;
     this.out.off('resize', this.onResize);
+    process.off('exit', this.onExit);
     this.live = [];
     this.footer.input = null;
-    const { footerTop, footerRows } = this.#frame();
-    let out = '';
-    for (let i = 0; i < footerRows; i++) out += `\x1b[${footerTop + i + 1};1H\x1b[0m\x1b[K`;
-    this.out.write(`${out}\x1b[${footerTop + 1};1H\x1b[?25h`);
+    const width = this.width;
+    const transcript = [...this.header(width), ...this.#all()].map((row) => `${clipAnsi(row, width)}\x1b[0m\n`).join('');
+    this.out.write(`${MOUSE_OFF}\x1b[0m\x1b[?1049l${transcript}\x1b[?25h`);
     this.started = false;
+  }
+
+  /** Every conversation row, the unfinished line and the live rows, as they would be shown. */
+  #all() {
+    const partial = visibleLength(this.partial) ? wrapAnsi(this.partial, this.width) : [];
+    return [...this.rows, ...partial, ...this.live];
+  }
+
+  /** Moves the view `lines` rows back (positive) or forward (negative). At the newest rows it follows again. */
+  scrollBy(lines) {
+    if (!this.started) return;
+    const { body } = this.#frame();
+    const bottom = Math.max(0, this.#all().length - body);
+    const to = Math.min(bottom, Math.max(0, (this.top ?? bottom) - lines));
+    this.top = to >= bottom ? null : to;
+    this.render();
+  }
+
+  /** Back to the newest rows. */
+  scrollToBottom() {
+    if (this.top === null) return;
+    this.top = null;
+    this.render();
+  }
+
+  /** Rows a page of PageUp or PageDown moves. */
+  get page() {
+    return Math.max(1, this.#frame().body - 2);
   }
 
   /** Adds text to the conversation. A line is finished by its newline. */
@@ -80,6 +117,11 @@ export class Screen {
     clean.split('\n').forEach((segment, i) => {
       if (i > 0) {
         this.rows.push(...wrapAnsi(current, this.width));
+        if (this.rows.length > MAX_HISTORY) {
+          const drop = this.rows.length - MAX_HISTORY;
+          this.rows.splice(0, drop);
+          if (this.top !== null) this.top = Math.max(0, this.top - drop);
+        }
         // A colour left open carries over to the next line.
         current = activeSgr(current);
       }
@@ -128,10 +170,11 @@ export class Screen {
 
     rows.push(border('╰', '╯'));
     for (const s of footer.suggestions) rows.push(clipAnsi(s, width));
+    const hintsAt = rows.length;
     rows.push(footer.hints(width, footer.exitArmed));
     rows.push(c.dim('─'.repeat(width)));
     rows.push(footer.status(width));
-    return { rows, cursor };
+    return { rows, cursor, hintsAt };
   }
 
   #frame() {
@@ -147,20 +190,21 @@ export class Screen {
   render() {
     if (!this.started) return;
     const { width, height, header, footer, body, footerTop } = this.#frame();
-    const partial = visibleLength(this.partial) ? wrapAnsi(this.partial, width) : [];
-    let out = '\x1b[?25l';
-
-    // Rows that no longer fit go to scrollback, oldest first.
-    let overflow = this.rows.length + partial.length + this.live.length - body;
-    while (overflow > 0 && this.rows.length) {
-      out += `\x1b[1;1H${clipAnsi(this.rows.shift(), width)}\x1b[0m\x1b[K\x1b[${height};1H\n`;
-      this.painted.shift();
-      this.painted.push('');
-      overflow--;
+    const all = this.#all();
+    const bottom = Math.max(0, all.length - body);
+    if (this.top !== null && this.top >= bottom) this.top = null;
+    const first = this.top ?? bottom;
+    const visible = all.slice(first, first + body);
+    const rows = [...footer.rows];
+    // Scrolled back, the hint row says so, and how to come back.
+    if (this.top !== null) {
+      const below = all.length - first - visible.length;
+      const long = ` ↑ ${below} newer lines below · PageDown or scroll down to return`;
+      rows[footer.hintsAt] = this.c.accent(visibleLength(long) <= width ? long : ` ↑ ${below} newer below · PageDown`);
     }
 
-    const visible = [...this.rows, ...partial, ...this.live].slice(-body);
-    const frame = [...header, ...visible, ...new Array(body - visible.length).fill(''), ...footer.rows].slice(0, height);
+    let out = '\x1b[?25l';
+    const frame = [...header, ...visible, ...new Array(body - visible.length).fill(''), ...rows].slice(0, height);
     for (let i = 0; i < frame.length; i++) {
       if (frame[i] === this.painted[i]) continue;
       out += `\x1b[${i + 1};1H${clipAnsi(frame[i], width)}\x1b[0m\x1b[K`;

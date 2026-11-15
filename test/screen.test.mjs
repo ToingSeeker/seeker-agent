@@ -15,6 +15,7 @@ class FakeTerminal {
     this.r = 0;
     this.c = 0;
     this.cursorVisible = true;
+    this.written = '';
   }
 
   on() {}
@@ -22,6 +23,7 @@ class FakeTerminal {
   off() {}
 
   write(data) {
+    this.written += data;
     const re = /\x1b\[([0-9;?]*)([A-Za-z])|([\s\S])/gu;
     for (const m of data.matchAll(re)) {
       if (m[2]) {
@@ -87,9 +89,55 @@ test('header stays on top and the input box at the bottom while the conversation
 
   // 24 rows − 2 header − 7 footer = 15 conversation rows, the newest ones.
   assert.deepEqual(lines.slice(2, 17), Array.from({ length: 15 }, (_, i) => `line ${45 + i}`));
-  // Everything older went to scrollback, in order, and nothing but conversation went there.
-  const history = out.scrollback.filter((l) => l !== '');
-  assert.deepEqual(history, Array.from({ length: 45 }, (_, i) => `line ${i}`));
+  // Nothing went to the terminal's scrollback: the conversation is scrolled inside SEEKER.
+  assert.deepEqual(out.scrollback, []);
+  assert.match(out.written, /\x1b\[\?1049h/, 'on the alternate screen');
+  assert.match(out.written, /\x1b\[\?1000h\x1b\[\?1006h/, 'with the mouse wheel reported');
+});
+
+test('scrolled back, the header and the input box stay put; new rows do not move the view; the end follows again', () => {
+  const { out, screen } = makeScreen();
+  for (let i = 0; i < 60; i++) screen.append(`line ${i}\n`);
+  screen.scrollBy(10);
+  let lines = out.lines();
+  assert.deepEqual([lines[0], lines.at(-1)], ['LOGO', 'STATUS'], 'pinned while scrolled');
+  assert.deepEqual(lines.slice(2, 17), Array.from({ length: 15 }, (_, i) => `line ${35 + i}`));
+  assert.match(lines.at(-3), /↑ 10 newer below · PageDown$/, 'a short form in a narrow window');
+
+  // New output while reading further up: the view stays where it is, and says how much is below.
+  for (let i = 60; i < 65; i++) screen.append(`line ${i}\n`);
+  lines = out.lines();
+  assert.equal(lines[2], 'line 35');
+  assert.match(lines.at(-3), /↑ 15 newer below/);
+
+  screen.scrollBy(1000);
+  assert.equal(out.lines()[2], 'line 0', 'not past the oldest row');
+  screen.scrollBy(-1000);
+  lines = out.lines();
+  assert.equal(lines[16], 'line 64', 'past the end: following the newest again');
+  assert.equal(lines.at(-3), 'HINTS');
+  screen.scrollBy(5);
+  screen.scrollToBottom();
+  assert.equal(out.lines()[16], 'line 64');
+  assert.equal(screen.page, 13);
+  const wide = makeScreen(100, 24);
+  for (let i = 0; i < 60; i++) wide.screen.append(`line ${i}\n`);
+  wide.screen.scrollBy(4);
+  assert.match(wide.out.lines().at(-3), /↑ 4 newer lines below · PageDown or scroll down to return$/);
+});
+
+test('closing gives the terminal back and prints the conversation there, for its scrollback', () => {
+  const { out, screen } = makeScreen();
+  for (let i = 0; i < 30; i++) screen.append(`line ${i}\n`);
+  screen.append('unfinished');
+  screen.close();
+  const after = out.written.slice(out.written.lastIndexOf('\x1b[?1049l'));
+  assert.match(out.written, /\x1b\[\?1000l\x1b\[\?1006l\x1b\[0m\x1b\[\?1049l/, 'mouse reporting off before the normal screen comes back');
+  const printed = strip(after).split('\n').filter(Boolean);
+  assert.deepEqual(printed.slice(0, 2), ['LOGO', '='.repeat(39)]);
+  assert.deepEqual(printed.slice(2), [...Array.from({ length: 30 }, (_, i) => `line ${i}`), 'unfinished']);
+  screen.close();
+  assert.equal(out.written.split('\x1b[?1049l').length, 2, 'closing twice does nothing more');
 });
 
 test('the cursor sits in the input box and long input grows the box upward', () => {
@@ -107,9 +155,10 @@ test('the cursor sits in the input box and long input grows the box upward', () 
   assert.match(lines.at(-7), /^│ › one/);
   assert.match(lines.at(-5), /^│ {3}three/);
   assert.equal(out.r, 24 - 5);
-  // The two rows the taller box covered were moved to scrollback, not lost.
-  assert.deepEqual(out.scrollback.filter((l) => l !== '').at(-1), 'line 16');
+  // The taller box shows two rows fewer; they are still there to scroll back to.
   assert.equal(lines[2], 'line 17');
+  screen.scrollBy(2);
+  assert.equal(out.lines()[2], 'line 15');
 
   screen.setFooter({ input: null });
   assert.equal(out.cursorVisible, false);
