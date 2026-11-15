@@ -390,6 +390,30 @@ test('images: a picture shown on the phone is a small preview, or nothing when n
   assert.deepEqual(previewOf(small, { platform: 'linux' }), { mime: 'image/png', data: small.data });
 });
 
+test('images: a whole picture for the phone is the file, a smaller JPEG when it is too large, or a clear refusal', async () => {
+  const { fullImage, imageType } = await import('../src/images.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-full-'));
+  const file = path.join(dir, 'shot.png');
+  const png = noisePng(900, 600);
+  fs.writeFileSync(file, png);
+  const whole = fullImage(file);
+  assert.deepEqual([whole.name, whole.mime, whole.data, whole.smaller], ['shot.png', 'image/png', png.toString('base64'), false]);
+  const max = Math.floor(png.length / 2);
+  if (process.platform === 'darwin') {
+    const small = fullImage(file, { max });
+    assert.equal(small.name, 'shot.jpg');
+    assert.equal(small.smaller, true);
+    assert.ok(small.bytes <= max);
+    assert.equal(imageType(Buffer.from(small.data, 'base64')), 'image/jpeg');
+  }
+  assert.throws(() => fullImage(file, { max, platform: 'linux' }), /too large to send to the phone/);
+  assert.throws(() => fullImage(file, { max, platform: 'darwin', run: () => ({ status: 1 }) }), /too large to send to the phone/);
+  assert.throws(() => fullImage(path.join(dir, 'gone.png')), /no longer on the Mac/);
+  fs.writeFileSync(path.join(dir, 'fake.png'), 'not a picture');
+  assert.throws(() => fullImage(path.join(dir, 'fake.png')), /not a PNG/);
+  assert.throws(() => fullImage(dir), /not a file/);
+});
+
 test('previews: overwriting a file and replacing every occurrence are stated, not hidden', () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-preview-'));
   fs.writeFileSync(path.join(cwd, 'old.txt'), 'a\nb\nc\nx = 1\nx = 1\n');

@@ -72,6 +72,12 @@ photo in a zip it unpacked), the phone shows a preview under that step. The prev
 rest. Only the six latest previews of a project are kept when the phone reloads; older steps keep the
 file's name.
 
+Tap a preview (or the name of an older one) to fetch the whole picture from the Mac and save it with
+**Save**: on a phone that opens the share sheet, where "Save Image" is. The phone names the step, never
+a path, so only pictures a tool step already showed can be fetched. The picture goes through the relay
+encrypted, beside the event log rather than in it, and is held there for ten minutes. A file over 2 MB
+is sent as a smaller JPEG on macOS and refused elsewhere.
+
 ## Install
 
 Needs Node ≥ 22. For local use, also Ollama and a model that supports tool calling.
@@ -530,7 +536,7 @@ plain Node.
 | `src/commands.mjs`, `src/menu.mjs` | slash commands, the `/config` menu, the `/model` and `/resume` pickers |
 | `src/ui.mjs`, `src/markdown.mjs`, `src/text.mjs` | rendering: header, panels, tool-step tree, status bar; measuring and wrapping coloured text |
 | `src/theme.mjs` | the one palette for the terminal and the phone app (amber brand, blue tool at work, purple thinking, green done, red failed); written as 24-bit, 256 or 16 colours depending on the terminal, none with `NO_COLOR` |
-| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews for the phone |
+| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone |
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout (header pinned on top, input box at the bottom) and the input editor |
 
