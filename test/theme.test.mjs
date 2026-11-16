@@ -77,10 +77,11 @@ test('+ offers everything that goes into a message, including files of any kind'
   const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
   // One + on the bar; the picture and @ buttons, and the separate commands button, live in its sheet now.
   assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'stop', 'send']);
-  // A PDF or a ZIP can be picked: the "Files" picker takes every kind but pictures, so iOS opens the file
-  // browser directly instead of the same Photo Library / Take Photo menu as "Photos & videos".
-  assert.match(form, /<input id="anyfile" type="file" accept="application\/\*,text\/\*,audio\/\*,font\/\*,model\/\*" multiple hidden \/>/);
-  assert.doesNotMatch(form.match(/<input id="anyfile"[^>]*>/)[0], /image|video|\*\/\*/);
+  // A PDF or a ZIP can be picked: the "Files" picker takes every kind, and the camera takes a picture.
+  assert.match(form, /<input id="anyfile" type="file" multiple hidden \/>/);
+  // On iOS it is narrowed to public.data, so Files opens the file browser and not the Photo Library menu.
+  // A wildcard or audio/* there brings the menu back (audio/* counts as video) or greys out every file.
+  assert.match(app, /if \(IOS\) \$\('anyfile'\)\.accept = 'application\/octet-stream';/);
   assert.match(form, /<input id="camera" type="file" accept="image\/\*" capture="environment" hidden \/>/);
   const sheet = app.slice(app.indexOf('function addSheet()'), app.indexOf("$('add').addEventListener"));
   for (const [label, does] of [['Camera', "$('camera').click()"], ['Photos & videos', "$('file').click()"], ['Files', "$('anyfile').click()"], ['Mention a file', 'mentionFile'], ['Model', 'chooseModel'], ['Commands', 'showCommands']]) {

@@ -1399,7 +1399,7 @@ async function addImages(files, { whole = false } = {}) {
       continue;
     }
     if (ws && ws.meta.vision === false) {
-      toast(`${ws.meta.model} cannot see images. Change the model to send pictures.`);
+      toast(`${ws.meta.model} cannot see images. Change the model, or send it as a file with /file.`);
       continue;
     }
     try {
@@ -2682,6 +2682,13 @@ $('file').addEventListener('change', async (e) => {
   e.target.value = ''; // so the same picture can be chosen again
   await addImages(files);
 });
+// iOS opens a Photo Library / Take Photo / Choose Files menu for any picker that could take a picture or a
+// video, and a picker with no accept could. "application/octet-stream" is UTType public.data: nothing a camera
+// makes, yet every file (a PDF, a ZIP, and a PNG or MP4 too) conforms to it, so iOS goes straight to the file
+// browser. Wildcards such as application/* do not work: iOS turns them into types no file has, and audio/*
+// counts as video there (WebKit, WKFileUploadPanel.mm). Elsewhere the attribute would hide files, so it is iOS only.
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (IOS) $('anyfile').accept = 'application/octet-stream';
 $('anyfile').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = '';
