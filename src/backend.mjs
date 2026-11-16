@@ -13,7 +13,9 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { HOME_DIR } from './config.mjs';
 
 export const LOCAL = 'local';
 // Built or installed per machine, and large: left out of the copy both ways. node_modules built on a Mac does
@@ -57,7 +59,14 @@ export function backendOf(config, cwd) {
   if (value === LOCAL) return null;
   // The sandbox setting keeps its meaning: switched on without the network, the command gets none.
   const network = !(config.sandbox && config.sandboxNetwork !== true);
-  if (value.startsWith('docker:')) return { kind: 'docker', image: value.slice(7), network, root: mountRoot(cwd) };
+  if (value.startsWith('docker:')) {
+    const root = mountRoot(cwd);
+    // Mounting a folder that holds SEEKER's settings (API keys) or the whole home folder would hand them to the command.
+    if (holds(root, HOME_DIR) || holds(root, os.homedir())) throw new Error(`Docker would have to mount ${root}, which holds ${holds(root, HOME_DIR) ? "SEEKER's settings and API keys" : 'your whole home folder'}. Open SEEKER in a project folder to use docker:.`);
+    return { kind: 'docker', image: value.slice(7), network, root };
+  }
+  // The sandbox's promise of no network cannot be kept on another machine, so it is not broken silently.
+  if (!network) throw new Error('The sandbox is on without the network, and that cannot be enforced on another machine. Allow the network with `/config sandboxNetwork on`, switch the sandbox off, or use docker:.');
   const [, host, folder] = /^ssh:([^:]+)(?::(.+))?$/.exec(value);
   const exclude = Array.isArray(config.backendExclude) ? config.backendExclude : DEFAULT_EXCLUDE;
   return { kind: 'ssh', host, dir: folder ?? defaultFolder(cwd), exclude, network };
@@ -70,10 +79,21 @@ export function describeBackend(backend) {
   return `${backend.host}, in its folder ${backend.dir}: a copy of the project synced there before each command and back after it (left out both ways: ${backend.exclude.join(', ') || 'nothing'})`;
 }
 
-/** The git repository the folder is in, so git works inside the container; else the folder itself. */
+/** Whether folder `outer` is `inner` or one of the folders it is in. */
+const holds = (outer, inner) => {
+  const rel = path.relative(path.resolve(outer), path.resolve(inner));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+};
+
+/**
+ * The git repository the folder is in, so git works inside the container; else the folder itself. The walk
+ * stops below the home folder: a home folder that is itself a repository must not be mounted whole.
+ */
 function mountRoot(cwd) {
-  for (let dir = cwd; ; dir = path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.git'))) return dir === path.parse(dir).root ? cwd : dir;
+  const home = path.resolve(os.homedir());
+  for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
+    if (holds(dir, home) || holds(dir, HOME_DIR)) return cwd;
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
     if (dir === path.dirname(dir)) return cwd;
   }
 }

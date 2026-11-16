@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { SETTINGS } from '../src/config.mjs';
+import { HOME_DIR, SETTINGS } from '../src/config.mjs';
 import { DEFAULT_EXCLUDE, LOCAL, backendCommand, backendOf, describeBackend, parseBackend, parseExclude, rsyncArgs } from '../src/backend.mjs';
 import { buildSystemPrompt } from '../src/prompt.mjs';
 import { TOOL_BY_NAME } from '../src/tools.mjs';
@@ -217,4 +217,26 @@ test('backend: /backend shows where commands run, refuses a bad value, and switc
   await run('/backend local');
   assert.equal(config.backend, 'local');
   assert.equal(reloaded, 1, 'the model is told again where its commands run');
+});
+
+test('backend: Docker never mounts the home folder or SEEKER\'s settings, even when the home folder is a git repository', (t) => {
+  const home = tmp('seeker-be-home-');
+  const saved = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => (process.env.HOME = saved));
+  fs.mkdirSync(path.join(home, '.git'));
+  const project = path.join(home, 'work', 'app');
+  fs.mkdirSync(project, { recursive: true });
+  assert.equal(backendOf({ backend: 'docker:alpine' }, project).root, project, 'the repository at home is not mounted');
+  fs.mkdirSync(path.join(home, 'work', '.git'));
+  assert.equal(backendOf({ backend: 'docker:alpine' }, project).root, path.join(home, 'work'), 'a repository below home is');
+  assert.throws(() => backendOf({ backend: 'docker:alpine' }, home), /your whole home folder/);
+  assert.throws(() => backendOf({ backend: 'docker:alpine' }, path.dirname(HOME_DIR)), /SEEKER's settings and API keys/);
+});
+
+test('backend: ssh refuses to run when the sandbox promises no network, instead of breaking that promise there', async () => {
+  const cwd = tmp();
+  assert.throws(() => backendOf({ backend: 'ssh:box', sandbox: true }, cwd), /cannot be enforced on another machine/);
+  assert.equal(backendOf({ backend: 'ssh:box', sandbox: true, sandboxNetwork: true }, cwd).kind, 'ssh');
+  await assert.rejects(bash({ command: 'touch ran' }, { cwd, backend: { kind: 'invalid', error: 'cannot be enforced on another machine' } }), /cannot be enforced/);
 });

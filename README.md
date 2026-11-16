@@ -170,6 +170,8 @@ tools see the same files. Nothing else of this machine is visible to it: not you
 your environment variables. With `/sandbox on` and the network not allowed, the container has no network
 either. Something installed outside the project is gone with the container; pick an image that has your
 tools. In a git worktree, whose history lives outside the folder, git does not work inside the container.
+Your home folder is never mounted, even when it is itself a git repository, nor a folder holding SEEKER's
+settings: started there, `docker:` refuses to run.
 `/backend ssh:me@build-box` runs each command on another machine, in `~/seeker/<project>-<hash>` there, or
 in a folder you name: `ssh:me@build-box:work/app`. Before every command the project is copied there with
 rsync, removing what you removed here; after it, what the command changed is copied back, and nothing here is
@@ -178,6 +180,8 @@ left out both ways, so the other machine keeps the packages it built for itself;
 `/config backendExclude dist,*.log` (`default` or `none`). Everything else in the project is copied,
 `.env` included, so use a machine that is yours. SEEKER logs in with your ssh key and never waits at a
 password prompt; rsync has to be on both machines. Stopping a command stops it there as well.
+With `/sandbox on` and the network not allowed, `ssh:` refuses to run: that limit cannot be enforced on
+another machine.
 Either way `/backend` checks that Docker answers or the login works before it switches; approvals are asked
 exactly as before, and `/backend local` brings the commands back. The `!commands` you type and a provider that
 runs its own tools (Claude Code) stay on this machine. `/status` shows where commands run.

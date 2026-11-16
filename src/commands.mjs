@@ -411,6 +411,7 @@ export async function runCommand(input, ctx) {
         ui.line(`  ${c.dim('network')} ${config.sandboxNetwork === true ? 'allowed' : 'this machine only'}`);
         ui.line(`  ${c.dim('writes ')} ${writablePlaces(agent.cwd, { write: config.sandboxWrite ?? [] }).join('\n          ')}`);
       }
+      if ((config.backend ?? 'local') !== 'local') ui.line(`  ${c.yellow(`Commands run on ${await whereCommandsRun(config, agent.cwd)}: that is their guard instead; the sandbox here applies only its network setting there.`)}`);
       ui.line(`  ${c.dim('It covers the shell commands SEEKER starts — not the tools of a provider that runs its own (Claude Code), and not your own !commands.')}`);
       return;
     }
