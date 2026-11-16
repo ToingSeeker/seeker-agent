@@ -715,6 +715,26 @@ button.row:active {
 .banner.warning {
   background: var(--sk-warning-soft);
 }
+/* The link banner sits under the brand header: a title in its tone, a calm line below it. */
+.banner.link {
+  align-items: flex-start;
+  margin: 2px 0 14px;
+  padding: 12px 14px;
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.banner.link > .dot,
+.banner.link > .spin {
+  margin-top: 4px;
+}
+.banner.link .title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.banner.link .sub {
+  margin-top: 2px;
+  color: var(--sk-text-secondary);
+  font-size: 13px;
+}
 .spin {
   width: 14px;
   height: 14px;
@@ -2809,7 +2829,7 @@ pre {
 .composer-box.open {
   flex-direction: column;
   align-items: stretch;
-  padding: 4px 6px 6px;
+  padding: 6px 6px 6px;
   border-radius: 20px;
   border-color: color-mix(in srgb, var(--sk-primary) 45%, var(--sk-border));
 }
@@ -2833,7 +2853,14 @@ pre {
 .composer-box.open textarea {
   order: 0;
   flex: none;
-  padding: 8px 8px 4px;
+  padding: 12px 8px 8px;
+  /* Text scrolled past either edge fades out inside the box instead of being cut by it. */
+  mask-image: linear-gradient(to bottom, transparent 0, black 12px, black calc(100% - 8px), transparent 100%);
+}
+/* With the keyboard up a long message stays inside the box and scrolls there: the box takes at most
+   about a quarter of what is visible, so the conversation and the buttons under the text keep their room. */
+.keyboard .composer-box textarea {
+  max-height: max(64px, min(176px, calc(var(--app-h, 100dvh) * 0.24)));
 }
 .composer-box textarea::placeholder {
   color: var(--sk-text-muted);
@@ -2880,7 +2907,8 @@ pre {
 .tool-btn:active {
   background: var(--sk-surface-hover);
 }
-/* Stop: a short pill with a small red square. It never takes Send's place; each has its own touch area. */
+/* Stop and Send take turns in one place (composerState in app.js): Stop while a task runs and the
+   box is empty, Send as soon as there is something to send. Both are 36px circles. */
 .stop-btn,
 .send {
   position: relative;
@@ -2902,18 +2930,18 @@ pre {
 .tool-btn {
   position: relative;
 }
+/* Stop: a filled square on a quiet circle, the calm way out of a running task. */
 .stop-btn {
-  width: 42px;
-  margin-right: 4px;
-  padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--sk-danger) 75%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--sk-danger) 6%, transparent);
-  color: var(--sk-danger);
-  transition: background var(--sk-motion-fast), border-color var(--sk-motion-fast);
+  width: 36px;
+  margin: 0;
+  padding: 9px;
+  border-radius: 50%;
+  background: var(--sk-surface-elevated);
+  color: var(--sk-text-primary);
+  transition: background var(--sk-motion-fast);
 }
 .stop-btn:active {
-  background: color-mix(in srgb, var(--sk-danger) 16%, transparent);
+  background: var(--sk-surface-hover);
 }
 .stop-btn:disabled {
   opacity: 0.45;

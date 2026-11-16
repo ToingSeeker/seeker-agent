@@ -24,7 +24,7 @@ test('the stylesheet takes every colour from a token', () => {
   const css = read('style.css');
   const rules = css.slice(css.indexOf('}', css.indexOf(':root')));
   assert.deepEqual(rules.match(/#[0-9a-fA-F]{6}\b/g) ?? [], [], 'a colour written out below the token block');
-  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--mono', 'var(--nav-h', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
+  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--mono', 'var(--nav-h', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
   // The class names the app gives its states all have a rule.
   const app = read('app.js');
   for (const tone of ['primary', 'execution', 'reasoning', 'success', 'danger']) {
@@ -172,4 +172,21 @@ test('the terminal interface says what a step is with colour and with a mark', a
   const plain = draw(0);
   assert.ok(!plain.includes('\x1b'), 'no escape codes without colour');
   for (const mark of ['◇ thinking', '▸ Editing a.txt', '✓ 1 change', '✗ Running npm test', '› next']) assert.ok(plain.includes(mark), `"${mark}" reads without colour`);
+});
+
+test('Stop and Send take turns in one place, and a long message scrolls inside the box', () => {
+  const app = read('app.js');
+  const css = read('style.css');
+  const state = app.slice(app.indexOf('function composerState()'), app.indexOf('function chooseMode('));
+  // Stop while a task runs and nothing is typed; Send as soon as there is text or an attachment.
+  assert.match(state, /const showStop = stoppable && empty && !sending;/);
+  assert.match(state, /\$\('stop'\)\.hidden = !showStop;/);
+  assert.match(state, /\$\('send'\)\.hidden = showStop;/);
+  // The box is redrawn on every keystroke, so clearing the text brings Stop back.
+  assert.match(app, /input\.addEventListener\('input', \(\) => \{[^}]*composerState\(\);/);
+  // Stop is a circle the size of Send, not a red pill beside it.
+  assert.match(css, /\.stop-btn \{[^}]*width: 36px;[^}]*border-radius: 50%;/);
+  // With the keyboard up the writing area is capped to a share of what is visible.
+  assert.match(app, /setProperty\('--app-h', keyboard \? `\$\{visualViewport\.height\}px` : ''\)/);
+  assert.match(css, /\.keyboard \.composer-box textarea \{\s*max-height: max\(64px, min\(176px, calc\(var\(--app-h, 100dvh\) \* 0\.24\)\)\);/);
 });
