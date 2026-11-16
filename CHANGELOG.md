@@ -4,6 +4,12 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Saved conversations can be continued from the phone, and survive a restart.** `/resume` in a project
+  opened from the phone (also in the `/` menu, and the home screen's /resume button, which only opened the
+  session list before) lists that folder's saved conversations to tap; the one picked comes back with its
+  transcript and goes on in its own file. After `/restart` or a new `seeker remote`, each project continues the
+  conversation it had instead of opening empty.
+
 - **`/restart` restarts SEEKER remote safely from the phone.** It checks that the code on disk loads, starts
   a new `seeker remote` as a process of its own that waits for the old one to stop, and then stops the old
   one; the app reconnects by itself. Asking the agent to restart it with a shell command used to kill the

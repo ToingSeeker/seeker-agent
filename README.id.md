@@ -309,7 +309,12 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
   `/help` dan `/<skill>` apa pun jalan seperti diketik di terminal (juga di proyek yang dibuka dari HP).
   Setelan (`/yolo`, `/think`, `/config`) hanya mengubah proyek yang dibuka dari HP dan disimpan seperti tab
   Settings; setelan sesi terminal diubah di terminal itu. Yang butuh daftar pilihan, atau tidak boleh datang
-  dari HP yang hilang, tetap di terminal: `/hooks`, `/mcp`, `/rollback`, `/resume`, `/key`, `/paste`, `/exit`.
+  dari HP yang hilang, tetap di terminal: `/hooks`, `/mcp`, `/rollback`, `/key`, `/paste`, `/exit`; dan di
+  terminal session, `/resume`.
+- **Melanjutkan percakapan tersimpan** — di proyek yang dibuka dari HP, `/resume` (juga ada di menu `/` dan di
+  layar Home) menampilkan percakapan tersimpan folder itu, yang terbaru di atas; ketuk salah satu untuk
+  melanjutkannya, lengkap dengan riwayatnya di HP. Setelah restart (`/restart`, atau `seeker remote` dijalankan
+  lagi) setiap proyek melanjutkan percakapan yang tadi dipakainya, bukan terbuka kosong.
 - **Persetujuan** — ditanyakan di dua tempat; jawaban pertama yang berlaku dan yang satunya tertutup.
 - **Memindahkan percakapan dari HP ke terminal** — `cd` ke folder proyeknya lalu jalankan `seeker -c` (atau
   `/resume` dan pilih percakapannya). Salinan di HP ditutup, riwayatnya pindah ke terminal session, dan HP

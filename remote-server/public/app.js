@@ -345,7 +345,7 @@ function apply(event) {
     case 'choose':
       // The Mac answers a skill that has a list to pick from with that list. Only the phone that is
       // looking at that session shows it; the event reaches every phone.
-      if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) (event.mode === 'one' ? chooseOne : chooseMany)(event);
+      if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) (event.mode === 'send' ? chooseSend : event.mode === 'one' ? chooseOne : chooseMany)(event);
       break;
     case 'settings':
       if (state.view.name === 'session' && state.view.ws === event.ws && Array.isArray(event.items)) showSettings(event);
@@ -1014,6 +1014,17 @@ function chooseOne({ title, items }) {
   sheet(title, items.length > 8 && h('div', { class: 'ck-top' }, field), h('div', { class: 'ck-list', role: 'list' }, rows, none), h('p', { class: 'quiet small' }, 'Tap one to put it in the message box; add what it should work on, then send.'));
 }
 
+/** A list where a tap sends the choice at once (/resume: which saved conversation to continue). */
+function chooseSend({ ws, title, items }) {
+  const send = (value) => () => {
+    closeSheet();
+    sendText(ws, `/${value}`);
+  };
+  const rows = items.map((item) => h('button', { class: 'ck-row one', type: 'button', onclick: send(item.value) }, h('span', { class: 'grow' }, h('span', { class: 'name' }, item.description || `/${item.value}`))));
+  const { field, none } = filterRows(rows, items.map((i) => String(i.description ?? i.value).toLowerCase()), `Search ${items.length}…`);
+  sheet(title, items.length > 8 && h('div', { class: 'ck-top' }, field), h('div', { class: 'ck-list', role: 'list' }, rows, none));
+}
+
 /** The settings, sent by the Mac for /config: a value is changed with a tap; one without a list of values is typed. */
 function showSettings({ ws, items }) {
   const row = (item) => {
@@ -1117,7 +1128,14 @@ function controlCenter(model) {
       { class: 'commands' },
       quick('/init', 'terminal', () => pick('Set up which project?', (m) => (go({ name: 'session', ws: m.id }), sendText(m.id, INIT)))),
       quick('/model', 'cube', chooseModel),
-      quick('/resume', 'play', () => (now ? go({ name: 'session', ws: now.ws.meta.id }) : go({ name: 'sessions' }))),
+      // Saved conversations of a project opened from the phone (one in a terminal is resumed there).
+      quick('/resume', 'play', () => {
+        if (!list.some((w) => !w.meta.terminal)) return toast('Open a project first.');
+        const own = list.filter((w) => !w.meta.terminal);
+        const then = (m) => (go({ name: 'session', ws: m.id }), sendText(m.id, '/resume'));
+        if (own.length === 1) return then(own[0].meta);
+        sheet('Continue a conversation in which project?', ...own.map((w) => h('button', { class: 'row-btn', onclick: () => (closeSheet(), then(w.meta)) }, w.meta.name)));
+      }),
     ),
   ];
 }
@@ -2935,6 +2953,7 @@ function slashCommands() {
     { name: '/config', about: 'settings: change one with a tap', off: busy || terminal, run: run('/config') },
     { name: '/memory', about: 'what SEEKER remembers', off: busy, run: run('/memory') },
     { name: '/goal', about: 'keep working until a goal is done', off: busy || !terminal, run: fill('/goal') },
+    { name: '/resume', about: 'continue a saved conversation', off: busy || terminal, run: run('/resume') },
     { name: '/restart', about: 'restart SEEKER remote on the Mac safely', off: busy || terminal, run: run('/restart') },
     { name: '/help', about: 'commands that work from here', off: busy, run: run('/help') },
   ];
