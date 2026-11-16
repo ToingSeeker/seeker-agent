@@ -1197,6 +1197,70 @@ test('remote: a conversation from the phone continued in a terminal moves there,
   assert.ok(me.state.replies.some((r) => r.t === 'toast' && /continues in the terminal/.test(r.text)));
 });
 
+test('remote: tools a provider runs side by side are approved one at a time, and a stop leaves none behind', async (t) => {
+  const { claudeCodeProvider } = await import('../src/claude-code.mjs');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-parallel-'));
+  const secret = 'a-long-secret-for-approvals-asked-side-by-side';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const config = { ...DEFAULTS, providers: {}, remote: { url, secret } };
+  const verdicts = [];
+  // A stand-in for the Agent SDK: three commands at once, each asked about at the same moment.
+  const query = ({ options }) =>
+    (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 's' };
+      const uses = ['one', 'two', 'three'].map((n) => ({ type: 'tool_use', id: `toolu_${n}`, name: 'Bash', input: { command: `make ${n}` } }));
+      yield { type: 'assistant', parent_tool_use_id: null, message: { content: uses } };
+      const answers = await Promise.all(uses.map((u) => options.canUseTool('Bash', u.input, { toolUseID: u.id, signal: new AbortController().signal })));
+      verdicts.push(answers.map((a) => a.behavior));
+      yield { type: 'user', parent_tool_use_id: null, message: { content: uses.map((u, i) => ({ type: 'tool_result', tool_use_id: u.id, is_error: answers[i].behavior !== 'allow', content: answers[i].behavior === 'allow' ? 'ok' : answers[i].message })) } };
+      yield { type: 'result', subtype: 'success', is_error: false, session_id: 's', usage: { input_tokens: 1, output_tokens: 1 } };
+    })();
+  const def = { id: 'claude-code', label: 'Claude Code', kind: 'claude-code', context: 200000, ownTools: true };
+  const build = async (folder, ui, asker) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: claudeCodeProvider(def, config, { query }), info: { tools: true, thinking: false, context: 200000 }, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false, link: null });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+  });
+  await until(() => me.state.workspaces.size === 1);
+  const [{ id }] = [...me.state.workspaces.values()];
+  let most = 0;
+  const watch = setInterval(() => (most = Math.max(most, me.state.approvals.length)), 5);
+  t.after(() => clearInterval(watch));
+
+  // Each card names its own command; answering one brings up the next, and the session waits until the last.
+  await me.send('message', { ws: id, text: 'build all' });
+  for (const n of ['one', 'two', 'three']) {
+    const card = await until(() => me.state.approvals.find((a) => a.summary.includes(`make ${n}`)));
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(me.state.approvals.length, 1, `only ${n} is asked`);
+    assert.equal(me.state.workspaces.get(id).status, 'approval');
+    await me.send('approve', { id_approval: card.id, decision: 'allow' });
+  }
+  await until(() => me.state.workspaces.get(id).outcome === 'completed' && me.state.workspaces.get(id).status === 'idle');
+  assert.deepEqual(verdicts[0], ['allow', 'allow', 'allow']);
+  assert.equal(most, 1);
+
+  // Stopped while the first is asked: the others are refused without being put to the phone, and nothing hangs.
+  const before = me.state.events.filter((e) => e.t === 'approval').length;
+  await me.send('message', { ws: id, text: 'build all again' });
+  await until(() => me.state.approvals.length === 1);
+  await me.send('stop', { ws: id });
+  await until(() => me.state.workspaces.get(id).status === 'idle');
+  assert.deepEqual(verdicts[1], ['deny', 'deny', 'deny']);
+  assert.equal(me.state.approvals.length, 0);
+  assert.equal(me.state.events.filter((e) => e.t === 'approval').length, before + 1);
+});
+
 test('remote: the phone changes the settings /config holds, they take effect at once, and an API key is stored but never sent back', async (t) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-config-'));
   const secret = 'a-seventh-long-secret-for-the-settings-test';
