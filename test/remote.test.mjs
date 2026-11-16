@@ -582,23 +582,34 @@ test('remote control: a video sent from the phone arrives whole on the Mac, and 
   await me.send('download', { ws: ws.id, item: answer.id, index: 0, req: 'want-video-1' });
   const offer = await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-1'));
   assert.deepEqual([offer.error, offer.name, offer.bytes, offer.chunks], [undefined, 'out.mp4', result.length, 2]);
-  const got = [];
-  for (let n = 0; n < offer.chunks; ) {
-    const res = await fetch(`${url}/api/chunk?id=want-video-1&n=${n}`, { headers: me.headers });
-    if (res.status === 204) continue;
-    assert.equal(res.status, 200);
-    got.push(unsealChunk(key, 'want-video-1', n, (await res.json()).c));
-    n += 1;
-  }
-  assert.ok(Buffer.concat(got).equals(result), 'the phone gets the file itself');
+  const drain = async (req, count = 2) => {
+    const got = [];
+    for (let n = 0; n < count; ) {
+      const res = await fetch(`${url}/api/chunk?id=${req}&n=${n}`, { headers: me.headers });
+      if (res.status === 204) continue;
+      assert.equal(res.status, 200);
+      got.push(unsealChunk(key, req, n, (await res.json()).c));
+      n += 1;
+    }
+    return Buffer.concat(got);
+  };
+  assert.ok((await drain('want-video-1', offer.chunks)).equals(result), 'the phone gets the file itself');
   assert.throws(() => unsealChunk(key, 'want-video-1', 1, sealChunk(key, 'want-video-1', 0, Buffer.from('x'))), 'a piece cannot be passed off as another');
 
   // The phone names an answer and a place in its list, never a path.
   await me.send('download', { ws: ws.id, item: answer.id, index: 5, req: 'want-video-2' });
   assert.match((await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-2'))).error, /no longer be downloaded/);
+  await me.send('download', { ws: ws.id, item: answer.id, index: 0, req: 'want-video-3', file: '/etc/hosts' });
+  assert.equal((await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-3'))).name, 'out.mp4', 'a path sent along is ignored');
+  await drain('want-video-3');
+
+  // ── back: the file the phone sent is listed under its message, and can be fetched again to check it ──
   const userItem = me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'user');
-  await me.send('download', { ws: ws.id, item: userItem.id, index: 0, req: 'want-video-3', file: '/etc/hosts' });
-  assert.match((await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'want-video-3'))).error, /no longer be downloaded/);
+  assert.deepEqual(userItem.files.map(({ name, mime, bytes, file }) => [name, mime, bytes, file]), [['my clip.mp4', 'video/mp4', video.length, saved]]);
+  await me.send('download', { ws: ws.id, item: userItem.id, index: 0, req: 'check-sent-1' });
+  const back = await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'check-sent-1'));
+  assert.deepEqual([back.error, back.name, back.bytes], [undefined, 'my clip.mp4', video.length]);
+  assert.ok((await drain('check-sent-1', back.chunks)).equals(video), 'what comes back is what was sent');
 
   // A file the phone stops sending is dropped, and the agent never hears of it.
   await me.send('message', { ws: ws.id, text: 'too big', files: [{ id: 'x', name: 'a.mp4', bytes: 10 }] });
@@ -606,6 +617,13 @@ test('remote control: a video sent from the phone arrives whole on the Mac, and 
   await me.send('message', { ws: ws.id, text: 'too big', files: [{ id: 'upload-huge-1', name: 'a.mp4', bytes: 600 * 1024 * 1024 }] });
   await until(() => me.state.replies.some((r) => r.t === 'toast' && /a\.mp4 is .* at most/.test(r.text)));
   assert.equal(asked.length, 1);
+
+  // A message that only claims to list a file sent from the phone cannot fetch one from outside the inbox.
+  await me.send('message', { ws: ws.id, text: `look\n\n[Sent from the phone, saved on this Mac:]\n- ${path.join(cwd, 'out.mp4')} (1 KB)` });
+  const claimed = await until(() => me.state.workspaces.get(ws.id).items.find((i) => i.kind === 'user' && i.text.startsWith('look')));
+  await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+  await me.send('download', { ws: ws.id, item: claimed.id, index: 0, req: 'claimed-file-1' });
+  assert.match((await until(() => me.state.events.find((e) => e.t === 'download' && e.req === 'claimed-file-1'))).error, /no longer be downloaded/);
 
   me.close();
   await daemon.stop();

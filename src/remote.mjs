@@ -18,7 +18,7 @@ import { fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { ANSI } from './text.mjs';
-import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, receiveFile, sendFile } from './transfer.mjs';
+import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, listedFiles, receiveFile, sendFile } from './transfer.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -97,8 +97,10 @@ export class WebUI {
 
   /** `images` are the pictures sent with the message: their names, and a small preview where there is one. */
   /** `via` says how it got here when it was not simply sent: 'queue' (it waited its turn) or 'steer' (sent into a running task). */
+  /** Files sent from the phone with it are listed as `files`, so the phone shows them as cards and can fetch them back. */
   user(text, images = [], via = null) {
-    this.#item({ kind: 'user', text, ...(images.length ? { images } : {}), ...(via ? { via } : {}) });
+    const files = listedFiles(text, PHONE_FILES);
+    this.#item({ kind: 'user', text, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}), ...(via ? { via } : {}) });
   }
 
   turnStart() {
@@ -610,6 +612,16 @@ export function newProjectFolder(cwd, home = os.homedir()) {
   fs.mkdirSync(cwd, { recursive: true });
 }
 
+/** Whether `file` is really in `dir`, links followed: a link in the inbox must not lead out of it. */
+function inside(dir, file) {
+  try {
+    const rel = path.relative(fs.realpathSync(dir), fs.realpathSync(file));
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
 // ── The daemon ─────────────────────────────────────────────────────────────
 
 /** Which kinds of notification a phone wants; everything is on unless it was switched off. */
@@ -1090,8 +1102,11 @@ export class RemoteDaemon {
     const req = String(command.req ?? '');
     if (!FILE_ID.test(req)) return;
     const fail = (error) => this.send({ t: 'download', req, error });
-    const offered = workspace?.items.find((i) => i.id === command.item && i.kind === 'assistant')?.files?.[Number(command.index)];
-    if (typeof offered?.file !== 'string' || !path.isAbsolute(offered.file)) return fail('That file can no longer be downloaded.');
+    const item = workspace?.items.find((i) => i.id === command.item && (i.kind === 'assistant' || i.kind === 'user'));
+    const offered = item?.files?.[Number(command.index)];
+    if (typeof offered?.file !== 'string' || !path.isAbsolute(offered.file) || !offered.mime) return fail('That file can no longer be downloaded.');
+    // A file listed under a message the phone sent comes back only from the inbox it was saved in.
+    if (item.kind === 'user' && !inside(this.inbox, offered.file)) return fail('That file can no longer be downloaded.');
     let stat;
     try {
       stat = fs.statSync(offered.file);

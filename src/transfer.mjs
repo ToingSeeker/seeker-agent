@@ -133,6 +133,32 @@ export async function receiveFile({ url, headers, key, file, dir = INBOX, idleMs
   return target;
 }
 
+// Sent from the phone and read back there to check it: text of these kinds is shown as plain text.
+const TEXT_PREVIEW = new Set(['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.yaml', '.yml', '.toml', '.xml', '.html', '.htm', '.css', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.py', '.rb', '.go', '.rs', '.java', '.kt', '.swift', '.c', '.h', '.cpp', '.sh', '.sql', '.env.example', '.ini', '.conf']);
+
+/**
+ * The files a message lists under `marker` ("- /path (19 KB)", one per line), as the phone shows
+ * them: `{ name, bytes, mime, file }`. `mime` is null when the phone cannot show that kind; text
+ * of any kind comes back as text/plain, so it is never run as a page there.
+ */
+export function listedFiles(text, marker) {
+  const at = String(text ?? '').indexOf(marker);
+  if (at < 0) return [];
+  const files = [];
+  for (const line of String(text).slice(at + marker.length).split('\n')) {
+    const m = /^- (\/.+) \(([^)]*)\)$/.exec(line.trim());
+    if (!m) continue;
+    const file = m[1];
+    const ext = path.extname(file).toLowerCase();
+    let bytes = null;
+    try {
+      bytes = fs.statSync(file).size;
+    } catch {}
+    files.push({ name: path.basename(file), bytes, mime: TRANSFER_TYPES[ext] ?? (TEXT_PREVIEW.has(ext) ? 'text/plain' : null), file });
+  }
+  return files;
+}
+
 /** What a file is, if it may be offered to the phone. */
 export function transferable(file) {
   const mime = TRANSFER_TYPES[path.extname(file).toLowerCase()];

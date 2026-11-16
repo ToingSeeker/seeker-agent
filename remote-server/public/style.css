@@ -35,6 +35,7 @@
   --sk-reasoning-soft: rgba(156, 107, 235, 0.12);
   /* The user's colour in the timeline */
   --sk-user: #22D3EE;
+  --sk-user-soft: rgba(34, 211, 238, 0.12);
   /* The pixel person beside the user's messages */
   --sk-person-hair: #7A5238;
   --sk-person-skin: #F1C49B;
@@ -3005,7 +3006,7 @@ pre {
   border-radius: 8px;
   border: 1px solid var(--sk-border);
 }
-.shot button {
+.shot .shot-remove {
   position: absolute;
   top: -8px;
   right: -8px;
@@ -3069,8 +3070,7 @@ pre {
 }
 
 /* ── whole files: a video waiting to go, one going up, one an answer offers ── */
-.file-chip .chip-body,
-.download {
+.file-chip .chip-body {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -3101,24 +3101,195 @@ pre {
   white-space: nowrap;
   font-size: 13px;
 }
-.downloads {
+.file-chip .chip-body .small {
+  flex: none;
+  white-space: nowrap;
+}
+.file-chip .chip-body {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ── file cards: sent from here (↑ cyan) or offered by an answer (↓ orange) ── */
+.fcards {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 10px;
 }
-.download {
+.fcard {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 12px;
   width: 100%;
   max-width: 480px;
-  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--sk-radius-md);
+  background: var(--sk-surface);
+  color: var(--sk-text-primary);
   font: inherit;
+  text-align: left;
   cursor: pointer;
+  transition: background var(--sk-motion-fast);
 }
-.download .chip-name {
+.fcard:active {
+  background: var(--sk-surface-hover);
+}
+.fbadge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font: 700 10px/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+.fbadge.small {
+  width: 32px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 9px;
+}
+.t-zip {
+  background: var(--sk-warning-soft);
+  color: var(--sk-warning);
+}
+.t-pdf {
+  background: var(--sk-danger-soft);
+  color: var(--sk-danger);
+}
+.t-video,
+.t-audio {
+  background: var(--sk-reasoning-soft);
+  color: var(--sk-reasoning);
+}
+.t-image {
+  background: var(--sk-success-soft);
+  color: var(--sk-success);
+}
+.t-code {
+  background: var(--sk-execution-soft);
+  color: var(--sk-execution);
+}
+.t-text,
+.t-other {
+  background: var(--sk-surface-elevated);
+  color: var(--sk-text-secondary);
+}
+.fmain {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/* The start of a long name is cut; its extension stays. */
+.fname {
+  display: flex;
+  min-width: 0;
+  font-size: 14.5px;
+  font-weight: 550;
+}
+.fname .stem {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fname .ext {
+  flex: none;
+}
+.fmeta {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--sk-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fdir {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  border-radius: 50%;
+}
+.fdir svg {
+  width: 100%;
+  height: 100%;
+}
+.fcard.up .fdir {
+  background: var(--sk-user-soft);
+  color: var(--sk-user);
+}
+.fcard.down .fdir {
+  background: var(--sk-primary-soft);
+  color: var(--sk-primary);
+}
+/* Where a file is on the Mac, under its preview. */
+.fpath {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: var(--sk-radius-sm);
+  background: var(--sk-bg-secondary);
+  color: var(--sk-text-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+.fpath .mono {
   flex: 1;
 }
-.download:active {
-  background: var(--sk-surface-hover);
+.fpath button {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid var(--sk-border);
+  border-radius: 6px;
+  background: var(--sk-surface-elevated);
+  font: 600 12px/1 var(--sans);
+}
+.viewer.doc {
+  height: min(65vh, calc(82dvh - 220px));
+}
+.viewer.text {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.viewer.zip {
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+}
+.viewer.zip li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+.viewer.zip li + li {
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.viewer.zip .mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.viewer.zip .muted {
+  flex: none;
+}
+.viewer.zip li.folder {
+  color: var(--sk-text-muted);
 }
 .upload {
   flex: 1;

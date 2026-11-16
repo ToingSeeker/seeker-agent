@@ -93,9 +93,17 @@ the model: it is sent whole, in encrypted 2 MB pieces, and saved on the Mac in `
 it was saved, so the agent can work on it. Keep the phone app open while it uploads; the bar under the
 message box shows how far it is. Up to four files of at most 300 MB each per message.
 
+Every file shows as a card: a badge for its kind (ZIP, PDF, MP4, …), the name cut in the middle so the
+extension stays, its size and folder. Tap a file waiting in the message box to check it before it goes:
+pictures, videos, sound, PDFs and text open, and a zip shows the files inside it; **Remove** takes it
+off the message. After sending, the files sit under your message as cards (↑, cyan) in place of the list
+of paths the agent reads. Tap one to fetch it back from the Mac and check what arrived, with its place
+on the Mac and a **Copy** button. Only files in `~/Downloads/SEEKER/` can be fetched back this way. Text
+is always shown as text, never run as a page.
+
 When an answer names a file that exists on the Mac (a video, audio, a picture, a PDF, a zip or `.srt`,
-written as a path, `~/…` or relative to the project), the phone shows it under the answer with a
-download button. Tapping it fetches the file in pieces, plays a video in place, and **Save** opens the
+written as a path, `~/…` or relative to the project), the phone shows it under the answer as a card
+with a download arrow (↓, orange). Tapping it fetches the file in pieces, plays a video in place, and **Save** opens the
 share sheet, where "Save Video" and "Save to Files" are. As with pictures, the phone names the answer,
 never a path. Each piece is sealed together with its file and its place in it, so the relay cannot swap
 or reorder them, and it is deleted from the relay as soon as the other side has taken it. The relay
@@ -276,7 +284,7 @@ Put any of these in a message and its content is attached, so the model starts w
 | --- | --- |
 | `@file:src/app.js` | the file |
 | `@file:src/app.js:10-40` | lines 10 to 40 |
-| `@folder:src` | a listing of the folder |
+| `@folder:src` | a listing of the folder (`@file:` naming a folder lists it too) |
 | `@diff` · `@staged` | unstaged / staged git changes |
 | `@git:3` | the last 3 commits, with their changes |
 | `@url:https://…` | the page as text |

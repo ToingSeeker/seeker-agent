@@ -37,6 +37,17 @@ test('a file, a line range and a folder are attached under the message', async (
   assert.match(out.text, /📁 @folder:src[^\n]*\na\.js/);
 });
 
+test('@file: naming a folder lists it, and a missing file says which folder was searched', async () => {
+  const cwd = project();
+  fs.mkdirSync(path.join(cwd, 'docs'));
+  fs.writeFileSync(path.join(cwd, 'docs/guide.md'), '# guide\n');
+  const out = await expandReferences('lihat @file:docs dan @file:seeker', { cwd, contextLimit: 32_768 });
+  assert.deepEqual(out.attached, ['@file:docs']);
+  assert.match(out.text, /📁 @file:docs[^\n]*\nguide\.md/);
+  assert.equal(out.warnings.length, 1);
+  assert.match(out.warnings[0], new RegExp(`file not found in ${cwd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+});
+
 test('paths outside the folder and credential files are refused with a warning', async () => {
   const cwd = project();
   fs.writeFileSync(path.join(cwd, '.env'), 'TOKEN=abc\n');
