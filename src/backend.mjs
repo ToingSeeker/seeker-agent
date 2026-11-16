@@ -145,7 +145,8 @@ export function backendCommand(backend, command, cwd, { platform = process.platf
   ].join('; ');
   // '[s]eeker-…' matches the command's own line but not this one, which holds the pattern, not the tag.
   const match = `'[${tag[0]}]${tag.slice(1)}'`;
-  const killScript = `p=$(pgrep -f ${match} | head -n 1); [ -n "$p" ] && kill -KILL -- -"$p" 2>/dev/null; pkill -KILL -f ${match}; true`;
+  // Each match's process group, then the matches themselves. No `--`: dash, the sh of Debian and Ubuntu, refuses it.
+  const killScript = `for p in $(pgrep -f ${match}); do kill -KILL -"$p" 2>/dev/null; done; pkill -KILL -f ${match}; true`;
   return {
     cmd: 'ssh',
     argv: [...SSH_OPTIONS, backend.host, script],
