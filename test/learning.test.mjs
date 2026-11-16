@@ -89,7 +89,7 @@ test('@ references are attached to the message, and folder instructions to the f
   await agent.runTurn('ringkas @file:notes.txt:2 dan @file:missing.txt', { references: true });
   ollama.close();
   const sent = ollama.requests[0].messages[1].content;
-  assert.match(sent, /^ringkas @file:notes\.txt:2 dan @file:missing\.txt\n\n--- Notes on the attachments ---\n- @file:missing\.txt: file not found\n\n--- Attached ---\n\n📄 @file:notes\.txt:2 [^\n]*\n```txt\nline two\n```$/);
+  assert.match(sent, /^ringkas @file:notes\.txt:2 dan @file:missing\.txt\n\n--- Notes on the attachments ---\n- @file:missing\.txt: file not found in [^\n]*\n\n--- Attached ---\n\n📄 @file:notes\.txt:2 [^\n]*\n```txt\nline two\n```$/);
   assert.ok(said.some((line) => /attached @file:notes\.txt:2/.test(line)));
   const result = agent.messages.find((m) => m.role === 'tool').content;
   assert.match(result, /listen\(\)\n\n\[Instructions kept in this folder: api\/AGENTS\.md\]\napi: migrations replay on deploy$/);

@@ -12,6 +12,7 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, 
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
+import { fileKind, folderOf, listZip, previewKind, splitName, splitSent } from './files.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, makePin, readLock, sameId, userVerified, writeLock } from './lock.js';
 
 const $ = (id) => document.getElementById(id);
@@ -64,6 +65,7 @@ const ICONS = {
   pulse: svg('<path d="M3 12h4l2-6 4 12 2-6h6"/>'),
   list: svg('<path d="M8 7h12M8 12h12M8 17h12"/><circle cx="4" cy="7" r="0.6"/><circle cx="4" cy="12" r="0.6"/><circle cx="4" cy="17" r="0.6"/>'),
   download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+  upload: svg('<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>'),
   film: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M10 9.5v5l4-2.5z"/>'),
   image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>'),
   camera: svg('<path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/><circle cx="12" cy="12.8" r="3.4"/>'),
@@ -1341,6 +1343,7 @@ const IMAGE_CHARS = 500_000; // base64 characters per picture, about 375 KB
 const KEEP_AS_IS = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 let attachments = []; // waiting to go with the next message: a picture { name, data, thumb }, or a file { kind: 'file', file, name, bytes }
 let uploading = null; // { name, n, chunks, index, count } while a file goes up to the Mac
+const originals = new WeakMap(); // a picture waiting to go → the file it was made from, for its preview
 
 const readDataUrl = (blob) =>
   new Promise((resolve, reject) => {
@@ -1409,7 +1412,9 @@ async function addImages(files, { whole = false } = {}) {
       continue;
     }
     try {
-      attachments.push(await prepare(file));
+      const picture = await prepare(file);
+      originals.set(picture, file);
+      attachments.push(picture);
     } catch (err) {
       toast(`${file.name || 'That file'}: ${err.message}.`);
     }
@@ -1470,8 +1475,11 @@ function showAttachments() {
       h(
         'div',
         { class: `shot${a.kind === 'file' ? ' file-chip' : ''}` },
-        a.kind === 'file' ? h('span', { class: 'chip-body' }, h('span', { class: 'chip-icon', icon: a.video ? 'film' : 'file' }), h('span', { class: 'chip-name mono' }, a.name), h('span', { class: 'muted small' }, fileSize(a.bytes))) : h('img', { src: `data:image/jpeg;base64,${a.thumb}`, alt: a.name }),
-        h('button', { type: 'button', 'aria-label': `Remove ${a.name}`, onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments()) }, '×'),
+        // Tapped, it opens to be checked before it goes.
+        a.kind === 'file'
+          ? h('button', { type: 'button', class: 'chip-body', 'aria-label': `Check ${a.name}`, onclick: () => previewWaiting(a) }, h('span', { class: `fbadge small t-${fileKind(a.name).tone}` }, fileKind(a.name).label), h('span', { class: 'chip-name' }, a.name), h('span', { class: 'muted small' }, fileSize(a.bytes)))
+          : h('button', { type: 'button', class: 'shot-open', 'aria-label': `Check ${a.name}`, onclick: () => previewWaiting(a) }, h('img', { src: `data:image/jpeg;base64,${a.thumb}`, alt: a.name })),
+        h('button', { type: 'button', class: 'shot-remove', 'aria-label': `Remove ${a.name}`, onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments()) }, '×'),
       ),
     ),
   );
@@ -1600,27 +1608,106 @@ const SHOWABLE = /^(video\/(mp4|quicktime|webm)|audio\/(mpeg|mp4|wav)|image\/(pn
 
 function offered(files, from) {
   if (!Array.isArray(files) || !files.length) return null;
+  return h('div', { class: 'fcards' }, files.map((f, index) => fileCard(f, 'down', `Download ${f.name}`, () => startDownload(from.ws, from.item, index, f.name, f.file))));
+}
+
+// ── file cards: one sent from this phone (↑), or one an answer offers (↓) ──
+/** A card for a file: a badge for its kind, the name cut in the middle so the extension stays, size · folder. */
+function fileCard(f, dir, label, onclick) {
+  const kind = fileKind(f.name);
+  const { stem, ext } = splitName(f.name);
+  const meta = [Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size, folderOf(f.file)].filter(Boolean).join(' · ');
   return h(
-    'div',
-    { class: 'downloads' },
-    files.map((f, index) =>
-      h(
-        'button',
-        { type: 'button', class: 'download', 'aria-label': `Download ${f.name}`, onclick: () => startDownload(from.ws, from.item, index, f.name) },
-        h('span', { class: 'chip-icon', icon: String(f.mime).startsWith('video/') ? 'film' : 'file' }),
-        h('span', { class: 'chip-name mono' }, f.name),
-        h('span', { class: 'muted small' }, Number.isFinite(f.bytes) ? fileSize(f.bytes) : ''),
-        h('span', { class: 'chip-icon accent', icon: 'download' }),
-      ),
-    ),
+    'button',
+    { type: 'button', class: `fcard ${dir}`, 'aria-label': label, onclick },
+    h('span', { class: `fbadge t-${kind.tone}` }, kind.label),
+    h('span', { class: 'fmain' }, h('span', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), meta && h('span', { class: 'fmeta' }, meta)),
+    h('span', { class: 'fdir', icon: dir === 'up' ? 'upload' : 'download' }),
   );
 }
 
-function startDownload(ws, item, index, name) {
+/**
+ * The files a message sent from here, as cards in place of the list the agent reads. Tapped, one is
+ * fetched back from the Mac, so what arrived there can be checked. The Mac lists them as `files`;
+ * a message from before it did is read from its text, and those can only be described.
+ */
+function sentFiles(item, listed) {
+  const known = Array.isArray(item.files) ? item.files : null;
+  const rows = known ?? listed.map((l) => ({ name: l.name, file: l.path, size: l.size, mime: null }));
+  if (!rows.length) return null;
+  return h('div', { class: 'fcards' }, rows.map((f, index) => fileCard(f, 'up', `Check ${f.name}`, () => (known && f.mime ? startDownload(state.view.ws, item.id, index, f.name, f.file) : fileFacts(f)))));
+}
+
+/** A path on the Mac as people read it, with ~ for the home folder. */
+const homeShort = (file) => String(file ?? '').replace(/^\/Users\/[^/]+(?=\/|$)/, '~');
+
+/** Where a file is on the Mac, with a button that copies the path. */
+function placeOnMac(file) {
+  const copy = (e) =>
+    navigator.clipboard?.writeText(file).then(
+      () => ((e.target.textContent = 'Copied'), setTimeout(() => e.target.isConnected && (e.target.textContent = 'Copy'), 1500)),
+      () => toast('Could not copy the path.'),
+    );
+  return h('div', { class: 'fpath' }, h('span', { class: 'mono' }, homeShort(file)), h('button', { type: 'button', onclick: copy }, 'Copy'));
+}
+
+/** A file the phone cannot fetch back or show: what is known of it. */
+function fileFacts(f) {
+  sheet(f.name, h('div', { class: 'muted viewer-note' }, [Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size, 'saved on your Mac'].filter(Boolean).join(' · ')), f.file && placeOnMac(f.file), h('div', { class: 'viewer-wait muted' }, 'This kind of file cannot be shown on the phone.'));
+}
+
+/** A picture or file waiting in the composer, opened to check it before it is sent. */
+function previewWaiting(a) {
+  const file = a.kind === 'file' ? a.file : originals.get(a);
+  const remove = h('button', { type: 'button', class: 'btn', onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments(), closeSheet()) }, 'Remove');
+  const keep = h('button', { type: 'button', class: 'btn primary', onclick: closeSheet }, 'Keep');
+  if (!file) return sheet(a.name, h('img', { class: 'viewer', src: `data:image/jpeg;base64,${a.data}`, alt: a.name }), h('div', { class: 'actions even' }, remove, keep));
+  return previewSheet(file, { actions: () => [remove, keep] });
+}
+
+const TEXT_PREVIEW_BYTES = 200_000;
+
+/**
+ * A file opened to look at: a picture, video, sound, PDF, the start of a text, or what a zip holds.
+ * Text is shown as text only, never run as a page. `actions` makes the buttons under it from its URL.
+ */
+async function previewSheet(file, { where = null, actions = null } = {}) {
+  if (pictureUrl) URL.revokeObjectURL(pictureUrl);
+  pictureUrl = URL.createObjectURL(file);
+  const url = pictureUrl;
+  const kind = previewKind(file.type, file.name);
+  let body;
+  let note = fileSize(file.size);
+  try {
+    if (kind === 'video') body = h('video', { class: 'viewer', src: url, controls: true, playsinline: true, preload: 'metadata' });
+    else if (kind === 'image') body = h('img', { class: 'viewer', src: url, alt: file.name });
+    else if (kind === 'audio') body = h('audio', { src: url, controls: true });
+    else if (kind === 'pdf') body = h('iframe', { class: 'viewer doc', src: url, title: file.name });
+    else if (kind === 'text') {
+      const text = await file.slice(0, TEXT_PREVIEW_BYTES).text();
+      body = h('pre', { class: 'viewer text' }, file.size > TEXT_PREVIEW_BYTES ? `${text}\n…` : text);
+      if (file.size > TEXT_PREVIEW_BYTES) note += ` · the first ${fileSize(TEXT_PREVIEW_BYTES)} shown`;
+    } else if (kind === 'zip') {
+      const zip = await listZip(file);
+      if (!zip) body = h('div', { class: 'viewer-wait muted' }, 'This zip could not be read.');
+      else {
+        const files = zip.entries.filter((e) => !e.folder);
+        note += ` · ${files.length} file${files.length === 1 ? '' : 's'} inside`;
+        body = h('ul', { class: 'viewer zip' }, zip.entries.map((e) => h('li', { class: e.folder ? 'folder' : null }, h('span', { class: 'mono' }, e.name), !e.folder && h('span', { class: 'muted' }, fileSize(e.bytes)))));
+      }
+    } else body = h('div', { class: 'viewer-wait muted' }, 'This kind of file cannot be shown here.');
+  } catch {
+    body = h('div', { class: 'viewer-wait muted' }, 'This file could not be opened.');
+  }
+  const buttons = actions ? actions(url) : [];
+  sheet(file.name, body, h('div', { class: 'muted viewer-note' }, note), where && placeOnMac(where), buttons.length && h('div', { class: 'actions even' }, ...buttons));
+}
+
+function startDownload(ws, item, index, name, where = null) {
   const req = transferId();
   for (const [key, wait] of downloads) clearTimeout(wait.timer), downloads.delete(key);
   const timer = setTimeout(() => downloads.delete(req) && (closeSheet(), toast('Your Mac did not send the file. Try again.')), 60_000);
-  downloads.set(req, { name, timer });
+  downloads.set(req, { name, timer, where });
   sheet(name, h('div', { class: 'viewer-wait muted', id: 'download-progress', role: 'status' }, 'Asking your Mac for the file…'));
   command('download', { ws, item, index, req }).then((sent) => sent || (clearTimeout(timer), downloads.delete(req), closeSheet()));
 }
@@ -1656,7 +1743,7 @@ async function downloadArrived(event) {
     }
     if (got !== event.bytes) throw new Error('it did not arrive whole');
     downloads.delete(event.req);
-    showDownloaded(new File(parts, event.name, { type: event.mime }));
+    showDownloaded(new File(parts, event.name, { type: event.mime }), wait.where);
   } catch (err) {
     downloads.delete(event.req);
     closeSheet();
@@ -1679,17 +1766,12 @@ async function saveFile(file, url) {
   a.remove();
 }
 
-function showDownloaded(file) {
-  if (pictureUrl) URL.revokeObjectURL(pictureUrl);
-  pictureUrl = URL.createObjectURL(file);
-  const url = pictureUrl;
-  const preview = file.type.startsWith('video/') ? h('video', { class: 'viewer', src: url, controls: true, playsinline: true, preload: 'metadata' }) : file.type.startsWith('image/') ? h('img', { class: 'viewer', src: url, alt: file.name }) : file.type.startsWith('audio/') ? h('audio', { src: url, controls: true }) : null;
-  sheet(
-    file.name,
-    preview,
-    h('div', { class: 'muted viewer-note' }, fileSize(file.size)),
-    h('div', { class: 'actions even' }, h('button', { type: 'button', class: 'btn', onclick: () => window.open(url, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: () => saveFile(file, url) }, 'Save')),
-  );
+/** A file fetched from the Mac: shown, with where it is there, and Open / Save. */
+function showDownloaded(file, where = null) {
+  return previewSheet(file, {
+    where,
+    actions: (url) => [h('button', { type: 'button', class: 'btn', onclick: () => window.open(url, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: () => saveFile(file, url) }, 'Save')],
+  });
 }
 
 function entryOf(item) {
@@ -1708,8 +1790,10 @@ function entryOf(item) {
     );
   }
   if (item.kind === 'user') {
+    // Files sent with it show as cards; the list the agent reads under the words is not repeated.
+    const { said, listed } = splitSent(item.text);
     // Its node is the pixel person, moving with the robot's animation setting.
-    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), h('div', { class: 'said' }, item.text), pictures(item.images)));
+    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), said && h('div', { class: 'said' }, said), sentFiles(item, listed), pictures(item.images)));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;

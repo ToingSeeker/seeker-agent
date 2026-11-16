@@ -35,6 +35,13 @@ export function isSensitivePath(file) {
   return SENSITIVE_NAMES.some((re) => re.test(name));
 }
 
+/** `~/x` for a folder in the home directory, as people write it. */
+const tildify = (dir) => {
+  const full = path.resolve(dir);
+  const home = os.homedir();
+  return full === home ? '~' : full.startsWith(home + path.sep) ? `~/${path.relative(home, full)}` : full;
+};
+
 const realPath = (file) => {
   try {
     return fs.realpathSync(file);
@@ -142,8 +149,9 @@ async function expandOne(ref, { cwd, fetchPage, signal, contextLimit }) {
   if (ref.kind === 'file') {
     const file = resolveInside(cwd, ref.value);
     const stat = fs.statSync(file, { throwIfNoEntry: false });
-    if (!stat) throw new Error('file not found');
-    if (stat.isDirectory()) throw new Error('is a folder — use @folder:');
+    if (!stat) throw new Error(`file not found in ${tildify(cwd)}`);
+    // A folder named with @file: is listed as @folder: would list it, not refused.
+    if (stat.isDirectory()) return expandOne({ ...ref, kind: 'folder' }, { cwd, fetchPage, signal, contextLimit });
     const shown = path.relative(cwd, file) || file;
     const handle = fs.openSync(file, 'r');
     const start = Buffer.alloc(4096);

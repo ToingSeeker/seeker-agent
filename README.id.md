@@ -392,9 +392,18 @@ setelah file tiba, lengkap dengan lokasi simpannya, jadi agen bisa langsung meng
 aplikasi HP tetap terbuka selama upload; bar di bawah kotak pesan menunjukkan progresnya. Maksimal empat
 file per pesan, masing-masing paling besar 300 MB.
 
+Setiap file tampil sebagai kartu: badge jenis file (ZIP, PDF, MP4, …), nama yang dipotong di tengah
+supaya ekstensinya tetap terlihat, ukuran, dan foldernya. Ketuk file yang masih menunggu di kotak pesan
+untuk mengeceknya sebelum dikirim: gambar, video, audio, PDF, dan teks bisa dibuka, sedangkan zip
+menampilkan daftar file di dalamnya. **Remove** mengeluarkan file dari pesan. Setelah terkirim, file
+tampil di bawah pesanmu sebagai kartu (↑, cyan), menggantikan daftar path yang dibaca agen. Ketuk
+kartunya untuk mengambil file itu kembali dari Mac dan mengecek apa yang benar-benar sampai, lengkap
+dengan lokasinya di Mac dan tombol **Copy**. Hanya file di `~/Downloads/SEEKER/` yang bisa diambil
+kembali dengan cara ini. Teks selalu ditampilkan sebagai teks, tidak pernah dijalankan sebagai halaman.
+
 Kalau jawaban agen menyebut file yang ada di Mac (video, audio, gambar, PDF, zip atau `.srt`, ditulis
-sebagai path, `~/…` atau relatif terhadap proyek), HP menampilkannya di bawah jawaban itu dengan tombol
-download. Ketuk untuk mengambil filenya per potongan; video bisa diputar langsung, dan **Save** membuka
+sebagai path, `~/…` atau relatif terhadap proyek), HP menampilkannya di bawah jawaban itu sebagai kartu
+dengan panah unduh (↓, oranye). Ketuk untuk mengambil filenya per potongan; video bisa diputar langsung, dan **Save** membuka
 share sheet, tempat "Simpan Video" dan "Simpan ke File". Sama seperti gambar, HP hanya menyebut
 jawabannya, tidak pernah path. Tiap potongan dienkripsi bersama identitas file dan urutannya, jadi relay
 tidak bisa menukar atau mengacak urutannya, dan potongan langsung dihapus dari relay begitu sisi lain
@@ -446,7 +455,7 @@ Tulis salah satu ini di pesan dan isinya ikut dilampirkan:
 | --- | --- |
 | `@file:src/app.js` | isi file |
 | `@file:src/app.js:10-40` | baris 10 sampai 40 |
-| `@folder:src` | daftar isi folder |
+| `@folder:src` | daftar isi folder (`@file:` yang menunjuk folder juga menampilkan daftarnya) |
 | `@diff` · `@staged` | perubahan git yang belum / sudah di-stage |
 | `@git:3` | 3 commit terakhir beserta perubahannya |
 | `@url:https://…` | isi halaman sebagai teks |
