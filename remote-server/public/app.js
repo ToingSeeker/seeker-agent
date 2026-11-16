@@ -312,6 +312,10 @@ function apply(event) {
       state.latency = { ms: Math.round(performance.now() - sent), at: Date.now() };
       break;
     }
+    case 'moved':
+      // The conversation open here went on in a terminal on the Mac: follow it there.
+      if (state.view.name === 'session' && state.view.ws === event.from && state.workspaces.has(event.to)) go({ name: 'session', ws: event.to });
+      break;
     case 'opened':
       // Only the phone that just asked follows it there; this event reaches every phone.
       if (state.opening && Date.now() - state.opening < 15_000 && state.workspaces.has(event.id)) {
