@@ -1441,6 +1441,7 @@ async function uploadFiles(files) {
 
 function showAttachments() {
   composerState();
+  shapeComposer();
   const strip = $('attachments');
   if (uploading) {
     const { name, n, chunks, index, count } = uploading;
@@ -2535,7 +2536,22 @@ $('attach').innerHTML = ICONS.image;
 $('commands').innerHTML = ICONS.plus;
 let sending = false;
 
+/**
+ * One line at rest; two levels (writing area, then the tools) while writing or with something in the box.
+ * Leaving the box closes it a moment later, so a tap on a tool lands where the tool was when it was aimed at.
+ */
+let closing = 0;
+function shapeComposer() {
+  clearTimeout(closing);
+  const open = document.activeElement === input || Boolean(input.value) || attachments.length > 0;
+  if (open) $('form').classList.add('open');
+  else closing = setTimeout(() => $('form').classList.remove('open'), 300);
+}
+input.addEventListener('focus', shapeComposer);
+input.addEventListener('blur', shapeComposer);
+
 const grow = () => {
+  shapeComposer();
   input.style.height = 'auto';
   // An empty box is one line; measuring it would count a placeholder that wraps.
   input.style.height = input.value ? `${Math.min(input.scrollHeight, 176)}px` : '';
