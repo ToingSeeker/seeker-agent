@@ -160,6 +160,8 @@ function runProcess(cmd, argv, { cwd, signal, timeoutMs, shell = false, env, onK
     const timer = setTimeout(() => kill('timeout'), timeoutMs);
     const onAbort = () => kill('aborted');
     signal?.addEventListener('abort', onAbort, { once: true });
+    // A signal that went off before the start never fires its event again.
+    if (signal?.aborted) onAbort();
     const done = (code, error) => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
@@ -547,6 +549,8 @@ export const TOOLS = [
       if (backend) {
         const failed = await start.before();
         if (failed) throw new ToolError(`${failed} The command was not run.`);
+        // Stopped while the project was being copied: the command is not started at all.
+        if (signal?.aborted) return { output: '(not run)\n\n[interrupted by the user]', note: 'interrupted', display: '' };
       }
       const r = await runProcess(start.cmd, start.argv, { cwd, signal, timeoutMs: seconds * 1000, env, onKill: start.kill ?? null });
       const back = backend ? await start.after() : '';
