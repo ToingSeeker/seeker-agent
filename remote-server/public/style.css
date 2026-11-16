@@ -33,6 +33,12 @@
   /* AI reasoning */
   --sk-reasoning: #9C6BEB;
   --sk-reasoning-soft: rgba(156, 107, 235, 0.12);
+  /* The user's colour in the timeline */
+  --sk-user: #22D3EE;
+  /* The pixel person beside the user's messages */
+  --sk-person-hair: #7A5238;
+  --sk-person-skin: #F1C49B;
+  --sk-person-mouth: #B8705A;
   /* Error */
   --sk-danger: #F16D76;
   --sk-danger-soft: rgba(241, 109, 118, 0.12);
@@ -296,6 +302,11 @@ code {
 .robot .k { fill: var(--sk-surface-elevated); }
 .robot .o { fill: var(--sk-text-secondary); }
 .robot .y { fill: var(--sk-execution); }
+.human .h { fill: var(--sk-person-hair); }
+.human .s { fill: var(--sk-person-skin); }
+.human .m { fill: var(--sk-person-mouth); }
+.human .e { fill: var(--sk-bg); }
+.human .c { fill: var(--sk-user); }
 .robot .eye { fill: none; stroke: var(--sk-text-primary); stroke-width: 0.3; }
 .robot .cur { fill: var(--sk-primary); }
 .brand .word {
@@ -2041,7 +2052,8 @@ button.stat:active {
 .ev .node svg {
   stroke-width: 2.6;
 }
-/* SEEKER's own messages carry the header robot in their node. */
+/* SEEKER's messages carry the header robot in their node, the user's a pixel person. */
+.ev.user .node,
 .ev.assistant .node {
   padding: 1.5px 2px 2.5px;
 }
@@ -2112,7 +2124,7 @@ button.stat:active {
   animation-delay: var(--t, 0s);
 }
 .ev.user .node {
-  border-color: var(--sk-primary);
+  border-color: var(--sk-user);
 }
 .ev.assistant .node {
   border-color: var(--sk-border-strong);
@@ -2174,10 +2186,10 @@ button.stat:active {
   color: var(--sk-text-secondary);
 }
 .ev.user .who {
-  color: var(--sk-primary);
+  color: var(--sk-user);
 }
 .ev.assistant .who {
-  color: var(--sk-reasoning);
+  color: var(--sk-primary);
 }
 .said {
   white-space: pre-wrap;
@@ -3516,6 +3528,36 @@ pre {
 }
 .still .robot * {
   animation: none;
+}
+/* The person's loop is 7.8s, off the robot's 9.6s so the two never blink together: a blink at
+   36% and a double blink near the end, and one 1px nod at 60%. */
+.human .shut {
+  opacity: 0;
+  animation: human-shut 7800ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.human .open {
+  animation: human-open 7800ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.human .head {
+  animation: human-nod 7800ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.still .human * {
+  animation: none;
+}
+@keyframes human-open {
+  0%, 37.5%, 88.5%, 91.5% { opacity: 1; }
+  35.5%, 86.5%, 90% { opacity: 0; }
+}
+@keyframes human-shut {
+  0%, 37.5%, 88.5%, 91.5% { opacity: 0; }
+  35.5%, 86.5%, 90% { opacity: 1; }
+}
+@keyframes human-nod {
+  0%, 64% { transform: none; }
+  60% { transform: translateY(1px); }
 }
 @keyframes robot-open {
   0%, 29.6875%, 79.6875%, 82.8125% { opacity: 1; }

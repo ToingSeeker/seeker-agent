@@ -89,13 +89,26 @@ test('+ offers everything that goes into a message, including files of any kind'
   }
 });
 
-test('on the phone SEEKER\'s messages carry the header robot and a purple name', () => {
+test('on the phone SEEKER\'s messages carry the header robot and an orange name', () => {
   const app = read('app.js');
   const css = read('style.css');
   const assistant = app.slice(app.indexOf("if (item.kind === 'assistant')"), app.indexOf("return h('li', { class: `ev notice"));
   assert.match(assistant, /class: [^,]*'node[^']*', icon: 'logo'/, 'the node draws the robot');
   assert.ok(assistant.includes("'node still'"), 'the robot stays still when animation is off');
-  assert.match(css, /\.ev\.assistant \.who \{\s*color: var\(--sk-reasoning\);/);
+  assert.match(css, /\.ev\.assistant \.who \{\s*color: var\(--sk-primary\);/);
+});
+
+test('on the phone the user\'s messages carry a pixel person, in cyan', () => {
+  const app = read('app.js');
+  const css = read('style.css');
+  const user = app.slice(app.indexOf("if (item.kind === 'user')"), app.indexOf("if (item.kind === 'assistant')"));
+  assert.match(user, /class: [^,]*'node[^']*', icon: 'you'/, 'the node draws the person');
+  assert.ok(user.includes("'node still'"), 'the person stays still when animation is off');
+  assert.match(app, /you: `<svg class="human"/);
+  assert.match(css, /--sk-user: #22D3EE;/);
+  assert.match(css, /\.ev\.user \.who \{\s*color: var\(--sk-user\);/);
+  assert.match(css, /\.ev\.user \.node \{\s*border-color: var\(--sk-user\);/);
+  assert.match(css, /\.still \.human \* \{\s*animation: none;/);
 });
 
 test('how many colours a terminal shows is read from its environment', () => {
