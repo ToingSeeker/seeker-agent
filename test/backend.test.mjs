@@ -254,3 +254,22 @@ test('backend: a home folder reached through a link is still recognised and not 
   assert.equal(backendOf({ backend: 'docker:alpine' }, path.join(home, 'app')).root, path.join(home, 'app'));
   assert.throws(() => backendOf({ backend: 'docker:alpine' }, home), /your whole home folder/);
 });
+
+test('backend: stopped while the project is still being copied there, the command is never started', { skip: !rsyncHere && 'needs rsync' }, async (t) => {
+  const cwd = tmp('seeker-be-proj-');
+  const bin = tmp('seeker-be-bin-');
+  const ran = path.join(bin, 'ran');
+  // A slow copy, and an ssh that notes whether the command itself was ever started.
+  fs.writeFileSync(path.join(bin, 'rsync'), '#!/bin/sh\nsleep 1\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'ssh'), `#!/bin/sh\necho "$@" >> '${ran}'\n`, { mode: 0o755 });
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}${path.delimiter}${saved}`;
+  t.after(() => (process.env.PATH = saved));
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), 200);
+  const r = await bash({ command: 'echo started' }, { cwd, backend: backendOf({ backend: 'ssh:box' }, cwd), signal: ac.signal });
+  assert.match(r.output, /interrupted/);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const calls = fs.existsSync(ran) ? fs.readFileSync(ran, 'utf8') : '';
+  assert.ok(!calls.includes('echo started'), calls);
+});
