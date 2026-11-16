@@ -3,6 +3,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { hunkRows } from './hunks.mjs';
 import { SANDBOX_HINT, blockedBySandbox, shellCommand } from './sandbox.mjs';
+import { backendCommand } from './backend.mjs';
 import fs from 'node:fs';
 import dns from 'node:dns';
 import fsp from 'node:fs/promises';
@@ -135,7 +136,7 @@ const rel = (file, cwd) => {
   return r && !r.startsWith('..') ? r : file;
 };
 
-function runProcess(cmd, argv, { cwd, signal, timeoutMs, shell = false, env }) {
+function runProcess(cmd, argv, { cwd, signal, timeoutMs, shell = false, env, onKill = null }) {
   return new Promise((resolve) => {
     // detached = own process group, so a timeout or Ctrl+C kills the whole tree.
     const child = spawn(cmd, argv, { cwd, shell, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -143,6 +144,8 @@ function runProcess(cmd, argv, { cwd, signal, timeoutMs, shell = false, env }) {
     let killed = null;
     const kill = (why) => {
       killed = why;
+      // A command in a container or on another machine is stopped there too: ending the client alone may not.
+      onKill?.();
       try {
         process.kill(-child.pid, 'SIGKILL');
       } catch {
@@ -157,6 +160,8 @@ function runProcess(cmd, argv, { cwd, signal, timeoutMs, shell = false, env }) {
     const timer = setTimeout(() => kill('timeout'), timeoutMs);
     const onAbort = () => kill('aborted');
     signal?.addEventListener('abort', onAbort, { once: true });
+    // A signal that went off before the start never fires its event again.
+    if (signal?.aborted) onAbort();
     const done = (code, error) => {
       clearTimeout(timer);
       signal?.removeEventListener('abort', onAbort);
@@ -200,12 +205,19 @@ const TODO_MARK = { pending: '☐', in_progress: '◐', completed: '☑' };
 const processes = new Map();
 let processCount = 0;
 
-function startBackground(command, cwd, sandbox = null) {
+async function startBackground(command, cwd, sandbox = null, backend = null) {
   const id = `p${++processCount}`;
   const env = { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0' };
-  const start = shellCommand(process.env.SHELL || '/bin/sh', command, cwd, sandbox);
+  const start = backend ? backendCommand(backend, command, cwd) : shellCommand(process.env.SHELL || '/bin/sh', command, cwd, sandbox);
+  const entry = { id, command, child: null, output: '', read: 0, done: false, code: null, kill: start.kill ?? null };
+  const failed = backend ? await start.before() : '';
+  if (failed) {
+    Object.assign(entry, { output: failed, done: true, code: null });
+    processes.set(id, entry);
+    return entry;
+  }
   const child = spawn(start.cmd, start.argv, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-  const entry = { id, command, child, output: '', read: 0, done: false, code: null };
+  entry.child = child;
   const collect = (data) => {
     entry.output += data;
     // Keep the newest output; a chatty server would otherwise grow without bound.
@@ -221,7 +233,10 @@ function startBackground(command, cwd, sandbox = null) {
     entry.output += `\n[could not start: ${err.message}]`;
     entry.done = true;
   });
-  child.on('close', (code) => {
+  child.on('close', async (code) => {
+    // What it changed on the other machine is copied back before it counts as done.
+    const back = backend ? await start.after() : '';
+    if (back) entry.output += `\n${back}`;
     entry.done = true;
     entry.code = code;
   });
@@ -231,6 +246,7 @@ function startBackground(command, cwd, sandbox = null) {
 
 function stopProcess(entry) {
   if (entry.done) return;
+  entry.kill?.();
   try {
     process.kill(-entry.child.pid, 'SIGTERM');
   } catch {
@@ -506,16 +522,17 @@ export const TOOLS = [
     },
     verbs: ['Running', 'Ran'],
     summary: (a) => `${a.command}${a.background === true || a.background === 'true' ? '  (background)' : ''}`,
-    async run(args, { cwd, signal, sandbox = null }) {
+    async run(args, { cwd, signal, sandbox = null, backend = null }) {
       if (typeof args.command !== 'string' || !args.command.trim()) throw new ToolError('"command" is required');
       let start;
       try {
-        start = shellCommand(process.env.SHELL || '/bin/sh', args.command, cwd, sandbox);
+        // With a backend the command runs in a container or on another machine instead of under the sandbox here.
+        start = backend ? backendCommand(backend, args.command, cwd) : shellCommand(process.env.SHELL || '/bin/sh', args.command, cwd, sandbox);
       } catch (err) {
         throw new ToolError(err.message);
       }
       if (args.background === true || args.background === 'true') {
-        const entry = startBackground(args.command, cwd, sandbox);
+        const entry = await startBackground(args.command, cwd, sandbox, backend);
         // A moment to see whether it starts at all.
         await new Promise((resolve) => setTimeout(resolve, 1500));
         const first = entry.output.trimEnd();
@@ -529,9 +546,16 @@ export const TOOLS = [
       }
       const seconds = Math.min(600, Math.max(1, Number(args.timeout) || 120));
       const env = { ...process.env, PAGER: 'cat', GIT_PAGER: 'cat', GIT_TERMINAL_PROMPT: '0', CI: '1' };
-      const r = await runProcess(start.cmd, start.argv, { cwd, signal, timeoutMs: seconds * 1000, env });
-      if (r.error) throw new ToolError(`Could not start the shell: ${r.error.message}`);
-      const body = r.output.trimEnd();
+      if (backend) {
+        const failed = await start.before();
+        if (failed) throw new ToolError(`${failed} The command was not run.`);
+        // Stopped while the project was being copied: the command is not started at all.
+        if (signal?.aborted) return { output: '(not run)\n\n[interrupted by the user]', note: 'interrupted', display: '' };
+      }
+      const r = await runProcess(start.cmd, start.argv, { cwd, signal, timeoutMs: seconds * 1000, env, onKill: start.kill ?? null });
+      const back = backend ? await start.after() : '';
+      if (r.error) throw new ToolError(r.error.code === 'ENOENT' && backend ? `Could not start ${start.cmd}: it is not installed on this machine.` : `Could not start the shell: ${r.error.message}`);
+      const body = r.output.trimEnd() + (back ? `\n${back}` : '');
       let out = body || '(no output)';
       let note = 'exit 0';
       if (r.killed === 'timeout') {
