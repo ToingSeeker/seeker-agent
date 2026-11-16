@@ -1908,16 +1908,17 @@ button.stat:active {
   background: var(--sk-danger-soft);
 }
 /* The session's three views, as one segmented control. */
+/* Fully rounded, like the message box at the foot of the same screen. */
 .tabs.seg {
   padding: 3px;
   gap: 4px;
-  border-radius: 10px;
+  border-radius: 999px;
 }
 .tabs.seg button {
   position: relative;
   min-height: 30px;
   padding: 0 8px;
-  border-radius: 7px;
+  border-radius: 999px;
   font: 600 13px/1 var(--sans);
   letter-spacing: 0;
   white-space: nowrap;
