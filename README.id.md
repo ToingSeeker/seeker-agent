@@ -311,6 +311,11 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
   Settings; setelan sesi terminal diubah di terminal itu. Yang butuh daftar pilihan, atau tidak boleh datang
   dari HP yang hilang, tetap di terminal: `/hooks`, `/mcp`, `/rollback`, `/resume`, `/key`, `/paste`, `/exit`.
 - **Persetujuan** — ditanyakan di dua tempat; jawaban pertama yang berlaku dan yang satunya tertutup.
+- **Memindahkan percakapan dari HP ke terminal** — `cd` ke folder proyeknya lalu jalankan `seeker -c` (atau
+  `/resume` dan pilih percakapannya). Salinan di HP ditutup, riwayatnya pindah ke terminal session, dan HP
+  yang sedang membukanya ikut pindah ke sana; jadi hanya ada satu percakapan dan tidak ada yang saling
+  menimpa. Kalau HP masih mengerjakannya (atau masih ada instruksi yang antre), salinan HP tetap dipakai dan
+  terminal lanjut di salinan terpisah; jalankan `seeker -c` lagi setelah HP selesai.
 - **Tidak dari HP** — percakapan baru, ganti model, dan menutup sesi dilakukan di terminal. Sesi yang
   dijalankan dengan `--yolo` tampil di HP tapi tidak menerima tugas dari sana.
 
