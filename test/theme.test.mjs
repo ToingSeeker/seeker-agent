@@ -77,13 +77,24 @@ test('+ offers everything that goes into a message, including files of any kind'
   const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
   // One + on the bar; the picture and @ buttons, and the separate commands button, live in its sheet now.
   assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'stop', 'send']);
-  // A PDF or a ZIP can be picked: the "Files" picker takes every kind, and the camera takes a picture.
-  assert.match(form, /<input id="anyfile" type="file" multiple hidden \/>/);
+  // A PDF or a ZIP can be picked: the "Files" picker takes every kind but pictures, so iOS opens the file
+  // browser directly instead of the same Photo Library / Take Photo menu as "Photos & videos".
+  assert.match(form, /<input id="anyfile" type="file" accept="application\/\*,text\/\*,audio\/\*,font\/\*,model\/\*" multiple hidden \/>/);
+  assert.doesNotMatch(form.match(/<input id="anyfile"[^>]*>/)[0], /image|video|\*\/\*/);
   assert.match(form, /<input id="camera" type="file" accept="image\/\*" capture="environment" hidden \/>/);
   const sheet = app.slice(app.indexOf('function addSheet()'), app.indexOf("$('add').addEventListener"));
   for (const [label, does] of [['Camera', "$('camera').click()"], ['Photos & videos', "$('file').click()"], ['Files', "$('anyfile').click()"], ['Mention a file', 'mentionFile'], ['Model', 'chooseModel'], ['Commands', 'showCommands']]) {
     assert.ok(sheet.includes(`'${label}'`) && sheet.includes(does), `${label} is in the + sheet and does what it says`);
   }
+});
+
+test('on the phone SEEKER\'s messages carry the header robot and a purple name', () => {
+  const app = read('app.js');
+  const css = read('style.css');
+  const assistant = app.slice(app.indexOf("if (item.kind === 'assistant')"), app.indexOf("return h('li', { class: `ev notice"));
+  assert.match(assistant, /class: [^,]*'node[^']*', icon: 'logo'/, 'the node draws the robot');
+  assert.ok(assistant.includes("'node still'"), 'the robot stays still when animation is off');
+  assert.match(css, /\.ev\.assistant \.who \{\s*color: var\(--sk-reasoning\);/);
 });
 
 test('how many colours a terminal shows is read from its environment', () => {

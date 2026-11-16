@@ -2041,6 +2041,10 @@ button.stat:active {
 .ev .node svg {
   stroke-width: 2.6;
 }
+/* SEEKER's own messages carry the header robot in their node. */
+.ev.assistant .node {
+  padding: 1.5px 2px 2.5px;
+}
 .ev.tool.done .node {
   color: var(--sk-success);
   border-color: var(--sk-success);
@@ -2173,7 +2177,7 @@ button.stat:active {
   color: var(--sk-primary);
 }
 .ev.assistant .who {
-  color: var(--sk-text-primary);
+  color: var(--sk-reasoning);
 }
 .said {
   white-space: pre-wrap;

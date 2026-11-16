@@ -1399,7 +1399,7 @@ async function addImages(files, { whole = false } = {}) {
       continue;
     }
     if (ws && ws.meta.vision === false) {
-      toast(`${ws.meta.model} cannot see images. Change the model, or send it as a file with /file.`);
+      toast(`${ws.meta.model} cannot see images. Change the model to send pictures.`);
       continue;
     }
     try {
@@ -1706,7 +1706,8 @@ function entryOf(item) {
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
-    return h('li', { class: 'ev assistant' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'SEEKER'), time), h('div', { class: 'prose' }, prose(item.text)), offered(item.files, { ws: state.view.ws, item: item.id })));
+    // Its node is the robot from the header, blinking with it unless animation is turned off.
+    return h('li', { class: 'ev assistant' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'logo' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'SEEKER'), time), h('div', { class: 'prose' }, prose(item.text)), offered(item.files, { ws: state.view.ws, item: item.id })));
   }
   return h('li', { class: `ev notice ${item.level}` }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('span', { class: 'sub' }, item.text, ' ', time)));
 }
