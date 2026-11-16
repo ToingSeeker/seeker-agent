@@ -4,6 +4,12 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Shell commands can run in a Docker container or on another machine.** `/backend docker:<image>` runs
+  each command in a fresh container with the project mounted at the same path and nothing else of this
+  machine visible; `/backend ssh:<host>[:<folder>]` runs it on another machine, copying the project there
+  with rsync before the command and what it changed back after it. `/backend` checks the connection before
+  switching, approvals are unchanged, and stopping a command stops it there too.
+
 - **The terminal interface keeps its header and message box in place while you scroll.** It now runs on
   the alternate screen and scrolls the conversation itself (mouse wheel, PageUp, PageDown); before, scrolling
   the terminal back moved the header and the message box down with everything else. Selecting text takes
