@@ -13,6 +13,7 @@ import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as se
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { fileKind, folderOf, listZip, previewKind, splitName, splitSent } from './files.js';
+import { clearKept, keep, kept, keptSize } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, makePin, readLock, sameId, userVerified, writeLock } from './lock.js';
 
 const $ = (id) => document.getElementById(id);
@@ -442,6 +443,8 @@ async function pair(input) {
 function signOut(message = '') {
   streamAbort?.abort();
   localStorage.removeItem('seeker.secret');
+  clearKept(); // files from the Mac kept here go with the pairing
+  state.keptInfo = undefined;
   Object.assign(state, { secret: null, token: null, key: null, since: 0, linked: false, online: false, device: null, workspaces: new Map(), approvals: [], error: message, view: { name: 'home' }, latency: null, lastEntryAt: null });
   render();
 }
@@ -1578,9 +1581,12 @@ const runningDots = () => h('span', { class: 'dots', 'aria-hidden': 'true' }, h(
 function pictures(images, size = '', from = null) {
   const shots = (Array.isArray(images) ? images : []).map((i, index) => {
     const shown = i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name, title: i.name }) : h('span', { class: 'file' }, i.name);
-    // A picture that is a file on the Mac opens whole, ready to save, when tapped.
-    if (!from || !i.file) return shown;
-    return h('button', { type: 'button', class: 'shot-open', 'aria-label': `Open ${i.name}`, onclick: () => openPicture(from.ws, from.item, index, i.name) }, shown);
+    // A picture that is a file on the Mac opens whole, ready to save, when tapped. One sent before the
+    // Mac kept them opens as the small preview it has, and says so.
+    if (!from) return shown;
+    const open = i.file ? () => openPicture(from.ws, from.item, index, i.name, i.file) : from.user && shown.tagName === 'IMG' ? () => showPreviewOnly(i) : null;
+    if (!open) return shown;
+    return h('button', { type: 'button', class: 'shot-open', 'aria-label': `Open ${i.name}`, onclick: open }, shown);
   });
   return shots.length ? h('div', { class: `shots${size ? ` ${size}` : ''}` }, shots) : null;
 }
@@ -1590,11 +1596,14 @@ function pictures(images, size = '', from = null) {
 const fetching = new Map(); // req → { name, timer }
 let pictureUrl = null; // the object URL of the picture on screen, freed when another opens
 
-function openPicture(ws, item, index, name) {
+async function openPicture(ws, item, index, name, path = null) {
+  // Fetched once already: it is kept on this phone, and opens without asking the Mac.
+  const hit = await kept(path);
+  if (hit) return showPicture(hit.file, { smaller: hit.smaller, kept: true });
   const req = crypto.randomUUID().replace(/-/g, '');
   for (const [key, wait] of fetching) clearTimeout(wait.timer), fetching.delete(key);
   const timer = setTimeout(() => fetching.delete(req) && (closeSheet(), toast('Your Mac did not send the picture. Try again.')), 60_000);
-  fetching.set(req, { name, timer });
+  fetching.set(req, { name, timer, path });
   sheet(name, h('div', { class: 'viewer-wait muted' }, 'Fetching the picture from your Mac…'));
   command('file', { ws, item, index, req }).then((sent) => sent || (clearTimeout(timer), fetching.delete(req), closeSheet()));
 }
@@ -1610,14 +1619,25 @@ async function pictureArrived(event) {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
     const picture = await unseal((await res.json()).c);
     if (!/^image\/(png|jpeg|gif|webp)$/.test(picture.mime)) throw new Error('That is not a picture.');
-    showPicture(new File([fromBase64(picture.data)], picture.name, { type: picture.mime }), event);
+    const file = new File([fromBase64(picture.data)], picture.name, { type: picture.mime });
+    showPicture(file, event);
+    keep(file, wait.path, { smaller: !!event.smaller }).then(() => (state.keptInfo = undefined));
   } catch (err) {
     closeSheet();
     toast(`Could not open the picture: ${err.message}`);
   }
 }
 
-function showPicture(file, { smaller }) {
+/** The small preview of a picture whose whole was never kept on the Mac. */
+function showPreviewOnly(image) {
+  sheet(
+    image.name,
+    h('img', { class: 'viewer', src: `data:${image.mime};base64,${image.thumb}`, alt: image.name }),
+    h('div', { class: 'muted viewer-note' }, 'Only a small preview of this picture was kept. Pictures sent from now on open whole.'),
+  );
+}
+
+function showPicture(file, { smaller, kept: here = false }) {
   if (pictureUrl) URL.revokeObjectURL(pictureUrl);
   pictureUrl = URL.createObjectURL(file);
   const url = pictureUrl;
@@ -1626,7 +1646,7 @@ function showPicture(file, { smaller }) {
   sheet(
     file.name,
     h('img', { class: 'viewer', src: pictureUrl, alt: file.name }),
-    h('div', { class: 'muted viewer-note' }, smaller ? `${size} · a smaller copy; the file on the Mac was too large to send whole` : size),
+    h('div', { class: 'muted viewer-note' }, [smaller ? `${size} · a smaller copy; the file on the Mac was too large to send whole` : size, here && 'saved on this phone'].filter(Boolean).join(' · ')),
     h('div', { class: 'actions even' }, h('button', { type: 'button', class: 'btn', onclick: () => window.open(pictureUrl, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save')),
   );
 }
@@ -1638,7 +1658,7 @@ const SHOWABLE = /^(video\/(mp4|quicktime|webm)|audio\/(mpeg|mp4|wav)|image\/(pn
 
 function offered(files, from) {
   if (!Array.isArray(files) || !files.length) return null;
-  return h('div', { class: 'fcards' }, files.map((f, index) => fileCard(f, 'down', `Download ${f.name}`, () => startDownload(from.ws, from.item, index, f.name, f.file))));
+  return h('div', { class: 'fcards' }, files.map((f, index) => fileCard(f, 'down', `Download ${f.name}`, () => startDownload(from.ws, from.item, index, f.name, f.file, f.bytes))));
 }
 
 // ── file cards: one sent from this phone (↑), or one an answer offers (↓) ──
@@ -1665,7 +1685,7 @@ function sentFiles(item, listed) {
   const known = Array.isArray(item.files) ? item.files : null;
   const rows = known ?? listed.map((l) => ({ name: l.name, file: l.path, size: l.size, mime: null }));
   if (!rows.length) return null;
-  return h('div', { class: 'fcards' }, rows.map((f, index) => fileCard(f, 'up', `Check ${f.name}`, () => (known && f.mime ? startDownload(state.view.ws, item.id, index, f.name, f.file) : fileFacts(f)))));
+  return h('div', { class: 'fcards' }, rows.map((f, index) => fileCard(f, 'up', `Check ${f.name}`, () => (known && f.mime ? startDownload(state.view.ws, item.id, index, f.name, f.file, f.bytes) : fileFacts(f)))));
 }
 
 /** A path on the Mac as people read it, with ~ for the home folder. */
@@ -1701,13 +1721,14 @@ const TEXT_PREVIEW_BYTES = 200_000;
  * A file opened to look at: a picture, video, sound, PDF, the start of a text, or what a zip holds.
  * Text is shown as text only, never run as a page. `actions` makes the buttons under it from its URL.
  */
-async function previewSheet(file, { where = null, actions = null } = {}) {
+async function previewSheet(file, { where = null, actions = null, kept: here = false } = {}) {
   if (pictureUrl) URL.revokeObjectURL(pictureUrl);
   pictureUrl = URL.createObjectURL(file);
   const url = pictureUrl;
   const kind = previewKind(file.type, file.name);
   let body;
   let note = fileSize(file.size);
+  if (here) note += ' · saved on this phone';
   try {
     if (kind === 'video') body = h('video', { class: 'viewer', src: url, controls: true, playsinline: true, preload: 'metadata' });
     else if (kind === 'image') body = h('img', { class: 'viewer', src: url, alt: file.name });
@@ -1733,7 +1754,10 @@ async function previewSheet(file, { where = null, actions = null } = {}) {
   sheet(file.name, body, h('div', { class: 'muted viewer-note' }, note), where && placeOnMac(where), buttons.length && h('div', { class: 'actions even' }, ...buttons));
 }
 
-function startDownload(ws, item, index, name, where = null) {
+async function startDownload(ws, item, index, name, where = null, bytes = null) {
+  // Downloaded once already: it is kept on this phone, and opens without asking the Mac.
+  const hit = await kept(where, { bytes: Number.isFinite(bytes) ? bytes : null });
+  if (hit) return showDownloaded(hit.file, where, true);
   const req = transferId();
   for (const [key, wait] of downloads) clearTimeout(wait.timer), downloads.delete(key);
   const timer = setTimeout(() => downloads.delete(req) && (closeSheet(), toast('Your Mac did not send the file. Try again.')), 60_000);
@@ -1773,7 +1797,9 @@ async function downloadArrived(event) {
     }
     if (got !== event.bytes) throw new Error('it did not arrive whole');
     downloads.delete(event.req);
-    showDownloaded(new File(parts, event.name, { type: event.mime }), wait.where);
+    const file = new File(parts, event.name, { type: event.mime });
+    showDownloaded(file, wait.where);
+    keep(file, wait.where).then(() => (state.keptInfo = undefined));
   } catch (err) {
     downloads.delete(event.req);
     closeSheet();
@@ -1797,9 +1823,10 @@ async function saveFile(file, url) {
 }
 
 /** A file fetched from the Mac: shown, with where it is there, and Open / Save. */
-function showDownloaded(file, where = null) {
+function showDownloaded(file, where = null, here = false) {
   return previewSheet(file, {
     where,
+    kept: here,
     actions: (url) => [h('button', { type: 'button', class: 'btn', onclick: () => window.open(url, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: () => saveFile(file, url) }, 'Save')],
   });
 }
@@ -1823,7 +1850,7 @@ function entryOf(item) {
     // Files sent with it show as cards; the list the agent reads under the words is not repeated.
     const { said, listed } = splitSent(item.text);
     // Its node is the pixel person, moving with the robot's animation setting.
-    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), said && h('div', { class: 'said' }, said), sentFiles(item, listed), pictures(item.images)));
+    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), said && h('div', { class: 'said' }, said), sentFiles(item, listed), pictures(item.images, '', { ws: state.view.ws, item: item.id, user: true })));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
@@ -2259,6 +2286,7 @@ function settings() {
       row('lock', 'End-to-end encryption', 'On', { tone: 'success', sub: 'AES-256-GCM between this phone and your Mac' }),
       row('eyeoff', 'Relay', 'Cannot read', { tone: 'success', sub: 'It holds only a hash of the access token' }),
       row('phone', 'This phone', 'Paired', { tone: 'success', sub: 'The pairing secret is stored on this device only' }),
+      keptRow(),
     ),
     section('DIAGNOSTICS'),
     h(
@@ -2272,6 +2300,17 @@ function settings() {
     h('div', { class: 'actions even' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect')),
     h('button', { class: 'btn quiet danger unpair', onclick: () => confirm('Remove the pairing from this phone?') && (saveLock(null), signOut()) }, 'Unpair this phone'),
   ];
+}
+
+/** The files from the Mac kept on this phone, and a way to drop them. */
+function keptRow() {
+  if (state.keptInfo === undefined) {
+    state.keptInfo = null;
+    keptSize().then((info) => ((state.keptInfo = info), state.view.name === 'settings' && render()));
+  }
+  const info = state.keptInfo;
+  const clear = () => confirm('Remove the files kept on this phone?\n\nThey stay on your Mac and download again when opened.') && clearKept().then(() => ((state.keptInfo = undefined), render(), toast('Kept files removed.')));
+  return row('download', 'Files kept on this phone', info ? (info.count ? fileSize(info.bytes) : 'None') : '…', { sub: info?.count ? `${info.count} file${info.count === 1 ? '' : 's'} open without downloading again · tap to remove` : 'Files you open from the Mac are kept, so they open again without downloading', onclick: info?.count ? clear : null });
 }
 
 /** Everything `/config` holds in the terminal. Absent when the Mac runs a SEEKER from before this screen. */

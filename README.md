@@ -99,7 +99,14 @@ pictures, videos, sound, PDFs and text open, and a zip shows the files inside it
 off the message. After sending, the files sit under your message as cards (↑, cyan) in place of the list
 of paths the agent reads. Tap one to fetch it back from the Mac and check what arrived, with its place
 on the Mac and a **Copy** button. Only files in `~/Downloads/SEEKER/` can be fetched back this way. Text
-is always shown as text, never run as a page.
+is always shown as text, never run as a page. Photos sent with a message are kept there too, so a tap on
+one under your message opens the whole picture (one sent before this opens as its small preview).
+
+A file or picture fetched from the Mac once is kept on the phone (in the app's own storage, up to
+300 MB, the oldest dropped first), so opening it again needs no second download; its sheet says
+"saved on this phone". A file at the same path with another size is fetched afresh. **Settings →
+Files kept on this phone** shows how much is kept and removes it; unpairing removes it too. What is
+kept is the decrypted file: the app lock hides it but does not encrypt it.
 
 When an answer names a file that exists on the Mac (a video, audio, a picture, a PDF, a zip or `.srt`,
 written as a path, `~/…` or relative to the project), the phone shows it under the answer as a card

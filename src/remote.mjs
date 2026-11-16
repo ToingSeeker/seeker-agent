@@ -19,7 +19,7 @@ import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { TOOL_BY_NAME } from './tools.mjs';
 import { ANSI } from './text.mjs';
-import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, listedFiles, receiveFile, sendFile } from './transfer.mjs';
+import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -453,6 +453,18 @@ export class Workspace {
     }
   }
 
+  /** Saves a picture from the phone in the inbox: `{ file }` where it is, or nothing if it could not be kept. */
+  #keep(image) {
+    const dir = this.daemon?.inbox;
+    if (!dir || typeof image?.data !== 'string' || !image.data) return {};
+    try {
+      return { file: savePicture(dir, image) };
+    } catch (err) {
+      this.daemon.log?.(`${this.name}: could not keep ${image.name}: ${err.message}`);
+      return {};
+    }
+  }
+
   /**
    * @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message
    * @param {{ references?: boolean, echo?: boolean }} [opts]  `references` false for a prompt nobody typed (a loop, a goal
@@ -468,8 +480,9 @@ export class Workspace {
     this.outcome = null;
     this.stopped = false;
     this.startedAt = started;
-    // The transcript keeps the small previews only; the pictures themselves go to the model.
-    if (echo) this.ui.user(text, images.map(({ name, thumb }) => ({ name, mime: thumb?.mime ?? null, thumb: thumb?.data ?? null })), via);
+    // The transcript keeps the small previews; the pictures go to the model, and are kept in the inbox
+    // beside the other files from the phone, so a tap on a preview can open the whole picture later.
+    if (echo) this.ui.user(text, images.map((image) => ({ name: image.name, mime: image.thumb?.mime ?? null, thumb: image.thumb?.data ?? null, ...this.#keep(image) })), via);
     this.touch();
     try {
       await this.agent.runTurn(text, { images, references });
@@ -1154,9 +1167,11 @@ export class RemoteDaemon {
     const req = String(command.req ?? '');
     if (!/^[A-Za-z0-9_-]{8,64}$/.test(req)) return;
     const fail = (error) => this.send({ t: 'file', req, error });
-    const item = workspace?.items.find((i) => i.id === command.item && i.kind === 'tool');
+    const item = workspace?.items.find((i) => i.id === command.item && (i.kind === 'tool' || i.kind === 'user'));
     const file = item?.images?.[Number(command.index)]?.file;
     if (typeof file !== 'string' || !path.isAbsolute(file)) return fail('That picture can no longer be fetched.');
+    // A picture under a message the phone sent comes back only from the inbox it was kept in.
+    if (item.kind === 'user' && !inside(this.inbox, file)) return fail('That picture can no longer be fetched.');
     let image;
     try {
       image = fullImage(file);

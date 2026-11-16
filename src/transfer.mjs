@@ -83,6 +83,24 @@ function freePath(dir, name) {
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const PICTURE_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' };
+
+/**
+ * Keeps a picture sent with a message beside the other files from the phone, so the phone can open
+ * it whole later. The name is the phone's, with the extension its content really has.
+ * @param {{ name: string, mime: string, data: string }} image  `data` base64
+ * @returns {string} where it was saved
+ */
+export function savePicture(dir, image) {
+  fs.mkdirSync(dir, { recursive: true });
+  const ext = PICTURE_EXT[image.mime] ?? '';
+  const name = cleanName(image.name, 'photo');
+  const stem = path.extname(name) ? name.slice(0, -path.extname(name).length) : name;
+  const target = freePath(dir, `${stem || 'photo'}${ext}`);
+  fs.writeFileSync(target, Buffer.from(image.data, 'base64'), { mode: 0o600, flag: 'wx' });
+  return target;
+}
+
 /**
  * Takes a file the phone is sending, piece by piece, and saves it in `dir`.
  * @returns {Promise<string>} where it was saved

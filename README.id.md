@@ -411,6 +411,15 @@ tampil di bawah pesanmu sebagai kartu (↑, cyan), menggantikan daftar path yang
 kartunya untuk mengambil file itu kembali dari Mac dan mengecek apa yang benar-benar sampai, lengkap
 dengan lokasinya di Mac dan tombol **Copy**. Hanya file di `~/Downloads/SEEKER/` yang bisa diambil
 kembali dengan cara ini. Teks selalu ditampilkan sebagai teks, tidak pernah dijalankan sebagai halaman.
+Foto yang dikirim bersama pesan juga disimpan di sana, jadi foto di bawah pesanmu bisa diketuk untuk
+dibuka utuh (foto yang dikirim sebelum versi ini terbuka sebagai pratinjau kecilnya saja).
+
+File atau foto yang sudah sekali diambil dari Mac disimpan di HP (di penyimpanan aplikasi sendiri,
+paling banyak 300 MB, yang paling lama dihapus duluan), jadi saat dibuka lagi tidak perlu diunduh
+ulang; lembarnya menulis "saved on this phone". File di path yang sama dengan ukuran berbeda diambil
+ulang. **Settings → Files kept on this phone** menampilkan berapa yang tersimpan dan bisa
+menghapusnya; unpair juga menghapusnya. Yang tersimpan adalah file yang sudah didekripsi: kunci
+aplikasi menyembunyikannya, tapi tidak mengenkripsinya.
 
 Kalau jawaban agen menyebut file yang ada di Mac (video, audio, gambar, PDF, zip atau `.srt`, ditulis
 sebagai path, `~/…` atau relatif terhadap proyek), HP menampilkannya di bawah jawaban itu sebagai kartu

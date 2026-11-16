@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import { Session } from '../src/session.mjs';
 import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
 import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
-import { CHUNK_BYTES, sealChunk, unsealChunk } from '../src/transfer.mjs';
+import { CHUNK_BYTES, savePicture, sealChunk, unsealChunk } from '../src/transfer.mjs';
 import { USAGE_FILE } from '../src/usage.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
@@ -485,7 +485,8 @@ test('remote control: pictures sent from the phone reach the model, and what is 
     agents.push(agent);
     return { agent, session: { save() {}, startNew() {} } };
   };
-  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false });
+  const inbox = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-inbox-'));
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false, inbox });
   const running = daemon.start();
   const me = await phone(url, secret);
   await until(() => me.state.online && me.state.workspaces.size === 1);
@@ -501,8 +502,21 @@ test('remote control: pictures sent from the phone reach the model, and what is 
   assert.equal(sent.content, 'Look at this image.');
   assert.deepEqual(sent.images, [png], 'the model gets the picture itself');
   const shown = me.state.workspaces.get(ws.id).items[0];
-  assert.deepEqual(shown.images, [{ name: 'b.png', mime: 'image/jpeg', thumb: jpeg }], 'the transcript keeps the small preview, not the picture');
+  const { file: kept, ...small } = shown.images[0];
+  assert.deepEqual(small, { name: 'b.png', mime: 'image/jpeg', thumb: jpeg }, 'the transcript keeps the small preview, not the picture');
+  assert.equal(path.dirname(kept), inbox, 'the picture itself is kept in the inbox, beside the other files from the phone');
+  assert.equal(fs.readFileSync(kept).toString('base64'), png, 'whole, as the model got it');
   await until(() => me.state.workspaces.get(ws.id).status === 'idle');
+
+  // Tapped on the phone, it comes back whole; a path the phone names itself is not followed.
+  const { key } = deriveKeys(secret);
+  const fileEvent = (req) => until(() => me.state.events.find((e) => e.t === 'file' && e.req === req));
+  await me.send('file', { ws: ws.id, item: shown.id, index: 0, req: 'sent-picture-1' });
+  assert.equal((await fileEvent('sent-picture-1')).error, undefined);
+  const blob = await fetch(`${url}/api/blob?id=sent-picture-1`, { headers: me.headers });
+  assert.equal(unseal(key, (await blob.json()).c).data, png);
+  await me.send('file', { ws: ws.id, item: shown.id, index: 1, req: 'sent-picture-2', file: '/etc/passwd' });
+  assert.match((await fileEvent('sent-picture-2')).error, /no longer be fetched/);
 
   // Text dressed up as a picture, and more pictures than allowed, never reach the model.
   await me.send('message', { ws: ws.id, text: 'see', images: [{ name: 'x.png', data: Buffer.from('<script>alert(1)</script>').toString('base64') }] });
@@ -1595,4 +1609,15 @@ test('remote: a skill with a list, sent from the phone, is answered with the lis
   mirror.ui.choose({ skill: 'fx', title: '/fx — tick what to use', items: [{ value: 'orbit', description: 'a' }, { value: 'moody', description: 'b' }], attachment: note });
   const fromTerminal = await until(() => me.state.events.find((e) => e.t === 'choose' && e.ws === mirror.id));
   assert.deepEqual([fromTerminal.skill, fromTerminal.items.length, fromTerminal.attachment], ['fx', 2, note]);
+});
+
+test('a picture from the phone is kept under its own name, with the extension its content has', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-pictures-'));
+  const data = Buffer.from('picture').toString('base64');
+  const first = savePicture(dir, { name: 'IMG_3762.HEIC', mime: 'image/jpeg', data });
+  const second = savePicture(dir, { name: 'IMG_3762.jpg', mime: 'image/jpeg', data });
+  const odd = savePicture(dir, { name: '../../.ssh/<x>', mime: 'image/png', data });
+  assert.deepEqual([first, second, odd].map((f) => path.relative(dir, f)), ['IMG_3762.jpg', 'IMG_3762 (2).jpg', 'x.png'], 'never outside the folder, never over another file');
+  assert.equal((fs.statSync(first).mode & 0o777).toString(8), '600');
+  assert.equal(fs.readFileSync(first, 'utf8'), 'picture');
 });
