@@ -5,11 +5,15 @@
 // it a message or a picture.
 //
 // One JSON object per line, both ways.
-//   terminal → daemon   hello { ws }      this session: its summary and transcript so far
+//   terminal → daemon   hello { ws, claim }  this session: its summary and transcript so far, and the saved
+//                                         conversation it continues (if any)
+//                       claim { file }    it went on to continue this saved conversation (/resume)
 //                       send { event }    an event for the phone, as the daemon would send it
 //                       ask { approval }  put this to the phone        unask { id }  no longer needed
 //                       notify { payload, kind }
 //   daemon → terminal   message { text, images }   stop   answer { id, answer }
+//                       handoff { name, items }   that conversation was open on the phone; its copy there is closed
+//                       handoff { name, busy }    it is still at work on the phone and stays there
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -119,12 +123,13 @@ export class TerminalLink {
    * @param {() => void} [opts.onStop]
    * @param {number} [opts.retry]  milliseconds between attempts to find a daemon
    */
-  constructor({ file = LINK_FILE, info = null, notifyAfter = 30_000, onMessage = () => {}, onStop = () => {}, retry = 5000 } = {}) {
+  constructor({ file = LINK_FILE, info = null, notifyAfter = 30_000, onMessage = () => {}, onStop = () => {}, onHandoff = () => {}, retry = 5000 } = {}) {
     this.file = file;
     this.info = info;
     this.notifyAfter = notifyAfter;
     this.onMessage = onMessage;
     this.onStop = onStop;
+    this.onHandoff = onHandoff;
     this.retry = retry;
     this.socket = null;
     this.linked = false;
@@ -132,6 +137,13 @@ export class TerminalLink {
     this.pending = new Map(); // approval id → resolve
     this.hello = null; // () => the workspace as the daemon should first see it
     this.build = null; // set by whoever owns the agent; see Workspace.open()
+    this.claimed = null; // the saved conversation this session continues, so the phone's copy of it can be closed
+  }
+
+  /** This session now continues the conversation saved in `file`. */
+  claim(file) {
+    this.claimed = typeof file === 'string' ? file : null;
+    if (this.claimed) writeLine(this.socket, { t: 'claim', file: this.claimed });
   }
 
   /** Looks for a daemon now and keeps looking, quietly, for as long as the terminal is open. */
@@ -153,7 +165,7 @@ export class TerminalLink {
     socket.once('connect', () => {
       this.socket = socket;
       this.linked = true;
-      writeLine(socket, { t: 'hello', key, ws: this.hello() });
+      writeLine(socket, { t: 'hello', key, ws: this.hello(), ...(this.claimed ? { claim: this.claimed } : {}) });
       // What was waiting for an answer when the daemon came back is asked again.
       for (const { approval } of this.pending.values()) writeLine(socket, { t: 'ask', approval });
     });
@@ -161,6 +173,11 @@ export class TerminalLink {
       if (message.t === 'message') this.onMessage({ text: typeof message.text === 'string' ? message.text : '', images: Array.isArray(message.images) ? message.images : [] });
       else if (message.t === 'stop') this.onStop();
       else if (message.t === 'answer') this.#answered(message.id, message.answer);
+      else if (message.t === 'handoff') {
+        // Still at work on the phone: that copy keeps the conversation, and this session must not claim it again later.
+        if (message.busy) this.claimed = null;
+        this.onHandoff({ name: String(message.name ?? ''), busy: Boolean(message.busy), items: Array.isArray(message.items) ? message.items : [] });
+      }
     });
     socket.on('error', () => {});
     socket.once('close', () => {

@@ -458,6 +458,15 @@ export async function main(argv) {
   const agent = new Agent({ config, ui: mirror ? teeUi(ui, mirror.ui) : ui, permissions, provider, info, cwd });
   const session = new Session(cwd);
   agent.session = session;
+  if (port) {
+    // A conversation picked up here (-c, /resume) may still be open on the phone; the daemon closes that copy.
+    const load = session.load.bind(session);
+    session.load = (file) => {
+      const messages = load(file);
+      if (messages) port.claim(session.file);
+      return messages;
+    };
+  }
   // A one-shot run exits as soon as it has answered; there is no quiet moment to learn in.
   agent.allowReview = !print;
   if (mirror) {
@@ -623,6 +632,15 @@ export async function main(argv) {
     // A phone may be lost or borrowed: it never gets to start work that runs without asking.
     if (permissions.mode === 'auto') return port.toast('This terminal session runs without asking (--yolo), so it cannot be given tasks from the phone.');
     if (agent.busy || !term.inject({ text, images })) port.toast(`${mirror.name} is busy in the terminal. Send it again when it has finished.`);
+  };
+  port.onHandoff = ({ name, busy, items }) => {
+    if (busy) {
+      // Both copies would write the same file: this one goes on in a file of its own instead.
+      session.startNew();
+      return ui.warn(`  ${name} is still at work on your phone, so it keeps its copy of this conversation. This one is saved separately; run seeker -c again once the phone has finished to pick up its last steps.`);
+    }
+    mirror.items = items;
+    ui.notice(`  The phone's copy of this conversation was closed. It continues here, and the phone follows it as a terminal session.`);
   };
   port.start(() => ({ ...mirror.meta(), items: mirror.items }));
 

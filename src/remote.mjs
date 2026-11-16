@@ -1300,9 +1300,17 @@ export class RemoteDaemon {
         workspace = new LinkedWorkspace(socket, ws);
         this.workspaces.set(workspace.id, workspace);
         this.log(`terminal session joined: ${workspace.name}`);
-        return this.send(this.snapshot(), { snapshot: true });
+        const from = typeof message.claim === 'string' ? this.#handoff(workspace, message.claim) : null;
+        this.send(this.snapshot(), { snapshot: true });
+        return from && this.#moved(from, workspace);
       }
       if (!workspace) return socket.destroy();
+      if (message.t === 'claim' && typeof message.file === 'string') {
+        const from = this.#handoff(workspace, message.file);
+        if (!from) return;
+        this.send(this.snapshot(), { snapshot: true });
+        return this.#moved(from, workspace);
+      }
       if (message.t === 'send' && message.event && typeof message.event === 'object') {
         const event = message.event;
         // A terminal speaks for itself only.
@@ -1334,6 +1342,36 @@ export class RemoteDaemon {
       this.log(`terminal session left: ${workspace.name}`);
       if (this.running) this.send(this.snapshot(), { snapshot: true });
     });
+  }
+
+  /**
+   * A terminal session went on to continue a conversation saved in `file`. If a project opened from the phone
+   * holds that same conversation, two copies would each write over the other's file: the phone's is closed, and
+   * its transcript goes to the terminal's entry so the phone shows one conversation that carries on there.
+   * One still at work (or with instructions waiting) is left alone, and the terminal is told to keep its own copy.
+   * @returns {Workspace|null} the phone's copy that was closed
+   */
+  #handoff(linked, file) {
+    const wanted = path.resolve(file);
+    const held = [...this.workspaces.values()].find((w) => !w.linked && w.session?.file && path.resolve(w.session.file) === wanted);
+    if (!held) return null;
+    if (held.status !== 'idle' || held.receiving || this.queues.get(held.id)?.items.length) {
+      this.log(`${held.name}: still at work on the phone, so the terminal keeps a separate copy`);
+      writeLine(linked.socket, { t: 'handoff', name: held.name, busy: true });
+      return null;
+    }
+    this.workspaces.delete(held.id);
+    this.#remember();
+    linked.items = held.items.slice(-MAX_ITEMS);
+    writeLine(linked.socket, { t: 'handoff', name: held.name, items: linked.items });
+    this.log(`${held.name}: continues in a terminal session`);
+    return held;
+  }
+
+  /** Takes a phone that had the closed copy open to the terminal's entry instead. */
+  #moved(from, linked) {
+    this.send({ t: 'moved', from: from.id, to: linked.id });
+    return this.send({ t: 'toast', text: `${from.name} now continues in the terminal on your Mac.` });
   }
 
   /** Runs until stop(): keeps the command stream to the relay open, reconnecting when it drops. */
