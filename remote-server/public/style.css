@@ -2770,39 +2770,66 @@ pre {
   border-top: 1px solid var(--sk-border-subtle);
 }
 
-/* The message box, on two levels: a writing area with a row of its own, and under it the tools
-   on the left with Stop and Send on the right. One surface; nothing else is boxed. */
+/* The message box is one surface; the writing area inside it has no box of its own.
+   At rest it is a single line: + on the left, the writing area, Send (and Stop) on the right.
+   While writing, or with something in it (.open), it has two levels: the writing area on a row of
+   its own, and under it the tools on the left with the context used, Stop and Send on the right. */
 .composer-box {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
   margin: 0;
-  padding: 8px;
+  padding: 5px 6px;
   border: 1px solid var(--sk-border);
-  border-radius: 18px;
+  border-radius: 24px;
   background: var(--sk-surface);
+  transition: border-color var(--sk-motion-fast);
+}
+.composer-box.open {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 4px 6px 6px;
+  border-radius: 20px;
+  border-color: color-mix(in srgb, var(--sk-primary) 45%, var(--sk-border));
 }
 .composer-box textarea {
   display: block;
+  order: 1;
+  flex: 1;
+  min-width: 0;
   width: 100%;
-  min-height: 72px;
+  min-height: 40px;
   max-height: 176px;
-  padding: 12px 14px;
-  border: 1px solid var(--sk-border);
-  border-radius: 13px;
-  background: var(--sk-surface-elevated);
+  padding: 8px 6px;
+  border: 0;
+  background: transparent;
   outline: 0;
   resize: none;
   overflow-y: auto;
   font-size: 16px; /* below 16px iOS zooms the page on focus */
   line-height: 1.45;
-  transition: border-color var(--sk-motion-fast);
 }
-.composer-box textarea:focus {
-  border-color: color-mix(in srgb, var(--sk-primary) 55%, var(--sk-border));
+.composer-box.open textarea {
+  order: 0;
+  flex: none;
+  padding: 8px 8px 4px;
 }
 .composer-box textarea::placeholder {
   color: var(--sk-text-muted);
+}
+/* At rest the bar dissolves into the single line: + before the writing area, Stop and Send after it. */
+.composer-box:not(.open) .composer-bar {
+  display: contents;
+}
+.composer-box:not(.open) .extra {
+  display: none;
+}
+.composer-box:not(.open) #commands {
+  order: 0;
+}
+.composer-box:not(.open) .stop-btn,
+.composer-box:not(.open) .send {
+  order: 2;
 }
 .composer-bar {
   display: flex;
@@ -2813,6 +2840,13 @@ pre {
 .composer-bar .grow {
   flex: 1;
   min-width: 4px;
+}
+.composer-bar .tokens {
+  flex: none;
+  margin-right: 8px;
+  font: 11px/1.4 var(--mono);
+  color: var(--sk-text-muted);
+  white-space: nowrap;
 }
 .tool-btn {
   width: 40px;
@@ -2830,14 +2864,14 @@ pre {
 .send {
   position: relative;
   flex: none;
-  height: 34px;
+  height: 36px;
 }
-/* They look 34px tall; the finger gets 44. */
+/* They look 36px tall; the finger gets 44. */
 .stop-btn::after,
 .send::after {
   content: '';
   position: absolute;
-  inset: -5px -1px;
+  inset: -5px -4px;
 }
 .tool-btn::after {
   content: '';
@@ -2867,28 +2901,17 @@ pre {
   animation: pulse 1s ease-in-out infinite;
 }
 .send {
-  width: 44px;
+  width: 36px;
+  height: 36px;
   margin: 0;
-  border-radius: 10px;
+  border-radius: 50%;
   background: var(--sk-primary);
   color: var(--sk-on-primary);
-  padding: 7px 12px;
+  padding: 9px;
   transition: opacity var(--sk-motion-fast);
 }
 /* With little height (a phone on its side, or the keyboard up there) the writing area starts at one line. */
 @media (max-height: 480px) {
-  .composer-box textarea {
-    min-height: 46px;
-    padding-top: 10px;
-    padding-bottom: 10px;
-  }
-  .composer-box {
-    padding: 6px;
-    gap: 4px;
-  }
-  #composer .composer-foot {
-    display: none;
-  }
   .run-status {
     min-height: 24px;
     margin-bottom: 4px;
@@ -2941,14 +2964,6 @@ pre {
   background: var(--sk-primary);
   border: 2px solid var(--sk-surface-elevated);
 }
-.composer-foot {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 6px;
-  font: 11px/1.4 var(--mono);
-  color: var(--sk-text-muted);
-}
-
 /* ── images: waiting in the composer, and in a sent message ── */
 .attachments {
   display: flex;

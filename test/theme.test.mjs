@@ -53,6 +53,24 @@ test('a session keeps its title and tabs outside the part that scrolls', () => {
   assert.ok(app.includes("role: 'tablist'") && app.includes("'aria-controls': 'view'") && app.includes("view.setAttribute('role', 'tabpanel')"));
 });
 
+test('the message box is one line at rest and opens to two levels while writing', () => {
+  const html = read('index.html');
+  const css = read('style.css');
+  const app = read('app.js');
+  const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
+  // At rest only +, the writing area, Stop and Send are on the line; everything else waits for the box to open.
+  const tag = (id) => form.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
+  for (const id of ['commands', 'input', 'stop', 'send']) assert.doesNotMatch(tag(id), /\bextra\b/, `${id} stays on the single line`);
+  for (const id of ['attach', 'mention', 'tokens']) assert.match(tag(id), /class="[^"]*\bextra\b/, `${id} shows only when the box is open`);
+  assert.match(css, /\.composer-box:not\(\.open\) \.composer-bar \{\s*display: contents;/, 'at rest the tools join the writing line');
+  assert.match(css, /\.composer-box:not\(\.open\) \.extra \{\s*display: none;/);
+  assert.match(css, /\.composer-box\.open \{[^}]*flex-direction: column/, 'open, the writing area has a row of its own');
+  assert.ok(!html.includes('composer-foot') && !css.includes('composer-foot'), 'no hint line under the box');
+  // It opens for focus, typed text or an attachment, and closes only after a pause so a tap on a tool still lands.
+  assert.match(app, /document\.activeElement === input \|\| Boolean\(input\.value\) \|\| attachments\.length > 0/);
+  assert.match(app, /setTimeout\(\(\) => \$\('form'\)\.classList\.remove\('open'\), \d+\)/);
+});
+
 test('how many colours a terminal shows is read from its environment', () => {
   assert.equal(colorDepth({ TERM: 'xterm-256color', COLORTERM: 'truecolor' }), 24);
   assert.equal(colorDepth({ TERM: 'xterm-256color' }), 8);
