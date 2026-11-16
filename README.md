@@ -163,6 +163,25 @@ is a second guard, not a replacement. It does not cover a provider that runs its
 the `!commands` you type yourself. On a machine without one (Windows, or Linux without bubblewrap),
 switching it on is refused, and a config that has it on makes shell commands fail rather than run unguarded.
 
+**In a container or on another machine.** `/backend` chooses where the shell commands SEEKER starts run.
+`/backend docker:node:22` (any image) runs each one in a fresh container of that image. The project's git
+repository, or the folder itself outside one, is mounted at the same path, so the command and SEEKER's file
+tools see the same files. Nothing else of this machine is visible to it: not your home folder, your keys or
+your environment variables. With `/sandbox on` and the network not allowed, the container has no network
+either. Something installed outside the project is gone with the container; pick an image that has your
+tools. In a git worktree, whose history lives outside the folder, git does not work inside the container.
+`/backend ssh:me@build-box` runs each command on another machine, in `~/seeker/<project>-<hash>` there, or
+in a folder you name: `ssh:me@build-box:work/app`. Before every command the project is copied there with
+rsync, removing what you removed here; after it, what the command changed is copied back, and nothing here is
+ever removed by that. `node_modules`, `.venv`, `venv`, `__pycache__`, `.next`, `target` and `.DS_Store` are
+left out both ways, so the other machine keeps the packages it built for itself; change the list with
+`/config backendExclude dist,*.log` (`default` or `none`). Everything else in the project is copied,
+`.env` included, so use a machine that is yours. SEEKER logs in with your ssh key and never waits at a
+password prompt; rsync has to be on both machines. Stopping a command stops it there as well.
+Either way `/backend` checks that Docker answers or the login works before it switches; approvals are asked
+exactly as before, and `/backend local` brings the commands back. The `!commands` you type and a provider that
+runs its own tools (Claude Code) stay on this machine. `/status` shows where commands run.
+
 ## Instructions, memory and skills
 
 - `SEEKER.md` in a project — project instructions; `/init` writes one. Without it: every `AGENTS.md` from the

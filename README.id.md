@@ -116,6 +116,26 @@ menjalankan tool-nya sendiri (Claude Code) maupun `!perintah` yang kamu ketik. D
 Linux tanpa bubblewrap), menyalakannya ditolak, dan konfigurasi yang menyalakannya membuat perintah shell gagal,
 bukan jalan tanpa pengaman.
 
+**Di container atau di mesin lain.** `/backend` menentukan di mana perintah shell yang dimulai SEEKER berjalan.
+`/backend docker:node:22` (image apa saja) menjalankan setiap perintah di container baru dari image itu. Repositori git
+proyek, atau foldernya sendiri bila bukan repositori, dipasang di path yang sama, jadi perintah itu dan tool file
+SEEKER melihat file yang sama. Selain itu tidak ada isi mesin ini yang terlihat: folder home, key, maupun variabel
+lingkunganmu tidak. Dengan `/sandbox on` dan jaringan tidak diizinkan, container juga tanpa jaringan. Apa pun yang
+dipasang di luar proyek hilang bersama container-nya; pilih image yang sudah berisi tool-mu. Di git worktree, yang
+riwayatnya ada di luar folder, git tidak jalan di dalam container.
+`/backend ssh:aku@build-box` menjalankan setiap perintah di mesin lain, di `~/seeker/<proyek>-<hash>` di sana, atau di
+folder yang kamu sebut: `ssh:aku@build-box:work/app`. Sebelum setiap perintah, proyek disalin ke sana dengan rsync,
+sekaligus menghapus apa yang kamu hapus di sini; sesudahnya, apa yang diubah perintah itu disalin kembali, dan
+penyalinan balik itu tidak pernah menghapus apa pun di sini. `node_modules`, `.venv`, `venv`, `__pycache__`, `.next`,
+`target` dan `.DS_Store` tidak ikut disalin ke dua arah, jadi mesin itu menyimpan paket yang ia bangun sendiri; ubah
+daftarnya dengan `/config backendExclude dist,*.log` (`default` atau `none`). Sisa proyek ikut disalin, termasuk
+`.env`, jadi pakailah mesin milikmu sendiri. SEEKER masuk dengan ssh key-mu dan tidak pernah menunggu di prompt
+password; rsync harus ada di kedua mesin. Menghentikan perintah juga menghentikannya di sana.
+Untuk keduanya, `/backend` memeriksa dulu bahwa Docker menjawab atau login berhasil sebelum beralih; persetujuan tetap
+ditanyakan seperti biasa, dan `/backend local` mengembalikan perintah ke mesin ini. `!perintah` yang kamu ketik dan
+penyedia yang menjalankan tool-nya sendiri (Claude Code) tetap di mesin ini. `/status` menunjukkan di mana perintah
+berjalan.
+
 ### Menekan biaya sesi panjang
 
 `/context` menunjukkan apa yang mengisi percakapan, bagian demi bagian (instruksi, definisi tool, pesanmu,
