@@ -2935,6 +2935,7 @@ function slashCommands() {
     { name: '/config', about: 'settings: change one with a tap', off: busy || terminal, run: run('/config') },
     { name: '/memory', about: 'what SEEKER remembers', off: busy, run: run('/memory') },
     { name: '/goal', about: 'keep working until a goal is done', off: busy || !terminal, run: fill('/goal') },
+    { name: '/restart', about: 'restart SEEKER remote on the Mac safely', off: busy || terminal, run: run('/restart') },
     { name: '/help', about: 'commands that work from here', off: busy, run: run('/help') },
   ];
 }

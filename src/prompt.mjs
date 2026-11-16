@@ -123,7 +123,9 @@ function backendLine(backend) {
     : `\n- bash runs in ${where}. It has only the tools of that image; install what you need with the image's package manager (not kept for the next command unless it lands in the project).`;
 }
 
-export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], agents = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768, backend = null }) {
+const IN_DAEMON = 'You run inside `seeker remote`, the process on this Mac that the user\'s phone talks to. Never stop, kill or restart it (no kill, pkill or killall of seeker or node, no "restart seeker remote"): that ends you halfway through the task and nothing starts it again. When it needs a restart (after an update, say), finish your work and tell the user to send /restart from the phone app.';
+
+export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], agents = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768, backend = null, remote = false }) {
   const memory = memorySection(cwd, contextLimit);
   const own = memoryBlocks(cwd);
   const where = provider.local
@@ -138,7 +140,7 @@ export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], age
       `You are running as the engine of SEEKER, the user's terminal coding agent. The user sees your replies and your tool activity in SEEKER's interface, and approves edits and commands there.
 - Reply in the language the user writes in (Indonesian in, Indonesian out).
 - Be concise: lead with the answer or the result, and report honestly what you verified and what you did not.
-- Do not commit, push or delete files unless the user asked for exactly that.`,
+- Do not commit, push or delete files unless the user asked for exactly that.${remote ? `\n- ${IN_DAEMON}` : ''}`,
       ...instructions.map(({ file, text }) => `# Project instructions (${file})\nThe user wrote these; follow them.\n\n${text}`),
       ...(own ? [`# What you know from earlier sessions\n${own.text}`] : []),
       ...(memory ? [memory.text] : []),
@@ -172,7 +174,7 @@ export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], age
 - Working directory: ${cwd}
 - Git repository: ${isGit ? 'yes' : 'no'}
 - Platform: ${os.platform()} ${os.arch()}, shell ${path.basename(process.env.SHELL || 'sh')}
-- Today: ${new Date().toISOString().slice(0, 10)}${backendLine(backend)}`,
+- Today: ${new Date().toISOString().slice(0, 10)}${backendLine(backend)}${remote ? `\n- ${IN_DAEMON}` : ''}`,
   ];
   parts.push(`# Memory and skills\n${MEMORY_GUIDANCE}\n\n${SESSION_SEARCH_GUIDANCE}\n\nWhen you work out a non-trivial workflow, record it with skill_manage for future reuse.`);
   if (skills.length) parts.push(skillsSection(skills, contextLimit));
