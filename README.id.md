@@ -123,6 +123,8 @@ SEEKER melihat file yang sama. Selain itu tidak ada isi mesin ini yang terlihat:
 lingkunganmu tidak. Dengan `/sandbox on` dan jaringan tidak diizinkan, container juga tanpa jaringan. Apa pun yang
 dipasang di luar proyek hilang bersama container-nya; pilih image yang sudah berisi tool-mu. Di git worktree, yang
 riwayatnya ada di luar folder, git tidak jalan di dalam container.
+Folder home-mu tidak pernah dipasang, bahkan bila folder itu sendiri repositori git, begitu juga folder yang berisi
+pengaturan SEEKER: bila SEEKER dibuka di sana, `docker:` menolak berjalan.
 `/backend ssh:aku@build-box` menjalankan setiap perintah di mesin lain, di `~/seeker/<proyek>-<hash>` di sana, atau di
 folder yang kamu sebut: `ssh:aku@build-box:work/app`. Sebelum setiap perintah, proyek disalin ke sana dengan rsync,
 sekaligus menghapus apa yang kamu hapus di sini; sesudahnya, apa yang diubah perintah itu disalin kembali, dan
@@ -131,6 +133,8 @@ penyalinan balik itu tidak pernah menghapus apa pun di sini. `node_modules`, `.v
 daftarnya dengan `/config backendExclude dist,*.log` (`default` atau `none`). Sisa proyek ikut disalin, termasuk
 `.env`, jadi pakailah mesin milikmu sendiri. SEEKER masuk dengan ssh key-mu dan tidak pernah menunggu di prompt
 password; rsync harus ada di kedua mesin. Menghentikan perintah juga menghentikannya di sana.
+Dengan `/sandbox on` dan jaringan tidak diizinkan, `ssh:` menolak berjalan: batas itu tidak bisa ditegakkan di mesin
+lain.
 Untuk keduanya, `/backend` memeriksa dulu bahwa Docker menjawab atau login berhasil sebelum beralih; persetujuan tetap
 ditanyakan seperti biasa, dan `/backend local` mengembalikan perintah ke mesin ini. `!perintah` yang kamu ketik dan
 penyedia yang menjalankan tool-nya sendiri (Claude Code) tetap di mesin ini. `/status` menunjukkan di mana perintah
