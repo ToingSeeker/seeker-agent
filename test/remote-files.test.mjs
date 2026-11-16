@@ -103,7 +103,7 @@ test('files: cards replace the raw list in the timeline, and a waiting file open
   assert.match(app, /const \{ said, listed \} = splitSent\(item\.text\)/);
   assert.match(app, /sentFiles\(item, listed\)/);
   assert.match(app, /onclick: \(\) => previewWaiting\(a\)/, 'a file waiting in the composer can be checked');
-  assert.match(app, /startDownload\(state\.view\.ws, item\.id, index, f\.name, f\.file\)/, 'a sent file is fetched back from the Mac to check it');
+  assert.match(app, /startDownload\(state\.view\.ws, item\.id, index, f\.name, f\.file, f\.bytes\)/, 'a sent file is fetched back from the Mac to check it');
   const css = read('style.css');
   assert.match(css, /\.fcard\.up \.fdir \{[^}]*var\(--sk-user\)/, 'sent: cyan');
   assert.match(css, /\.fcard\.down \.fdir \{[^}]*var\(--sk-primary\)/, 'offered: orange');

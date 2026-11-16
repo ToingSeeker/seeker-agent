@@ -190,3 +190,12 @@ test('Stop and Send take turns in one place, and a long message scrolls inside t
   assert.match(app, /setProperty\('--app-h', keyboard \? `\$\{visualViewport\.height\}px` : ''\)/);
   assert.match(css, /\.keyboard \.composer-box textarea \{\s*max-height: max\(64px, min\(176px, calc\(var\(--app-h, 100dvh\) \* 0\.24\)\)\);/);
 });
+
+test('a picture under a message the user sent opens when tapped', () => {
+  const app = read('app.js');
+  // The user's pictures are named by their message, so the Mac can send the one kept in its inbox.
+  assert.ok(app.includes("pictures(item.images, '', { ws: state.view.ws, item: item.id, user: true })"));
+  // One sent before the Mac kept them still opens, as the small preview there is, and says so.
+  assert.match(app, /from\.user && shown\.tagName === 'IMG' \? \(\) => showPreviewOnly\(i\)/);
+  assert.match(app, /function showPreviewOnly\(image\) \{[\s\S]{0,400}Only a small preview of this picture was kept/);
+});
