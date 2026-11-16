@@ -129,7 +129,7 @@ export class Agent {
     this.skills = loadSkills(this.cwd, this.config.skillDirs, { bundled: this.config.bundledSkills !== false });
     // Helpers with a role of their own (src/agents.mjs). A helper has none: it cannot start another.
     this.agents = this.config.agents === false ? [] : loadAgents(this.cwd);
-    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, agents: this.agents, provider, contextLimit: this.contextLimit(), backend: this.#backend() });
+    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, agents: this.agents, provider, contextLimit: this.contextLimit(), backend: this.#backend(), remote: Boolean(this.permissions?.daemonPid) });
     this.system = prompt;
     this.instructionFiles = instructionFiles;
     this.hints = new SubdirectoryHints(this.cwd, contextFiles);

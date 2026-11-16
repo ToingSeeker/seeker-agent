@@ -1211,8 +1211,9 @@ test('remote: a conversation from the phone continued in a terminal moves there,
   await until(() => !me.state.workspaces.has(id));
   const moved = me.state.workspaces.get(mirror.id);
   assert.ok(moved.items.some((i) => i.kind === 'user' && i.text === 'write a'), 'the phone shows the whole conversation under the terminal entry');
-  assert.ok(me.state.events.some((e) => e.t === 'moved' && e.from === id && e.to === mirror.id));
-  assert.ok(me.state.replies.some((r) => r.t === 'toast' && /continues in the terminal/.test(r.text)));
+  // Sent right after the snapshot that drops the phone's copy: waited for, not assumed to have arrived with it.
+  await until(() => me.state.events.some((e) => e.t === 'moved' && e.from === id && e.to === mirror.id));
+  await until(() => me.state.replies.some((r) => r.t === 'toast' && /continues in the terminal/.test(r.text)));
 });
 
 test('remote: tools a provider runs side by side are approved one at a time, and a stop leaves none behind', async (t) => {

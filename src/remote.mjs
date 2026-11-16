@@ -8,7 +8,7 @@
 // just the hash of an access token and cannot read or forge anything.
 // Edits and commands still need approval, which is asked for on the phone.
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -493,7 +493,8 @@ export class Workspace {
       // A skill with a list to choose from is answered with that list: the phone shows it to tick.
       const choose = (list) => this.ui.choose(list);
       const settings = (items) => this.ui.settings(items);
-      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose, settings });
+      const restart = this.daemon.restart ? () => this.daemon.restart(this) : null;
+      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose, settings, restart });
     } catch (err) {
       this.ui.warn(`  ${err.message}`);
     } finally {
@@ -643,6 +644,41 @@ function projectFolders() {
   }
 }
 
+/**
+ * Starts the `seeker remote` that replaces this one. The code as it is now on disk (after a pull, say) is
+ * checked first: if it does not load, nothing is restarted and the phone keeps the one that works. The new
+ * process runs on its own, outside this one's process group, so stopping this one does not stop it; it
+ * waits for this one to be gone before it takes the relay and the terminal link (SEEKER_REPLACES).
+ * @returns {number} its process id
+ */
+export function respawnDaemon({ argv = process.argv, env = process.env, pid = process.pid } = {}) {
+  const [node, script, ...args] = argv;
+  const check = spawnSync(node, [script, '--version'], { encoding: 'utf8', timeout: 30_000 });
+  if (check.status !== 0) {
+    const lines = String(check.stderr || check.stdout || check.error?.message || `exit ${check.status}`).trim().split('\n').map((l) => l.trim()).filter(Boolean);
+    const why = lines.find((l) => /^\w*Error\b/.test(l)) ?? lines.at(-1) ?? `exit ${check.status}`;
+    throw new Error(`The new version does not start, so the running one was kept: ${why.slice(0, 300)}`);
+  }
+  const child = spawn(node, [script, ...args], { detached: true, stdio: ['ignore', 'inherit', 'inherit'], env: { ...env, SEEKER_REPLACES: String(pid) } });
+  child.on('error', () => {});
+  child.unref();
+  return child.pid;
+}
+
+/** Waits until process `pid` has ended. False if it is still there after `ms`. */
+export async function processGone(pid, ms = 30_000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if (err.code === 'ESRCH') return true;
+    }
+    if (Date.now() >= end) return false;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 export class RemoteDaemon {
   /**
    * @param {object} opts
@@ -651,7 +687,10 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, respawn = respawnDaemon }) {
+    this.respawn = respawn; // starts the process that replaces this one; see restart()
+    this.quit = null; // how this process ends itself (set by whoever started it); without one, restart() only stops the daemon
+    this.restarting = false;
     this.inbox = inbox; // where files sent from the phone are saved
     // Instructions waiting for a project's current task to end: workspace id → { cwd, items, paused }.
     // Kept on disk, so they outlive this process; what was waiting when it last ended comes back paused.
@@ -1392,6 +1431,24 @@ export class RemoteDaemon {
   #moved(from, linked) {
     this.send({ t: 'moved', from: from.id, to: linked.id });
     return this.send({ t: 'toast', text: `${from.name} now continues in the terminal on your Mac.` });
+  }
+
+  /**
+   * /restart from the phone. A new `seeker remote` is started on its own, and this one then stops cleanly:
+   * an agent asked to restart it with a shell command would kill itself and the command with it.
+   * Refused while another project is working, so no task is cut off halfway.
+   * @param {Workspace} from  the project the command was sent in
+   */
+  async restart(from) {
+    if (this.restarting) throw new Error('SEEKER remote is restarting already.');
+    const busy = [...this.workspaces.values()].find((w) => !w.linked && w !== from && (w.status !== 'idle' || w.receiving));
+    if (busy) throw new Error(`${busy.name} is still working. Let it finish or stop it, then send /restart again.`);
+    const pid = this.respawn();
+    this.restarting = true;
+    this.log(`restarting: seeker remote ${pid} takes over once this one has stopped`);
+    // A moment for the answer to reach the phone before the connection goes.
+    setTimeout(() => (this.quit ? this.quit() : this.stop()), 1500).unref?.();
+    return pid;
   }
 
   /** Runs until stop(): keeps the command stream to the relay open, reconnecting when it drops. */

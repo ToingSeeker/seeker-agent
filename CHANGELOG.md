@@ -4,6 +4,13 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **`/restart` restarts SEEKER remote safely from the phone.** It checks that the code on disk loads, starts
+  a new `seeker remote` as a process of its own that waits for the old one to stop, and then stops the old
+  one; the app reconnects by itself. Asking the agent to restart it with a shell command used to kill the
+  agent and that command with it, leaving the Mac offline. An agent inside `seeker remote` is now told so,
+  and a command that would stop it (kill, pkill or killall of seeker remote, of its process id, or of every
+  node or seeker process) is refused in every approval mode, Claude Code's own Bash included.
+
 - **Bundled skills open without a YAML error on GitHub.** 22 skills had a description with a colon followed by
   a space, which strict YAML readers take as a second key; GitHub showed "Error in user YAML" above them. They
   are quoted now, SEEKER reads quoted values as YAML does (`''` and `\"` included), and a test keeps it so.

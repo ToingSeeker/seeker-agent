@@ -4,7 +4,7 @@ import { Agent } from './agent.mjs';
 import { isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
 import { Picker } from './picker.mjs';
 import { OUTPUT_FORMATS, attachJson } from './json-output.mjs';
-import { RemoteDaemon, Workspace, remoteCredentials, stayAwake } from './remote.mjs';
+import { RemoteDaemon, Workspace, processGone, remoteCredentials, stayAwake } from './remote.mjs';
 import { saveImages, startsWithFile } from './images.mjs';
 import { TerminalLink, teeUi, terminalId } from './link.mjs';
 import { VERSION, loadConfig, normalizeHost, saveConfig } from './config.mjs';
@@ -408,12 +408,22 @@ export async function main(argv) {
 
   if (remote) {
     const log = (line) => console.error(`${new Date().toTimeString().slice(0, 8)}  ${line}`);
+    // Started by /restart: the one it replaces is still stopping, and holds the relay and the terminal link until it has.
+    const replaces = Number(process.env.SEEKER_REPLACES);
+    delete process.env.SEEKER_REPLACES;
+    if (replaces) {
+      log(`restarting: waiting for seeker remote ${replaces} to stop`);
+      if (!(await processGone(replaces))) {
+        log(`seeker remote ${replaces} did not stop, so this one does not start`);
+        process.exit(1);
+      }
+    }
     const hub = new McpHub({ servers: readServers(config, cwd) });
     await hub.connectAll();
     // One agent per project folder. Approval follows the setting, which the phone can change too;
     // risky commands and files outside the folder are asked about either way.
     const build = async (folder, remoteUi, asker, current) => {
-      const agent = new Agent({ config, ui: remoteUi, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker, autoLearn: config.autoLearn }), provider: createProvider(config.provider, config), info: current, cwd: folder });
+      const agent = new Agent({ config, ui: remoteUi, permissions: new Permissions({ mode: config.permissionMode, cwd: folder, ask: asker, autoLearn: config.autoLearn, daemonPid: process.pid }), provider: createProvider(config.provider, config), info: current, cwd: folder });
       agent.setExtraTools(hub.tools());
       agent.session = new Session(folder);
       return { agent, session: agent.session };
@@ -428,6 +438,7 @@ export async function main(argv) {
       await hub.closeAll();
       process.exit(0);
     };
+    daemon.quit = quit;
     process.on('SIGINT', quit);
     process.on('SIGTERM', quit);
     stayAwake();

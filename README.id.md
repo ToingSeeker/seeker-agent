@@ -322,6 +322,12 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
 ### Setelah terpasang
 
 - **HP baru:** jalankan `seeker remote --setup` lagi dan buka link-nya di HP itu.
+- **Me-restart-nya (setelah update):** kirim `/restart` dari sebuah proyek di aplikasi. Kode barunya dicek
+  dulu (kalau tidak bisa dimuat, yang sedang jalan dipertahankan dan aplikasi memberi tahu alasannya), lalu
+  `seeker remote` baru dinyalakan sebagai proses sendiri, dan yang lama berhenti sesudahnya; aplikasi
+  tersambung lagi dengan sendirinya. Ditunda kalau proyek lain masih bekerja. Jangan menyuruh agen me-restart
+  lewat perintah: agen berjalan di dalam `seeker remote`, jadi ia akan mematikan dirinya sendiri beserta
+  perintahnya. Perintah seperti itu ditolak, apa pun mode persetujuannya.
 - **HP hilang, atau link bocor:** hapus `"secret"` di bawah `"remote"` pada `~/.seeker/config.json`, jalankan
   `seeker remote --setup`, pasang `SEEKER_REMOTE_AUTH` yang baru di relay, lalu pasangkan ulang HP-mu. Link lama
   berhenti berfungsi begitu relay memakai nilai baru.

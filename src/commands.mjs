@@ -737,6 +737,9 @@ export async function runCommand(input, ctx) {
       return;
     }
 
+    case 'restart':
+      return ui.notice('  /restart restarts `seeker remote` and is sent from the phone app. To restart it here, press Ctrl+C where it runs and start it again.');
+
     default: {
       const skill = agent.skills.find((s) => s.name === name.toLowerCase());
       if (skill) import('./skill-manage.mjs').then((m) => m.recordUse(skill.name), () => {});
@@ -790,6 +793,7 @@ export const PHONE_COMMANDS = [
   ['/goal', 'Set a goal SEEKER keeps working on until it is done'],
   ['/loop', 'Re-run a prompt: /loop 5m check the deploy'],
   ['/heartbeat', 'Re-enter this session when idle: /heartbeat every 10m <instruction>'],
+  ['/restart', 'Restart SEEKER remote on the Mac safely (after an update)'],
   ['/help', 'Show the commands that work from the phone'],
 ];
 
@@ -802,7 +806,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator', 'restart']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).
@@ -836,6 +840,11 @@ export async function runPhoneCommand(input, ctx) {
     return;
   }
   if (PHONE_ELSEWHERE[name]) return ui.notice(`  ${PHONE_ELSEWHERE[name]}`);
+  if (name === 'restart') {
+    if (!ctx.restart) return ui.warn('  /restart is sent from a project opened on the phone; this conversation runs in a terminal on your Mac.');
+    await ctx.restart(); // says why not when it cannot, e.g. another project is still working
+    return ui.notice('  Restarting SEEKER remote on your Mac. The app reconnects by itself in a few seconds, and terminal sessions join again.');
+  }
   if (PHONE_SETTINGS.has(name)) {
     if (name === 'ctx' && !arg) return runCommand('/status', { ...ctx, term: null });
     if (ctx.terminal) return ui.warn(`  This conversation runs in a terminal on your Mac; /${name} is changed there.`);

@@ -118,13 +118,30 @@ export const PLANNING = 'Not run: plan mode is on, so nothing is changed or exec
 /** What the model is told with each message while plan mode is on. */
 export const PLAN_NOTE = '[Plan mode is on. Look at what you need with the read-only tools, then answer with a plan: the steps in order, the files each one touches, and how the result will be checked. Do not change files or run commands that change anything; those are refused until the user approves the plan.]';
 
+/**
+ * True when `command` would stop the `seeker remote` process with process id `pid`: killing it by name or
+ * number, or killing every node or seeker process. An agent there runs inside that process.
+ */
+export function stopsDaemon(command, pid) {
+  const text = String(command ?? '');
+  if (!/\b(kill|pkill|killall|launchctl|systemctl)\b/.test(text)) return false;
+  if (/seeker\S*[^\n;&|]*\bremote\b/i.test(text)) return true;
+  if (pid && new RegExp(`(^|[^\\w])${pid}([^\\w]|$)`).test(text)) return true;
+  return /\b(pkill|killall)\b[^\n;&|]*\b(seeker|node)\b/i.test(text);
+}
+
+const STOPS_DAEMON =
+  'Refused: this would stop `seeker remote`, the process this agent runs in. It would end this task halfway, and nothing would start it again. Do not try another way. Tell the user to send /restart from the phone app, which restarts it safely, or to restart it on the Mac.';
+
 export class Permissions {
   /**
    * @param {{ mode: 'ask'|'auto', cwd: string, ask: null | ((q: object) => Promise<string|null>) }} opts
    *        `ask` is null when nobody is there to answer (print mode).
    */
-  constructor({ mode, cwd, ask, autoLearn = false }) {
+  constructor({ mode, cwd, ask, autoLearn = false, daemonPid = null }) {
     this.mode = mode;
+    // Set when this agent runs inside `seeker remote`: a command that would stop that process is refused, whatever the mode.
+    this.daemonPid = daemonPid;
     // Whether memory and skills may be saved without asking (config `autoLearn`).
     this.autoLearn = autoLearn;
     this.cwd = cwd;
@@ -161,6 +178,7 @@ export class Permissions {
   /** @returns {Promise<{ ok: true } | { ok: false, reason: string }>} */
   async check(tool, args) {
     if (tool.risk === 'read') return { ok: true };
+    if (tool.risk === 'exec' && this.daemonPid && stopsDaemon(args?.command, this.daemonPid)) return { ok: false, reason: STOPS_DAEMON };
     const refusal = this.planning ? PLANNING : this.lookOnly;
     if (refusal) {
       // Looking around is part of planning: the short list of commands that only read still runs.

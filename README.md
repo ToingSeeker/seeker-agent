@@ -657,6 +657,11 @@ running, the terminal works exactly as before.
 ### Later
 
 - **New phone:** run `seeker remote --setup` again and open the link on it.
+- **Restarting it (after an update):** send `/restart` from a project in the app. The new code is checked
+  first (if it does not load, the running one is kept and the app says why), a new `seeker remote` starts on
+  its own, and the old one stops once it has; the app reconnects by itself. It waits while another project is
+  still working. Do not ask the agent to restart it with a command: the agent runs inside `seeker remote`, so
+  it would end itself and the command with it. Such a command is refused, whatever the approval mode.
 - **Lost phone, or the link leaked:** delete `"secret"` under `"remote"` in `~/.seeker/config.json`, run
   `seeker remote --setup`, put the new `SEEKER_REMOTE_AUTH` on the relay, and pair your phones again. The old
   link stops working as soon as the relay has the new value.
