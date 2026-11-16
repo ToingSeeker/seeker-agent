@@ -229,11 +229,19 @@ code {
 }
 
 /* ── brand header ── */
+/* It stays at the top of the scrolling view, so the logo and the switcher never scroll away.
+   It reaches over the view's padding (14px top, 16px sides) and carries the page colour, so
+   what scrolls beneath it is hidden. */
 .brand {
+  position: sticky;
+  top: -14px;
+  z-index: 10;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 4px 0 14px;
+  margin: -14px -16px 0;
+  padding: 18px 16px 14px;
+  background: var(--sk-bg);
 }
 .brand .mark {
   width: 34px;
