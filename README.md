@@ -671,6 +671,12 @@ running, the terminal works exactly as before.
   computer to the phone's push service with Web Push encryption (`src/webpush.mjs`); the relay is not
   involved. Turn them on in the app's Settings. On iPhone the app must first be added with
   Share → Add to Home Screen.
+- App lock (Settings → App lock): Face ID, with a 6-digit PIN as the backup, asked for when the app opens
+  or has gone unused for 1, 5, 15 or 60 minutes. It lives on the phone only: the PIN is kept as a salted
+  PBKDF2 hash, Face ID is a passkey for this site that must report the user as verified. After five wrong
+  PINs each try waits longer (30 s, doubling, up to 15 min). A forgotten PIN means pairing again. The lock
+  hides the screens; it does not encrypt what the app keeps on the phone, and push notifications still show
+  their text on the lock screen.
 
 Developed on macOS. The pairing-link copy and the keep-awake helper are macOS-only; everything else is
 plain Node.
