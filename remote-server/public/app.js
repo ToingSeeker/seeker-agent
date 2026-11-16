@@ -39,6 +39,8 @@ const svg = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const ICONS = {
   // The robot of the terminal header, on the same 11×8 pixel grid (src/mascot.mjs).
   logo: `<svg class="robot" viewBox="0 -1.5 11 11" shape-rendering="crispEdges" aria-hidden="true"><path class="o" d="M3 0h1v1H3zM7 0h1v1H7zM3 7h2v1H3zM6 7h2v1H6z"/><path class="c" d="M2 1h7v1H2zM1 2h1v2H1zM9 2h1v2H9zM2 4h7v1H2zM3 5h5v1H3zM3 6h2v1H3zM6 6h2v1H6z"/><path class="b" d="M.5 2H1v2H.5zM10 2h.5v2H10zM2 6h1v1H2zM8 6h1v1H8z"/><path class="k" d="M2 2h7v2H2z"/><path class="y" d="M5 6h1v1H5z"/><g class="face" shape-rendering="geometricPrecision"><path class="eye open" d="M4.2 2.5l.6.5-.6.5M6.8 2.5l-.6.5.6.5"/><path class="eye shut" d="M4.15 3h.7M6.15 3h.7"/><path class="cur" d="M5.15 3.4h.7v.25h-.7z"/></g></svg>`,
+  // The user, drawn on the robot's grid: brown hair, a cyan top, blinking and nodding on its own beat.
+  you: `<svg class="human" viewBox="0 -1.5 11 11" shape-rendering="crispEdges" aria-hidden="true"><path class="s" d="M4 6h3v1H4z"/><path class="c" d="M2 7h7v1H2z"/><g class="head"><path class="h" d="M3 0h5v1H3zM2 1h7v1H2zM2 2h1v1H2zM8 2h1v1H8z"/><path class="s" d="M3 2h5v1H3zM2 3h7v2H2zM3 5h5v1H3z"/><path class="m" d="M5 5h1v1H5z"/><path class="e open" d="M4 3h1v1H4zM6 3h1v1H6z"/><path class="e shut" d="M4 3.45h1v.35H4zM6 3.45h1v.35H6z"/></g></svg>`,
   laptop: svg('<rect x="4" y="5" width="16" height="11" rx="1.5"/><path d="M2 19h20"/>'),
   chevron: svg('<path d="M9 6l6 6-6 6"/>'),
   back: svg('<path d="M15 6l-6 6 6 6"/>'),
@@ -1702,7 +1704,8 @@ function entryOf(item) {
     );
   }
   if (item.kind === 'user') {
-    return h('li', { class: 'ev user' }, h('span', { class: 'node' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), h('div', { class: 'said' }, item.text), pictures(item.images)));
+    // Its node is the pixel person, moving with the robot's animation setting.
+    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), h('div', { class: 'said' }, item.text), pictures(item.images)));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
