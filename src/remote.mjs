@@ -453,11 +453,6 @@ export class Workspace {
     }
   }
 
-  /**
-   * @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message
-   * @param {{ references?: boolean, echo?: boolean }} [opts]  `references` false for a prompt nobody typed (a loop, a goal
-   *   step): its @ references stay text. `echo` false when what the user typed is already in the transcript (a /skill).
-   */
   /** Saves a picture from the phone in the inbox: `{ file }` where it is, or nothing if it could not be kept. */
   #keep(image) {
     const dir = this.daemon?.inbox;
@@ -470,6 +465,11 @@ export class Workspace {
     }
   }
 
+  /**
+   * @param {ReturnType<typeof receivedImages>} images  pictures the phone sent with the message
+   * @param {{ references?: boolean, echo?: boolean }} [opts]  `references` false for a prompt nobody typed (a loop, a goal
+   *   step): its @ references stay text. `echo` false when what the user typed is already in the transcript (a /skill).
+   */
   async run(text, images = [], { references = true, echo = true, via = null } = {}) {
     if (this.status !== 'idle') return;
     const started = Date.now();
