@@ -88,3 +88,13 @@ test('lock: the app hides everything behind the lock and asks Face ID to verify 
   assert.match(app, /userVerified\(cred\.response\.authenticatorData\)/);
   assert.match(app, /if \(secret\) \{\s*state\.secret = secret;\s*checkLock\(\);\s*await pair\(secret\);/, 'locked before the first event from the Mac is drawn');
 });
+
+test('lock: quick taps on the keypad do not zoom the app on iOS', () => {
+  const css = read('style.css');
+  const all = css.match(/^\* \{[^}]*\}/m)?.[0] ?? '';
+  assert.match(all, /touch-action:\s*manipulation/, 'double-tap zoom is off for every element');
+  const key = css.match(/^\.pin-key \{[^}]*\}/m)?.[0] ?? '';
+  assert.match(key, /touch-action:\s*manipulation/);
+  assert.match(key, /user-select:\s*none/);
+  assert.doesNotMatch(read('index.html'), /user-scalable=no|maximum-scale/, 'pinch zoom stays available');
+});
