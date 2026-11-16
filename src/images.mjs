@@ -4,7 +4,7 @@
 // They get there in two ways: the user names an image file in a message, or
 // the model reads one with read_file. Each provider adapter turns them into
 // its own wire format; the helpers here are what they share.
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -106,6 +106,38 @@ export function previewOf(image, { run = spawnSync, platform = process.platform 
   }
   return image.data.length <= MAX_PREVIEW_CHARS ? { mime: image.mime, data: image.data } : null;
 }
+
+// The picture on a file card: small, since an answer can offer six files and each stays in the snapshot.
+export const CARD_THUMB_SIDE = 160;
+export const MAX_CARD_THUMB_CHARS = 16_000;
+
+/**
+ * A small JPEG of the first page of a PDF, a frame of a video or a picture, for its card on the phone.
+ * Made by Quick Look (`qlmanage`) and `sips` on macOS, so nothing here decodes the file; elsewhere,
+ * or when Quick Look has nothing, null and the phone draws the kind of file instead.
+ * @returns {Promise<string | null>}  base64 JPEG
+ */
+export async function cardThumb(file, { run = execFileAsync, platform = process.platform } = {}) {
+  if (platform !== 'darwin') return null;
+  let folder = null;
+  try {
+    folder = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-card-'));
+    await run('qlmanage', ['-t', '-s', String(CARD_THUMB_SIDE * 2), '-o', folder, file], { timeout: 10_000 });
+    const made = fs.readdirSync(folder).find((name) => name.endsWith('.png'));
+    if (!made) return null;
+    const out = path.join(folder, 'card.jpg');
+    await run('sips', ['-Z', String(CARD_THUMB_SIDE), '-s', 'format', 'jpeg', '-s', 'formatOptions', '60', path.join(folder, made), '--out', out], { timeout: 10_000 });
+    const data = fs.readFileSync(out).toString('base64');
+    return data.length <= MAX_CARD_THUMB_CHARS && imageType(Buffer.from(data.slice(0, 24), 'base64')) === 'image/jpeg' ? data : null;
+  } catch {
+    return null;
+  } finally {
+    if (folder) fs.rmSync(folder, { recursive: true, force: true });
+  }
+}
+
+const execFileAsync = (cmd, args, options) =>
+  new Promise((resolve, reject) => execFile(cmd, args, options, (err, stdout) => (err ? reject(err) : resolve(stdout))));
 
 // A whole picture sent to the phone when asked for. Sealed and base64-encoded twice it grows about 1.8x,
 // and the relay takes at most 4 MiB in one request.

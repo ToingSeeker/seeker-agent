@@ -12,8 +12,8 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, 
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
-import { fileKind, folderOf, listZip, previewKind, splitName, splitSent } from './files.js';
-import { clearKept, keep, kept, keptSize } from './keep.js';
+import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
+import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, makePin, readLock, sameId, userVerified, writeLock } from './lock.js';
 
 const $ = (id) => document.getElementById(id);
@@ -67,6 +67,9 @@ const ICONS = {
   list: svg('<path d="M8 7h12M8 12h12M8 17h12"/><circle cx="4" cy="7" r="0.6"/><circle cx="4" cy="12" r="0.6"/><circle cx="4" cy="17" r="0.6"/>'),
   download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
   upload: svg('<path d="M12 20V9M7 14l5-5 5 5M5 4h14"/>'),
+  share: svg('<path d="M12 15V4M8 8l4-4 4 4"/><path d="M7 11H6a1 1 0 00-1 1v7a1 1 0 001 1h12a1 1 0 001-1v-7a1 1 0 00-1-1h-1"/>'),
+  retry: svg('<path d="M4 12a8 8 0 0113.7-5.6L20 8.5"/><path d="M20 4v4.5h-4.5"/><path d="M20 12a8 8 0 01-13.7 5.6L4 15.5"/><path d="M4 20v-4.5h4.5"/>'),
+  wave: svg('<path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/>'),
   film: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M10 9.5v5l4-2.5z"/>'),
   image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>'),
   camera: svg('<path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/><circle cx="12" cy="12.8" r="3.4"/>'),
@@ -445,6 +448,8 @@ function signOut(message = '') {
   localStorage.removeItem('seeker.secret');
   clearKept(); // files from the Mac kept here go with the pairing
   state.keptInfo = undefined;
+  keptPaths = null;
+  transfers.clear();
   Object.assign(state, { secret: null, token: null, key: null, since: 0, linked: false, online: false, device: null, workspaces: new Map(), approvals: [], error: message, view: { name: 'home' }, latency: null, lastEntryAt: null });
   render();
 }
@@ -534,12 +539,17 @@ let liveSheet = null; // { title, build, signature } — a sheet whose content f
 let sheetOpener = null; // the id of what opened the sheet: focus goes back there when it closes
 let sheetPressed = false; // a finger is down on the sheet: its rows are not moved under it
 let sheetFromLive = false; // sheet() is being called to redraw the live sheet, not to open another
+let sheetKeeps = null; // a video the sheet being drawn carries over from the one it replaces: it plays on
 
+/** A bottom sheet. `title` is its heading, or { label, head } for a sheet that draws its own heading. */
 function sheet(title, ...content) {
   const el = $('sheet');
   if (el.hidden) sheetOpener = document.activeElement?.id || null;
   if (!sheetFromLive) liveSheet = null; // another sheet takes the place of a live one
-  const panel = h('div', { class: 'panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, tabindex: '-1', onclick: (e) => e.stopPropagation() }, h('div', { class: 'grip' }), h('h3', {}, title), ...content);
+  const own = title && typeof title === 'object';
+  // A video or sound in the sheet being replaced stops; it would play on unseen otherwise.
+  for (const media of el.querySelectorAll('video, audio')) if (media !== sheetKeeps) media.pause();
+  const panel = h('div', { class: 'panel', role: 'dialog', 'aria-modal': 'true', 'aria-label': own ? title.label : title, tabindex: '-1', onclick: (e) => e.stopPropagation() }, h('div', { class: 'grip' }), own ? title.head : h('h3', {}, title), ...content);
   // Pulled down from its top, the sheet goes away.
   let from = null;
   panel.addEventListener('touchstart', (e) => ((sheetPressed = true), (from = panel.scrollTop <= 0 ? e.touches[0].clientY : null)), { passive: true });
@@ -561,6 +571,7 @@ function sheet(title, ...content) {
 }
 const closeSheet = () => {
   const wasOpen = !$('sheet').hidden;
+  for (const media of $('sheet').querySelectorAll('video, audio')) media.pause();
   $('sheet').hidden = true;
   state.picking = false;
   liveSheet = null;
@@ -1591,21 +1602,106 @@ function pictures(images, size = '', from = null) {
   return shots.length ? h('div', { class: `shots${size ? ` ${size}` : ''}` }, shots) : null;
 }
 
-// ── a whole picture from the Mac ──────────────────────────────────────────
-// The Mac uploads it beside the event log (it is too large for it) and says so with a 'file' event.
-const fetching = new Map(); // req → { name, timer }
-let pictureUrl = null; // the object URL of the picture on screen, freed when another opens
+// ── files from the Mac: one record per file, shared by its cards, its preview and Settings ──
+// A file is known by its path on the Mac, which only the Mac's own messages give: the phone never
+// asks for a path, only for "file N of answer X" (download) or "picture N of step X" (file), and the
+// Mac checks that the file is one this transcript showed. The path is just the key it is kept under.
+const transfers = new Map(); // path → { state: 'downloading' | 'failed' | 'unavailable', got, total, error, cancelled, promise }
+let keptPaths = null; // path → bytes of every file kept on this phone; null until read
+let askedPersist = false;
 
-async function openPicture(ws, item, index, name, path = null) {
-  // Fetched once already: it is kept on this phone, and opens without asking the Mac.
-  const hit = await kept(path);
-  if (hit) return showPicture(hit.file, { smaller: hit.smaller, kept: true });
-  const req = crypto.randomUUID().replace(/-/g, '');
-  for (const [key, wait] of fetching) clearTimeout(wait.timer), fetching.delete(key);
-  const timer = setTimeout(() => fetching.delete(req) && (closeSheet(), toast('Your Mac did not send the picture. Try again.')), 60_000);
-  fetching.set(req, { name, timer, path });
-  sheet(name, h('div', { class: 'viewer-wait muted' }, 'Fetching the picture from your Mac…'));
-  command('file', { ws, item, index, req }).then((sent) => sent || (clearTimeout(timer), fetching.delete(req), closeSheet()));
+/** Reads what is kept on this phone once, then redraws any card that changes because of it. */
+function loadKept() {
+  if (keptPaths) return;
+  keptPaths = new Map();
+  keptList().then((list) => {
+    keptPaths = new Map(list.map((e) => [e.path, e.bytes]));
+    refreshFile(null);
+  });
+}
+
+/** Kept here, and (when its size is known) the same size as the file on the Mac. */
+const isKept = (where, bytes = null) => !!where && !!keptPaths?.has(where) && (!Number.isFinite(bytes) || keptPaths.get(where) === bytes);
+
+const fileUpdaters = new Set(); // what redraws the cards and the open preview of a file when its state moves
+
+/** Something about the file at `where` moved (null: about every file): its cards and preview catch up. */
+function refreshFile(where) {
+  for (const update of [...fileUpdaters]) update(where);
+}
+
+/** A card that redraws itself in place while it is on screen. */
+function liveCard(where, build) {
+  let el = build();
+  const update = (changed) => {
+    if (!el.isConnected) return fileUpdaters.delete(update);
+    if (changed != null && changed !== where) return;
+    const next = build();
+    el.replaceWith(next);
+    el = next;
+  };
+  fileUpdaters.add(update);
+  return el;
+}
+
+const NO_LONGER_THERE = /no longer (on|be)/i;
+
+/**
+ * Fetches a file from the Mac and keeps it here. `src` is { kind: 'download' | 'picture', ws, item,
+ * index, name, where, bytes }. One fetch per file at a time: asking again joins the one under way.
+ * Resolves with { file, smaller, saved, reason }.
+ */
+function fetchFile(src) {
+  const busy = transfers.get(src.where);
+  if (busy?.state === 'downloading') return busy.promise;
+  const record = { state: 'downloading', got: 0, total: Number.isFinite(src.bytes) ? src.bytes : null, error: null, cancelled: false };
+  const where = src.where;
+  record.promise = (async () => {
+    try {
+      const { file, smaller } = src.kind === 'picture' ? await askForPicture(src, record) : await askForFile(src, record);
+      const outcome = await keepFile(file, where, { smaller });
+      if (outcome.ok) {
+        keptPaths?.set(where, file.size);
+        state.keptInfo = undefined;
+        if (!askedPersist) (askedPersist = true), navigator.storage?.persist?.().catch(() => {});
+      }
+      transfers.delete(where);
+      refreshFile(where);
+      return { file, smaller, saved: outcome.ok, reason: outcome.reason };
+    } catch (err) {
+      record.state = record.cancelled ? 'cancelled' : NO_LONGER_THERE.test(err.message) ? 'unavailable' : 'failed';
+      record.error = record.cancelled ? 'Download cancelled.' : err.message;
+      if (record.cancelled) transfers.delete(where);
+      refreshFile(where);
+      throw err;
+    }
+  })();
+  transfers.set(where, record);
+  refreshFile(where);
+  return record.promise;
+}
+
+const fetching = new Map(); // req → { resolve, reject, timer }: a picture asked of the Mac
+const downloads = new Map(); // req → { resolve, reject, timer, record }: a file asked of the Mac
+
+/** Asks the Mac for a message's file; the answer arrives as a 'download' event (downloadArrived). */
+function askForFile(src, record) {
+  return new Promise((resolve, reject) => {
+    const req = transferId();
+    const timer = setTimeout(() => downloads.delete(req) && reject(new Error('Your Mac did not send the file. Try again.')), 60_000);
+    downloads.set(req, { resolve, reject, timer, record });
+    command('download', { ws: src.ws, item: src.item, index: src.index, req }, { quiet: true }).then((sent) => sent || (clearTimeout(timer), downloads.delete(req), reject(new Error('Mac disconnected. Retry when connected.'))));
+  });
+}
+
+/** Asks the Mac for the whole of a picture; the answer arrives as a 'file' event (pictureArrived). */
+function askForPicture(src, record) {
+  return new Promise((resolve, reject) => {
+    const req = transferId();
+    const timer = setTimeout(() => fetching.delete(req) && reject(new Error('Your Mac did not send the picture. Try again.')), 60_000);
+    fetching.set(req, { resolve, reject, timer, record });
+    command('file', { ws: src.ws, item: src.item, index: src.index, req }, { quiet: true }).then((sent) => sent || (clearTimeout(timer), fetching.delete(req), reject(new Error('Mac disconnected. Retry when connected.'))));
+  });
 }
 
 async function pictureArrived(event) {
@@ -1613,67 +1709,160 @@ async function pictureArrived(event) {
   if (!wait) return; // asked for by another phone, or replayed from the log
   clearTimeout(wait.timer);
   fetching.delete(event.req);
-  if (event.error) return closeSheet(), toast(event.error);
+  if (event.error) return wait.reject(new Error(event.error));
   try {
     const res = await fetch(`/api/blob?id=${encodeURIComponent(event.req)}`, { headers: { authorization: `Bearer ${state.token}` } });
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
     const picture = await unseal((await res.json()).c);
     if (!/^image\/(png|jpeg|gif|webp)$/.test(picture.mime)) throw new Error('That is not a picture.');
     const file = new File([fromBase64(picture.data)], picture.name, { type: picture.mime });
-    showPicture(file, event);
-    keep(file, wait.path, { smaller: !!event.smaller }).then(() => (state.keptInfo = undefined));
+    wait.record.total = file.size;
+    wait.record.got = file.size;
+    wait.resolve({ file, smaller: !!event.smaller });
   } catch (err) {
-    closeSheet();
-    toast(`Could not open the picture: ${err.message}`);
+    wait.reject(new Error(`Could not open the picture: ${err.message}`));
   }
 }
 
-/** The small preview of a picture whose whole was never kept on the Mac. */
-function showPreviewOnly(image) {
-  sheet(
-    image.name,
-    h('img', { class: 'viewer', src: `data:${image.mime};base64,${image.thumb}`, alt: image.name }),
-    h('div', { class: 'muted viewer-note' }, 'Only a small preview of this picture was kept. Pictures sent from now on open whole.'),
-  );
-}
-
-function showPicture(file, { smaller, kept: here = false }) {
-  if (pictureUrl) URL.revokeObjectURL(pictureUrl);
-  pictureUrl = URL.createObjectURL(file);
-  const url = pictureUrl;
-  const save = () => saveFile(file, url);
-  const size = fileSize(file.size);
-  sheet(
-    file.name,
-    h('img', { class: 'viewer', src: pictureUrl, alt: file.name }),
-    h('div', { class: 'muted viewer-note' }, [smaller ? `${size} · a smaller copy; the file on the Mac was too large to send whole` : size, here && 'saved on this phone'].filter(Boolean).join(' · ')),
-    h('div', { class: 'actions even' }, h('button', { type: 'button', class: 'btn', onclick: () => window.open(pictureUrl, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: save }, 'Save')),
-  );
-}
-
-// ── a whole file from the Mac (a rendered video, say) ─────────────────────
-// An answer that names a file on the Mac offers it; the Mac sends it through the relay in pieces.
-const downloads = new Map(); // req → { name, timer }
 const SHOWABLE = /^(video\/(mp4|quicktime|webm)|audio\/(mpeg|mp4|wav)|image\/(png|jpeg|gif|webp)|application\/(pdf|zip)|text\/plain)$/;
 
-function offered(files, from) {
-  if (!Array.isArray(files) || !files.length) return null;
-  return h('div', { class: 'fcards' }, files.map((f, index) => fileCard(f, 'down', `Download ${f.name}`, () => startDownload(from.ws, from.item, index, f.name, f.file, f.bytes))));
+/** The pieces of a file the Mac is sending, fetched in order; the progress is the bytes that arrived. */
+async function downloadArrived(event) {
+  const wait = downloads.get(event.req);
+  if (!wait) return; // asked for by another phone, or replayed from the log
+  clearTimeout(wait.timer);
+  downloads.delete(event.req);
+  if (event.error) return wait.reject(new Error(event.error));
+  const record = wait.record;
+  try {
+    if (!SHOWABLE.test(String(event.mime))) throw new Error('that kind of file cannot be saved here');
+    if (!Number.isInteger(event.chunks) || event.chunks < 1 || event.bytes > MAX_FILE_BYTES) throw new Error('the file is too large');
+    record.total = event.bytes;
+    const parts = [];
+    let got = 0;
+    let last = Date.now();
+    for (let n = 0; n < event.chunks; ) {
+      // Cancelled from its card or its preview: the Mac stops by itself after a while.
+      if (record.cancelled) throw new Error('Download cancelled.');
+      if (Date.now() - last > 120_000) throw new Error('your Mac stopped sending it');
+      const res = await fetch(`/api/chunk?id=${event.req}&n=${n}`, { headers: { authorization: `Bearer ${state.token}` } }).catch(() => null);
+      if (res?.status === 204) continue;
+      if (!res?.ok) {
+        await pause(1500);
+        continue;
+      }
+      const bytes = await unsealChunk(event.req, n, (await res.json()).c);
+      parts.push(bytes);
+      got += bytes.length;
+      last = Date.now();
+      n += 1;
+      record.got = got;
+      refreshFile(null);
+    }
+    if (got !== event.bytes) throw new Error('it did not arrive whole');
+    wait.resolve({ file: new File(parts, event.name, { type: event.mime }), smaller: false });
+  } catch (err) {
+    wait.reject(err);
+  }
 }
 
-// ── file cards: one sent from this phone (↑), or one an answer offers (↓) ──
-/** A card for a file: a badge for its kind, the name cut in the middle so the extension stays, size · folder. */
-function fileCard(f, dir, label, onclick) {
-  const kind = fileKind(f.name);
-  const { stem, ext } = splitName(f.name);
-  const meta = [Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size, folderOf(f.file)].filter(Boolean).join(' · ');
-  return h(
-    'button',
-    { type: 'button', class: `fcard ${dir}`, 'aria-label': label, onclick },
-    h('span', { class: `fbadge t-${kind.tone}` }, kind.label),
-    h('span', { class: 'fmain' }, h('span', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), meta && h('span', { class: 'fmeta' }, meta)),
-    h('span', { class: 'fdir', icon: dir === 'up' ? 'upload' : 'download' }),
+/** On a phone the share sheet is where "Save Video" and "Save to Files" live; elsewhere it is an ordinary download. */
+async function saveFile(file, url) {
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      return await navigator.share({ files: [file] });
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+    }
+  }
+  const a = h('a', { href: url, download: file.name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+/** Opens the share sheet for a file kept here, without opening its preview. */
+async function exportKept(src) {
+  const hit = await kept(src.where);
+  if (!hit) return keptPaths?.delete(src.where), refreshFile(src.where), toast(`${src.name} is no longer kept on this phone.`);
+  const url = URL.createObjectURL(hit.file);
+  await saveFile(hit.file, url);
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+// ── file cards: GENERATED FILES under an answer, the files a message sent from here ──
+/** What a card's button does now, from the shared state: save, cancel, retry, share, or nothing. */
+function fileAction(src) {
+  const t = transfers.get(src.where);
+  const name = src.name;
+  if (t?.state === 'downloading') {
+    const share = t.total ? Math.min(1, t.got / t.total) : null;
+    const ring = h('span', { class: `fring${share == null ? ' spin' : ''}`, style: share == null ? '' : `--p:${share}` });
+    const label = share == null ? `Downloading ${name}. Tap to cancel.` : `Downloading ${name}, ${Math.round(share * 100)}%. Tap to cancel.`;
+    return h('button', { type: 'button', class: 'fact busy', 'aria-label': label, onclick: () => ((t.cancelled = true), refreshFile(src.where)) }, ring, h('span', { class: 'ico', icon: 'cross' }));
+  }
+  if (isKept(src.where, src.bytes)) return h('button', { type: 'button', class: 'fact saved', 'aria-label': `${name} is saved on this phone. Share or export it.`, onclick: () => exportKept(src) }, h('span', { class: 'ico', icon: 'check' }));
+  if (t?.state === 'unavailable') return h('button', { type: 'button', class: 'fact gone', 'aria-label': `${name} is no longer available on your Mac.`, onclick: () => toast('The file is no longer available on your Mac.') }, h('span', { class: 'ico', icon: 'alert' }));
+  if (t?.state === 'failed') return h('button', { type: 'button', class: 'fact failed', 'aria-label': `Downloading ${name} failed. Retry.`, onclick: () => saveToPhone(src) }, h('span', { class: 'ico', icon: 'retry' }));
+  return h('button', { type: 'button', class: 'fact', 'aria-label': `Save ${name} on this phone`, onclick: () => saveToPhone(src) }, h('span', { class: 'ico', icon: 'download' }));
+}
+
+/** The card's button: fetches the file and keeps it here, without opening it. */
+function saveToPhone(src) {
+  fetchFile(src).then(
+    (got) => !got.saved && toast(keepFailure(got.reason, src.name)),
+    (err) => transfers.get(src.where)?.state !== 'cancelled' && toast(err.message.endsWith('.') ? err.message : `Could not download ${src.name}: ${err.message}.`),
   );
+}
+
+const keepFailure = (reason, name) =>
+  reason === 'full' ? 'Not enough available storage to save this file.' : reason === 'too-large' ? `${name} is too large to keep on this phone.` : `${name} could not be kept on this phone.`;
+
+/** The picture at the start of a card: the Mac's small picture of the file, or its kind drawn plainly. */
+function fileThumb(f) {
+  const kind = fileKind(f.name);
+  const picture = cardPicture(f.thumb);
+  const time = playTime(f.duration);
+  if (!picture) {
+    if (kind.tone === 'pdf') return h('span', { class: 'fthumb doc t-pdf', 'aria-hidden': 'true' }, h('b', {}, 'PDF'), h('i'), h('i'), h('i'));
+    if (kind.tone === 'video') return h('span', { class: 'fthumb t-video', 'aria-hidden': 'true' }, h('span', { class: 'fplay', icon: 'play' }), time && h('span', { class: 'ftime' }, time));
+    if (kind.tone === 'image') return h('span', { class: 'fthumb t-image', 'aria-hidden': 'true', icon: 'image' });
+    return h('span', { class: `fthumb t-${kind.tone}`, 'aria-hidden': 'true' }, h('b', {}, kind.label));
+  }
+  const img = h('img', { src: `data:image/jpeg;base64,${picture}`, alt: '', loading: 'lazy' });
+  // A picture that does not decode is swapped for the plain kind of file.
+  img.addEventListener('error', () => img.parentElement?.replaceWith(fileThumb({ ...f, thumb: null })), { once: true });
+  return h('span', { class: `fthumb pic${kind.tone === 'pdf' ? ' page' : ''}`, 'aria-hidden': 'true' }, img, kind.tone === 'video' && h('span', { class: 'fplay', icon: 'play' }), kind.tone === 'video' && time && h('span', { class: 'ftime' }, time));
+}
+
+/** One file: its picture, name, kind · size, folder, and its button. A tap anywhere else opens it. */
+function fileRow(f, src, dir = 'down') {
+  const { stem, ext } = splitName(f.name);
+  const facts = [typeName(f.mime, f.name), Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size].filter(Boolean).join(' · ');
+  const folder = folderOf(f.file);
+  const open = src ? () => openFile(src, f) : () => fileFacts(f);
+  return liveCard(src?.where ?? null, () =>
+    h(
+      'div',
+      { class: `frow ${dir}` },
+      h(
+        'button',
+        { type: 'button', class: 'fopen', 'aria-label': `Open ${f.name}, ${facts}`, title: f.name, onclick: open },
+        fileThumb(f),
+        h('span', { class: 'fmain' }, h('span', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), h('span', { class: 'fmeta' }, facts), folder && h('span', { class: 'ffolder' }, h('span', { class: 'ico', icon: 'folder' }), folder)),
+      ),
+      src ? fileAction(src) : h('span', { class: 'fact still', 'aria-hidden': 'true' }, h('span', { class: 'ico', icon: dir === 'up' ? 'upload' : 'download' })),
+    ),
+  );
+}
+
+/** The files an answer offers: one row alone, or several under GENERATED FILES with their count and size. */
+function offered(files, from) {
+  if (!Array.isArray(files) || !files.length) return null;
+  loadKept();
+  const rows = files.map((f, index) => fileRow(f, { kind: 'download', ws: from.ws, item: from.item, index, name: f.name, where: f.file, bytes: f.bytes, mime: f.mime }));
+  if (rows.length === 1) return h('div', { class: 'fgroup single' }, rows);
+  return h('section', { class: 'fgroup', 'aria-label': 'Generated files' }, h('div', { class: 'fghead' }, h('span', { class: 'ico', icon: 'file' }), h('span', {}, h('span', { class: 'fgtitle' }, 'GENERATED FILES'), h('span', { class: 'fgsub' }, filesSummary(files, fileSize)))), h('div', { class: 'fglist' }, rows));
 }
 
 /**
@@ -1685,7 +1874,8 @@ function sentFiles(item, listed) {
   const known = Array.isArray(item.files) ? item.files : null;
   const rows = known ?? listed.map((l) => ({ name: l.name, file: l.path, size: l.size, mime: null }));
   if (!rows.length) return null;
-  return h('div', { class: 'fcards' }, rows.map((f, index) => fileCard(f, 'up', `Check ${f.name}`, () => (known && f.mime ? startDownload(state.view.ws, item.id, index, f.name, f.file, f.bytes) : fileFacts(f)))));
+  loadKept();
+  return h('div', { class: 'fgroup single' }, rows.map((f, index) => fileRow(f, known && f.mime ? { kind: 'download', ws: state.view.ws, item: item.id, index, name: f.name, where: f.file, bytes: f.bytes, mime: f.mime } : null, 'up')));
 }
 
 /** A path on the Mac as people read it, with ~ for the home folder. */
@@ -1706,129 +1896,341 @@ function fileFacts(f) {
   sheet(f.name, h('div', { class: 'muted viewer-note' }, [Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size, 'saved on your Mac'].filter(Boolean).join(' · ')), f.file && placeOnMac(f.file), h('div', { class: 'viewer-wait muted' }, 'This kind of file cannot be shown on the phone.'));
 }
 
+// ── the file preview: one sheet for a picture, a PDF, a video, a sound, a text or a zip ──
+/** "PDF Document · 16 KB · 1 page", each part kept on one line when the line wraps. */
+const factLine = (parts) => parts.filter(Boolean).map((part) => String(part).replace(/ /g, '\u00a0')).join(' · ');
+let previewUrl = null; // the object URL of the file on screen, freed when another opens
+const TEXT_PREVIEW_BYTES = 200_000;
+const PDF_COUNT_BYTES = 10_000_000; // a PDF up to this size is read for its page count
+
+/**
+ * Opens a file from the Mac: from this phone when it is kept here, else fetched with its progress
+ * shown. `f` is what the card knew of it (name, mime, bytes, thumb, duration, modified).
+ */
+async function openFile(src, f = {}) {
+  const meta = { ...f, name: f.name ?? src.name, file: src.where };
+  const id = transferId(); // this preview, so a later one is never mistaken for it
+  let shown = null; // { file, saved, reason, smaller } once there is a file to show
+  let failure = null;
+  let details = false;
+  let media = null; // made once and moved into each redraw, so a redraw does not stop a video
+  // Still on screen: closed, or replaced by another sheet, it is never drawn again.
+  const mine = () => !$('sheet').hidden && $('sheet').querySelector('.panel')?.dataset.pv === id;
+  const cancel = () => {
+    const t = transfers.get(src.where);
+    if (t) (t.cancelled = true), refreshFile(src.where);
+  };
+
+  const draw = (first = false) => {
+    if (!first && !mine()) return;
+    const t = transfers.get(src.where);
+    sheetKeeps = media;
+    sheet({ label: meta.name, head: previewHead(meta, shown, t, failure) }, ...previewBody(meta, shown, t, failure, { retry: start, cancel }), sourceRow(meta, shown, () => ((details = !details), draw()), details), previewActions(meta, shown));
+    sheetKeeps = null;
+    const panel = $('sheet').querySelector('.panel');
+    panel.classList.add('fpv');
+    panel.dataset.pv = id;
+    const slot = panel.querySelector('.fpv-stage');
+    if (slot && shown) slot.replaceChildren((media ??= previewMedia(shown.file, meta)));
+  };
+  const update = (changed) => {
+    if (!mine()) return fileUpdaters.delete(update);
+    if (changed != null && changed !== src.where) return;
+    // Only the status line and the progress move while a file comes in: the rest is not redrawn.
+    const t = transfers.get(src.where);
+    $('sheet').querySelector('.fpv-status')?.replaceWith(previewStatus(meta, shown, t, failure));
+    if (t?.state === 'downloading') $('sheet').querySelector('.fpv-progress')?.replaceWith(progressBlock(t, cancel));
+  };
+
+  async function start() {
+    failure = null;
+    draw();
+    try {
+      shown = await fetchFile(src);
+      meta.type = shown.file.type;
+      meta.bytes = shown.file.size;
+    } catch (err) {
+      failure = err.message;
+    }
+    draw();
+  }
+
+  draw(true);
+  fileUpdaters.add(update);
+  const hit = await kept(src.where, { bytes: Number.isFinite(src.bytes) ? src.bytes : null });
+  if (!mine()) return;
+  if (hit) {
+    // Kept here already: it opens without asking the Mac.
+    shown = { file: hit.file, saved: true, reason: null, smaller: hit.smaller };
+    meta.type = hit.file.type;
+    meta.bytes = hit.file.size;
+    if (keptPaths && keptPaths.get(src.where) !== hit.file.size) keptPaths.set(src.where, hit.file.size), refreshFile(src.where);
+    return draw();
+  }
+  if (keptPaths?.has(src.where)) keptPaths.delete(src.where), refreshFile(src.where); // evicted, or another size now
+  start();
+}
+
+/** Icon, name, kind · size, whether it is kept here, and Share and Close. */
+function previewHead(meta, shown, t, failure) {
+  const kind = previewKind(meta.type ?? meta.mime, meta.name);
+  const { stem, ext } = splitName(meta.name);
+  const share = h('button', { type: 'button', class: 'fpv-icon', 'aria-label': `Share ${meta.name}`, disabled: !shown, onclick: () => shown && saveFile(shown.file, previewUrl) }, h('span', { class: 'ico', icon: 'share' }));
+  const close = h('button', { type: 'button', class: 'fpv-icon', 'aria-label': 'Close', onclick: closeSheet }, h('span', { class: 'ico', icon: 'cross' }));
+  const tile = h('span', { class: `fpv-tile t-${fileKind(meta.name).tone}`, icon: kind === 'image' ? 'image' : kind === 'video' ? 'play' : kind === 'audio' ? 'wave' : 'file' });
+  const pages = meta.pages ? `${meta.pages} page${meta.pages === 1 ? '' : 's'}` : null;
+  const facts = factLine([typeName(meta.type ?? meta.mime, meta.name), Number.isFinite(meta.bytes) ? fileSize(meta.bytes) : null, pages, playTime(meta.duration)]);
+  return h(
+    'div',
+    { class: 'fpv-head' },
+    tile,
+    h('div', { class: 'fpv-title' }, h('h3', { class: 'fname', title: meta.name }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), h('span', { class: 'fpv-facts' }, facts), previewStatus(meta, shown, t, failure)),
+    share,
+    close,
+  );
+}
+
+/** Whether the file is kept on this phone, said only once it reads back from the phone's storage. */
+function previewStatus(meta, shown, t, failure) {
+  let tone = 'muted';
+  let text;
+  if (shown?.saved) (tone = 'success'), (text = 'Saved on this phone');
+  else if (shown) (tone = 'warning'), (text = `Not saved on this phone: ${keepFailure(shown.reason, meta.name).replace(/\.$/, '').replace(/^Not enough/, 'not enough')}`);
+  else if (t?.state === 'downloading') text = t.total ? `Downloading from your Mac… ${Math.round((t.got / t.total) * 100)}%` : 'Fetching from your Mac…';
+  else if (failure) (tone = 'danger'), (text = t?.state === 'unavailable' ? 'Not on your Mac any more' : 'Not downloaded');
+  else text = 'Checking this phone…';
+  return h('span', { class: `fpv-status ${tone}`, role: 'status' }, tone === 'success' && h('span', { class: 'ico', icon: 'check' }), text);
+}
+
+/** Bytes that arrived of how many, as a bar, with Cancel. Never a guess: no total, no percentage. */
+function progressBlock(t, cancel) {
+  const share = t.total ? Math.min(1, t.got / t.total) : null;
+  return h(
+    'div',
+    { class: 'fpv-progress' },
+    h('div', { class: `bar${share == null ? ' indeterminate' : ''}`, role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', ...(share == null ? {} : { 'aria-valuenow': String(Math.round(share * 100)) }) }, h('span', { style: share == null ? '' : `width:${(share * 100).toFixed(1)}%` })),
+    h('div', { class: 'row-line' }, h('span', { class: 'muted small' }, share == null ? 'Fetching from your Mac…' : `${fileSize(t.got)} of ${fileSize(t.total)}`), h('button', { type: 'button', class: 'linkish', onclick: cancel }, 'Cancel')),
+  );
+}
+
+/** The middle of the sheet: the file itself, its progress while it comes, or what went wrong. */
+function previewBody(meta, shown, t, failure, { retry, cancel }) {
+  if (shown) return [h('div', { class: 'fpv-stage' }), shown.smaller && h('div', { class: 'muted viewer-note' }, 'A smaller copy: the file on the Mac was too large to send whole.')];
+  if (failure) {
+    const gone = t?.state === 'unavailable';
+    return [h('div', { class: 'fpv-stage empty' }, h('span', { class: 'ico big', icon: gone ? 'alert' : 'cloud' }), h('p', {}, gone ? 'The file is no longer available on your Mac.' : failure), !gone && h('button', { type: 'button', class: 'btn small', onclick: retry }, 'Retry'))];
+  }
+  if (t?.state === 'downloading') return [h('div', { class: 'fpv-stage empty' }, h('span', { class: 'ico big', icon: 'download' }), progressBlock(t, cancel))];
+  return [h('div', { class: 'fpv-stage empty' }, h('span', { class: 'muted' }, 'Looking for it on this phone…'))];
+}
+
+/**
+ * The file drawn for looking at, in a holder that stays the same when what is in it changes (a PDF
+ * framed once checked, a video that will not play), so a redraw of the sheet moves the holder along.
+ */
+function previewMedia(file, meta) {
+  const holder = h('div', { class: 'fpv-holder' });
+  holder.append(previewInner(file, meta, holder));
+  return holder;
+}
+
+/** What the holder shows first. Text is shown as text only, never run as a page. */
+function previewInner(file, meta, holder) {
+  if (previewUrl) URL.revokeObjectURL(previewUrl);
+  previewUrl = URL.createObjectURL(file);
+  const url = previewUrl;
+  const broken = (el, why = 'Unable to preview this file.') => el.replaceWith(h('div', { class: 'fpv-broken' }, h('span', { class: 'ico big', icon: 'alert' }), h('p', {}, why), h('p', { class: 'muted small' }, 'Share / Export still gives you the file.')));
+  const kind = previewKind(file.type, file.name);
+  if (kind === 'image') {
+    const img = h('img', { class: 'fpv-media', src: url, alt: file.name, onclick: () => zoomView(url, file.name) });
+    img.addEventListener('error', () => broken(img), { once: true });
+    return img;
+  }
+  if (kind === 'video') {
+    const poster = cardPicture(meta.thumb);
+    const video = h('video', { class: 'fpv-media', src: url, controls: true, playsinline: true, preload: 'metadata', ...(poster ? { poster: `data:image/jpeg;base64,${poster}` } : {}) });
+    video.addEventListener('error', () => broken(video, 'This video cannot be played on this phone. It may be encoded in a way the phone does not support.'), { once: true });
+    video.addEventListener('loadedmetadata', () => {
+      if (!meta.duration && Number.isFinite(video.duration)) (meta.duration = video.duration), $('sheet').querySelector('.fpv-facts')?.replaceChildren(document.createTextNode(factLine([typeName(file.type, file.name), fileSize(file.size), playTime(video.duration)])));
+    });
+    return video;
+  }
+  if (kind === 'audio') return h('audio', { class: 'fpv-audio', src: url, controls: true });
+  if (kind === 'pdf') {
+    // Framed only once its first bytes say PDF: the type came from the file's name on the Mac.
+    const frame = h('div', { class: 'fpv-media doc wait' });
+    file
+      .slice(0, 5)
+      .text()
+      .then((magic) => {
+        if (magic !== '%PDF-') return broken(frame, 'Unable to preview this file: it is not a PDF inside.');
+        frame.replaceWith(h('iframe', { class: 'fpv-media doc', src: url, title: file.name }));
+      });
+    if (!meta.pages && file.size <= PDF_COUNT_BYTES)
+      file.arrayBuffer().then((buf) => {
+        const pages = pdfPages(new TextDecoder('latin1').decode(buf));
+        if (pages && holder.isConnected) (meta.pages = pages), $('sheet').querySelector('.fpv-facts')?.replaceChildren(document.createTextNode(factLine([typeName(file.type, file.name), fileSize(file.size), `${pages} page${pages === 1 ? '' : 's'}`])));
+      });
+    return frame;
+  }
+  if (kind === 'text') {
+    const pre = h('pre', { class: 'fpv-media text' }, 'Reading…');
+    file
+      .slice(0, TEXT_PREVIEW_BYTES)
+      .text()
+      .then((text) => (pre.textContent = file.size > TEXT_PREVIEW_BYTES ? `${text}\n… (the first ${fileSize(TEXT_PREVIEW_BYTES)})` : text));
+    return pre;
+  }
+  if (kind === 'zip') {
+    const list = h('ul', { class: 'fpv-media zip' }, h('li', { class: 'muted' }, 'Reading…'));
+    listZip(file).then((zip) => {
+      if (!zip) return list.replaceChildren(h('li', { class: 'muted' }, 'This zip could not be read.'));
+      list.replaceChildren(...zip.entries.map((e) => h('li', { class: e.folder ? 'folder' : null }, h('span', { class: 'mono' }, e.name), !e.folder && h('span', { class: 'muted' }, fileSize(e.bytes)))));
+    });
+    return list;
+  }
+  return h('div', { class: 'fpv-broken' }, h('span', { class: 'ico big', icon: 'file' }), h('p', {}, 'Preview is not available for this file type.'), h('p', { class: 'muted small' }, 'Share / Export still gives you the file.'));
+}
+
+/** The folder it is in on the Mac; tapped, the details: the whole path, its type, size, dates, where it is kept. */
+function sourceRow(meta, shown, toggle, open) {
+  if (!meta.file) return null;
+  const folder = folderOf(meta.file).split('/').filter(Boolean);
+  const row = h('button', { type: 'button', class: 'fpv-src', 'aria-expanded': String(open), onclick: toggle }, h('span', { class: 'ico', icon: 'folder' }), h('span', { class: 'grow' }, ...folder.flatMap((part, i) => [i ? h('span', { class: 'sep' }, ' / ') : null, h('span', { class: i === folder.length - 1 ? 'last' : '' }, part)])), h('span', { class: `ico chev${open ? ' open' : ''}`, icon: 'chevron' }));
+  if (!open) return row;
+  const ws = state.workspaces.get(state.view.ws);
+  const fact = (label, value) => value && h('div', { class: 'fpv-fact' }, h('span', { class: 'muted' }, label), h('span', {}, value));
+  return h(
+    'div',
+    {},
+    row,
+    h(
+      'div',
+      { class: 'fpv-details' },
+      fact('Name', meta.name),
+      fact('Type', [typeName(meta.type ?? meta.mime, meta.name), meta.type ?? meta.mime].filter(Boolean).join(' · ')),
+      fact('Size', Number.isFinite(meta.bytes) ? `${fileSize(meta.bytes)} (${meta.bytes.toLocaleString()} bytes)` : null),
+      fact('Changed on the Mac', Number.isFinite(meta.modified) ? new Date(meta.modified).toLocaleString() : null),
+      fact('Session', ws?.name),
+      fact('On this phone', shown?.saved ? 'Kept in this app’s storage (not in Photos or Files)' : 'Not kept'),
+      placeOnMac(meta.file),
+    ),
+  );
+}
+
+/** Fullscreen (a picture or video) or Open (a PDF, in the phone's viewer), and Share / Export. */
+function previewActions(meta, shown) {
+  const kind = previewKind(meta.type ?? meta.mime, meta.name);
+  const media = () => $('sheet').querySelector('.fpv-media');
+  const big = kind === 'image' || kind === 'video';
+  const open = () => {
+    if (!shown) return;
+    if (kind === 'image') return zoomView(previewUrl, meta.name);
+    const video = media();
+    if (kind === 'video' && video) return video.webkitEnterFullscreen ? video.webkitEnterFullscreen() : video.requestFullscreen?.();
+    window.open(previewUrl, '_blank');
+  };
+  return h('div', { class: 'actions even fpv-actions' }, h('button', { type: 'button', class: 'btn', disabled: !shown, onclick: open }, big ? 'Fullscreen' : 'Open'), h('button', { type: 'button', class: 'btn primary', disabled: !shown, onclick: () => shown && saveFile(shown.file, previewUrl) }, 'Share / Export'));
+}
+
+/** The pictures a step or message showed, tapped: the whole of one, from this phone or the Mac. */
+function openPicture(ws, item, index, name, path = null) {
+  return openFile({ kind: 'picture', ws, item, index, name, where: path, bytes: null }, { name });
+}
+
+/** The small preview of a picture whose whole was never kept on the Mac. */
+function showPreviewOnly(image) {
+  sheet(
+    image.name,
+    h('img', { class: 'viewer', src: `data:${image.mime};base64,${image.thumb}`, alt: image.name }),
+    h('div', { class: 'muted viewer-note' }, 'Only a small preview of this picture was kept. Pictures sent from now on open whole.'),
+  );
+}
+
 /** A picture or file waiting in the composer, opened to check it before it is sent. */
 function previewWaiting(a) {
   const file = a.kind === 'file' ? a.file : originals.get(a);
   const remove = h('button', { type: 'button', class: 'btn', onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments(), closeSheet()) }, 'Remove');
-  const keep = h('button', { type: 'button', class: 'btn primary', onclick: closeSheet }, 'Keep');
-  if (!file) return sheet(a.name, h('img', { class: 'viewer', src: `data:image/jpeg;base64,${a.data}`, alt: a.name }), h('div', { class: 'actions even' }, remove, keep));
-  return previewSheet(file, { actions: () => [remove, keep] });
+  const keepIt = h('button', { type: 'button', class: 'btn primary', onclick: closeSheet }, 'Keep');
+  if (!file) return sheet(a.name, h('img', { class: 'viewer', src: `data:image/jpeg;base64,${a.data}`, alt: a.name }), h('div', { class: 'actions even' }, remove, keepIt));
+  const meta = { name: file.name, type: file.type, bytes: file.size };
+  const close = h('button', { type: 'button', class: 'fpv-icon', 'aria-label': 'Close', onclick: closeSheet }, h('span', { class: 'ico', icon: 'cross' }));
+  const { stem, ext } = splitName(file.name);
+  const head = h('div', { class: 'fpv-head' }, h('span', { class: `fpv-tile t-${fileKind(file.name).tone}`, icon: 'upload' }), h('div', { class: 'fpv-title' }, h('h3', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), h('span', { class: 'fpv-facts' }, factLine([typeName(file.type, file.name), fileSize(file.size)])), h('span', { class: 'fpv-status muted' }, 'Not sent yet')), close);
+  sheet({ label: file.name, head }, h('div', { class: 'fpv-stage' }, previewMedia(file, meta)), h('div', { class: 'actions even fpv-actions' }, remove, keepIt));
+  $('sheet').querySelector('.panel').classList.add('fpv');
 }
 
-const TEXT_PREVIEW_BYTES = 200_000;
-
-/**
- * A file opened to look at: a picture, video, sound, PDF, the start of a text, or what a zip holds.
- * Text is shown as text only, never run as a page. `actions` makes the buttons under it from its URL.
- */
-async function previewSheet(file, { where = null, actions = null, kept: here = false } = {}) {
-  if (pictureUrl) URL.revokeObjectURL(pictureUrl);
-  pictureUrl = URL.createObjectURL(file);
-  const url = pictureUrl;
-  const kind = previewKind(file.type, file.name);
-  let body;
-  let note = fileSize(file.size);
-  if (here) note += ' · saved on this phone';
-  try {
-    if (kind === 'video') body = h('video', { class: 'viewer', src: url, controls: true, playsinline: true, preload: 'metadata' });
-    else if (kind === 'image') body = h('img', { class: 'viewer', src: url, alt: file.name });
-    else if (kind === 'audio') body = h('audio', { src: url, controls: true });
-    else if (kind === 'pdf') body = h('iframe', { class: 'viewer doc', src: url, title: file.name });
-    else if (kind === 'text') {
-      const text = await file.slice(0, TEXT_PREVIEW_BYTES).text();
-      body = h('pre', { class: 'viewer text' }, file.size > TEXT_PREVIEW_BYTES ? `${text}\n…` : text);
-      if (file.size > TEXT_PREVIEW_BYTES) note += ` · the first ${fileSize(TEXT_PREVIEW_BYTES)} shown`;
-    } else if (kind === 'zip') {
-      const zip = await listZip(file);
-      if (!zip) body = h('div', { class: 'viewer-wait muted' }, 'This zip could not be read.');
-      else {
-        const files = zip.entries.filter((e) => !e.folder);
-        note += ` · ${files.length} file${files.length === 1 ? '' : 's'} inside`;
-        body = h('ul', { class: 'viewer zip' }, zip.entries.map((e) => h('li', { class: e.folder ? 'folder' : null }, h('span', { class: 'mono' }, e.name), !e.folder && h('span', { class: 'muted' }, fileSize(e.bytes)))));
-      }
-    } else body = h('div', { class: 'viewer-wait muted' }, 'This kind of file cannot be shown here.');
-  } catch {
-    body = h('div', { class: 'viewer-wait muted' }, 'This file could not be opened.');
-  }
-  const buttons = actions ? actions(url) : [];
-  sheet(file.name, body, h('div', { class: 'muted viewer-note' }, note), where && placeOnMac(where), buttons.length && h('div', { class: 'actions even' }, ...buttons));
-}
-
-async function startDownload(ws, item, index, name, where = null, bytes = null) {
-  // Downloaded once already: it is kept on this phone, and opens without asking the Mac.
-  const hit = await kept(where, { bytes: Number.isFinite(bytes) ? bytes : null });
-  if (hit) return showDownloaded(hit.file, where, true);
-  const req = transferId();
-  for (const [key, wait] of downloads) clearTimeout(wait.timer), downloads.delete(key);
-  const timer = setTimeout(() => downloads.delete(req) && (closeSheet(), toast('Your Mac did not send the file. Try again.')), 60_000);
-  downloads.set(req, { name, timer, where });
-  sheet(name, h('div', { class: 'viewer-wait muted', id: 'download-progress', role: 'status' }, 'Asking your Mac for the file…'));
-  command('download', { ws, item, index, req }).then((sent) => sent || (clearTimeout(timer), downloads.delete(req), closeSheet()));
-}
-
-async function downloadArrived(event) {
-  const wait = downloads.get(event.req);
-  if (!wait) return; // asked for by another phone, or replayed from the log
-  clearTimeout(wait.timer);
-  if (event.error) return downloads.delete(event.req), closeSheet(), toast(event.error);
-  const progress = $('download-progress');
-  try {
-    if (!SHOWABLE.test(String(event.mime))) throw new Error('that kind of file cannot be saved here');
-    if (!Number.isInteger(event.chunks) || event.chunks < 1 || event.bytes > MAX_FILE_BYTES) throw new Error('the file is too large');
-    const parts = [];
-    let got = 0;
-    let last = Date.now();
-    for (let n = 0; n < event.chunks; ) {
-      // The sheet was closed: the download is given up (the Mac stops by itself after a while).
-      if (!progress?.isConnected) return downloads.delete(event.req), toast('Download cancelled.');
-      if (Date.now() - last > 120_000) throw new Error('your Mac stopped sending it');
-      const res = await fetch(`/api/chunk?id=${event.req}&n=${n}`, { headers: { authorization: `Bearer ${state.token}` } }).catch(() => null);
-      if (res?.status === 204) continue;
-      if (!res?.ok) {
-        await pause(1500);
-        continue;
-      }
-      const bytes = await unsealChunk(event.req, n, (await res.json()).c);
-      parts.push(bytes);
-      got += bytes.length;
-      last = Date.now();
-      n += 1;
-      progress.textContent = `Downloading… ${Math.round((got / event.bytes) * 100)}% (${fileSize(got)} of ${fileSize(event.bytes)})`;
+// ── a picture made big: pinch, double-tap and drag, over everything ──
+function zoomView(url, name) {
+  if (!url) return;
+  let scale = 1;
+  let x = 0;
+  let y = 0;
+  let from = null; // where the fingers and the picture were when the last finger went down or up
+  let lastTap = 0;
+  const points = new Map();
+  const img = h('img', { src: url, alt: name, draggable: 'false' });
+  const apply = () => (img.style.transform = `translate(${x}px, ${y}px) scale(${scale})`);
+  const centre = () => ({ x: layer.clientWidth / 2, y: layer.clientHeight / 2 });
+  const middle = () => {
+    const p = [...points.values()];
+    return p.length === 2 ? { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2, d: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) } : { ...p[0], d: 0 };
+  };
+  // The picture's place and the fingers' middle when a finger last went down or up.
+  const mark = () => {
+    const m = points.size ? middle() : null;
+    from = m ? { scale, tx: x, ty: y, mx: m.x, my: m.y, d: m.d } : null;
+  };
+  // Zoomed about a point that stays under the fingers: screen = centre + t + s·local.
+  const zoomAbout = (s, m0, m1 = m0) => {
+    const c = centre();
+    const lx = (m0.x - c.x - from.tx) / from.scale;
+    const ly = (m0.y - c.y - from.ty) / from.scale;
+    scale = Math.min(6, Math.max(1, s));
+    x = m1.x - c.x - scale * lx;
+    y = m1.y - c.y - scale * ly;
+    if (scale === 1) x = y = 0;
+    apply();
+  };
+  const close = () => {
+    layer.remove();
+    window.removeEventListener('keydown', onKey, true);
+    $('sheet').querySelector('.fpv-actions .btn')?.focus({ preventScroll: true });
+  };
+  // Escape closes the big picture only, not the preview under it: caught before the sheet's own handler.
+  const onKey = (e) => e.key === 'Escape' && (e.stopImmediatePropagation(), close());
+  const layer = h('div', { class: 'zoom', role: 'dialog', 'aria-modal': 'true', 'aria-label': `${name}, pinch or double-tap to zoom` }, img, h('button', { type: 'button', class: 'zoom-close', 'aria-label': 'Close fullscreen', icon: 'cross', onclick: close }));
+  layer.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.zoom-close')) return;
+    layer.setPointerCapture(e.pointerId);
+    points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (points.size === 1) {
+      const now = Date.now();
+      if (now - lastTap < 300) {
+        mark();
+        zoomAbout(scale > 1 ? 1 : 2.5, { x: e.clientX, y: e.clientY });
+        lastTap = 0;
+      } else lastTap = now;
     }
-    if (got !== event.bytes) throw new Error('it did not arrive whole');
-    downloads.delete(event.req);
-    const file = new File(parts, event.name, { type: event.mime });
-    showDownloaded(file, wait.where);
-    keep(file, wait.where).then(() => (state.keptInfo = undefined));
-  } catch (err) {
-    downloads.delete(event.req);
-    closeSheet();
-    toast(`Could not download ${wait.name}: ${err.message}.`);
-  }
-}
-
-/** On a phone the share sheet is where "Save Video" and "Save to Files" live; elsewhere it is an ordinary download. */
-async function saveFile(file, url) {
-  if (navigator.canShare?.({ files: [file] })) {
-    try {
-      return await navigator.share({ files: [file] });
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-    }
-  }
-  const a = h('a', { href: url, download: file.name });
-  document.body.append(a);
-  a.click();
-  a.remove();
-}
-
-/** A file fetched from the Mac: shown, with where it is there, and Open / Save. */
-function showDownloaded(file, where = null, here = false) {
-  return previewSheet(file, {
-    where,
-    kept: here,
-    actions: (url) => [h('button', { type: 'button', class: 'btn', onclick: () => window.open(url, '_blank') }, 'Open'), h('button', { type: 'button', class: 'btn primary', onclick: () => saveFile(file, url) }, 'Save')],
+    mark();
   });
+  layer.addEventListener('pointermove', (e) => {
+    if (!points.has(e.pointerId) || !from) return;
+    points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const m = middle();
+    if (points.size === 2 && from.d) zoomAbout((from.scale * m.d) / from.d, { x: from.mx, y: from.my }, m);
+    else if (points.size === 1 && scale > 1) (x = from.tx + m.x - from.mx), (y = from.ty + m.y - from.my), apply();
+  });
+  const up = (e) => {
+    points.delete(e.pointerId);
+    mark();
+  };
+  layer.addEventListener('pointerup', up);
+  layer.addEventListener('pointercancel', up);
+  window.addEventListener('keydown', onKey, true);
+  document.body.append(layer);
+  layer.querySelector('.zoom-close').focus({ preventScroll: true });
 }
 
 function entryOf(item) {
@@ -2302,15 +2704,52 @@ function settings() {
   ];
 }
 
-/** The files from the Mac kept on this phone, and a way to drop them. */
+/** The files from the Mac kept on this phone: how many and how much, and a tap opens their list. */
 function keptRow() {
   if (state.keptInfo === undefined) {
     state.keptInfo = null;
     keptSize().then((info) => ((state.keptInfo = info), state.view.name === 'settings' && render()));
   }
   const info = state.keptInfo;
-  const clear = () => confirm('Remove the files kept on this phone?\n\nThey stay on your Mac and download again when opened.') && clearKept().then(() => ((state.keptInfo = undefined), render(), toast('Kept files removed.')));
-  return row('download', 'Files kept on this phone', info ? (info.count ? fileSize(info.bytes) : 'None') : '…', { sub: info?.count ? `${info.count} file${info.count === 1 ? '' : 's'} open without downloading again · tap to remove` : 'Files you open from the Mac are kept, so they open again without downloading', onclick: info?.count ? clear : null });
+  return row('download', 'Files kept on this phone', info ? (info.count ? fileSize(info.bytes) : 'None') : '…', { sub: info?.count ? `${info.count} file${info.count === 1 ? '' : 's'} open without downloading again` : 'Files you open from the Mac are kept, so they open again without downloading', onclick: info?.count ? keptSheet : null });
+}
+
+/** Every file kept here, newest first: open one, share it, remove it, or remove them all. */
+async function keptSheet() {
+  const list = await keptList();
+  const changed = () => {
+    state.keptInfo = undefined;
+    refreshFile(null);
+    if (state.view.name === 'settings') render();
+  };
+  const removeAll = () => {
+    if (!confirm('Remove the files kept on this phone?\n\nThey stay on your Mac and download again when opened.')) return;
+    clearKept().then(() => ((keptPaths = new Map()), changed(), closeSheet(), toast('Kept files removed.')));
+  };
+  const total = list.reduce((sum, e) => sum + e.bytes, 0);
+  sheet(
+    'Files kept on this phone',
+    h('p', { class: 'sheet-sub' }, `${list.length} file${list.length === 1 ? '' : 's'} · ${fileSize(total)} in this app’s storage. Not in Photos or Files: use Share / Export for that. The phone may clear them when it runs short of space.`),
+    list.length
+      ? h(
+          'div',
+          { class: 'fgroup single' },
+          list.map((e) => {
+            const src = { kind: 'download', name: e.name, where: e.path, bytes: e.bytes, mime: e.type };
+            const f = { name: e.name, file: e.path, bytes: e.bytes, mime: e.type };
+            const remove = h('button', { type: 'button', class: 'fact gone', 'aria-label': `Remove ${e.name} from this phone`, onclick: () => forget(e.path).then(() => (keptPaths?.delete(e.path), changed(), keptSheet())) }, h('span', { class: 'ico', icon: 'cross' }));
+            const { stem, ext } = splitName(e.name);
+            return h(
+              'div',
+              { class: 'frow' },
+              h('button', { type: 'button', class: 'fopen', 'aria-label': `Open ${e.name}`, onclick: () => openFile(src, f) }, fileThumb(f), h('span', { class: 'fmain' }, h('span', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), h('span', { class: 'fmeta' }, [typeName(e.type, e.name), fileSize(e.bytes)].join(' · ')), h('span', { class: 'ffolder' }, h('span', { class: 'ico', icon: 'folder' }), folderOf(e.path)))),
+              remove,
+            );
+          }),
+        )
+      : h('p', { class: 'quiet pad' }, 'Nothing is kept on this phone.'),
+    list.length > 0 && h('button', { type: 'button', class: 'btn quiet danger', onclick: removeAll }, 'Remove all'),
+  );
 }
 
 /** Everything `/config` holds in the terminal. Absent when the Mac runs a SEEKER from before this screen. */

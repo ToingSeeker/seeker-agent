@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { KEEP_CACHE, clearKept, keep, kept, keptSize, keptUrl, toEvict } from '../remote-server/public/keep.js';
+import { KEEP_CACHE, clearKept, forget, keep, kept, keptList, keptSize, keptUrl, store as keepStore, toEvict } from '../remote-server/public/keep.js';
 
 function fakeStore() {
   const caches = new Map();
@@ -88,11 +88,37 @@ test('the url never leaves the made-up prefix', () => {
 test('the app checks the phone before asking the Mac, keeps what arrives, and unpairing clears it', () => {
   const app = fs.readFileSync(new URL('../remote-server/public/app.js', import.meta.url), 'utf8');
   const fn = (name) => app.slice(app.indexOf(`function ${name}(`), app.indexOf('\n}\n', app.indexOf(`function ${name}(`)));
-  assert.match(fn('startDownload'), /await kept\(where/);
-  assert.ok(fn('startDownload').indexOf('kept(') < fn('startDownload').indexOf("command('download'"));
-  assert.match(fn('openPicture'), /await kept\(path\)/);
-  assert.ok(fn('openPicture').indexOf('kept(') < fn('openPicture').indexOf("command('file'"));
-  assert.match(fn('downloadArrived'), /keep\(file, wait\.where\)/);
-  assert.match(fn('pictureArrived'), /keep\(file, wait\.path/);
+  const open = fn('openFile');
+  assert.match(open, /await kept\(src\.where/);
+  assert.ok(open.indexOf('kept(') < open.indexOf('start();'), 'the phone is looked at before the Mac is asked');
+  assert.match(fn('fetchFile'), /await keepFile\(file, where, \{ smaller \}\)/);
+  assert.match(fn('fetchFile'), /if \(busy\?\.state === 'downloading'\) return busy\.promise/, 'one download per file at a time');
+  assert.match(fn('openPicture'), /openFile\(\{ kind: 'picture'/);
   assert.match(fn('signOut'), /clearKept\(\)/);
+});
+
+test('a kept file is only reported kept once it reads back whole', async () => {
+  const store = fakeStore();
+  assert.deepEqual(await keepStore(file('a.mp4', 10), '/a.mp4', { store }), { ok: true, reason: null });
+  assert.deepEqual(await keepStore(file('big.mp4', 200), '/big.mp4', { store, limit: 100 }), { ok: false, reason: 'too-large' });
+  assert.deepEqual(await keepStore(file('a.mp4', 10), '/a.mp4', { store: undefined }), { ok: false, reason: 'no-storage' });
+  // The phone refuses the space.
+  const full = { open: async () => ({ put: async () => { throw Object.assign(new Error('quota'), { name: 'QuotaExceededError' }); }, keys: async () => [], match: async () => undefined, delete: async () => false }) };
+  assert.deepEqual(await keepStore(file('a.mp4', 10), '/a.mp4', { store: full }), { ok: false, reason: 'full' });
+  // It says it stored it, and does not have it.
+  const forgetful = { open: async () => ({ put: async () => {}, keys: async () => [], match: async () => undefined, delete: async () => false }) };
+  assert.deepEqual(await keepStore(file('a.mp4', 10), '/a.mp4', { store: forgetful }), { ok: false, reason: 'failed' });
+});
+
+test('the list of kept files names each by its path on the Mac, newest first, and one can be dropped', async () => {
+  const store = fakeStore();
+  await keep(file('one.pdf', 5, 'application/pdf'), '/tmp/s/one.pdf', { store });
+  await new Promise((r) => setTimeout(r, 5));
+  await keep(file('two.jpg', 7, 'image/jpeg'), '/tmp/s/two.jpg', { store });
+  const list = await keptList({ store });
+  assert.deepEqual(list.map((e) => [e.path, e.name, e.type, e.bytes]), [['/tmp/s/two.jpg', 'two.jpg', 'image/jpeg', 7], ['/tmp/s/one.pdf', 'one.pdf', 'application/pdf', 5]]);
+  assert.equal(await forget('/tmp/s/two.jpg', { store }), true);
+  assert.equal(await kept('/tmp/s/two.jpg', { store }), null);
+  assert.deepEqual((await keptList({ store })).map((e) => e.path), ['/tmp/s/one.pdf']);
+  assert.deepEqual(await keptList({ store: undefined }), []);
 });

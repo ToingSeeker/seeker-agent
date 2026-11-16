@@ -103,15 +103,26 @@ is always shown as text, never run as a page. Photos sent with a message are kep
 one under your message opens the whole picture (one sent before this opens as its small preview).
 
 A file or picture fetched from the Mac once is kept on the phone (in the app's own storage, up to
-300 MB, the oldest dropped first), so opening it again needs no second download; its sheet says
-"saved on this phone". A file at the same path with another size is fetched afresh. **Settings →
-Files kept on this phone** shows how much is kept and removes it; unpairing removes it too. What is
+300 MB, the oldest dropped first), so opening it again needs no second download. Its preview says
+**Saved on this phone** only once the file reads back from that storage; if the phone refuses the space
+it says so, and **Share / Export** still works. A file at the same path with another size is fetched
+afresh. **Settings → Files kept on this phone** lists what is kept: tap one to open it, **×** to remove
+it, or **Remove all**; unpairing removes them too. This is the app's own storage, not Photos or Files
+(use **Share / Export** for those), and iOS may clear it when the phone runs short of space. What is
 kept is the decrypted file: the app lock hides it but does not encrypt it.
 
 When an answer names a file that exists on the Mac (a video, audio, a picture, a PDF, a zip or `.srt`,
-written as a path, `~/…` or relative to the project), the phone shows it under the answer as a card
-with a download arrow (↓, orange). Tapping it fetches the file in pieces, plays a video in place, and **Save** opens the
-share sheet, where "Save Video" and "Save to Files" are. As with pictures, the phone names the answer,
+written as a path, `~/…` or relative to the project), the phone shows it under the answer as a card;
+several are grouped under **GENERATED FILES** with their count and total size. On macOS each card
+carries a small picture made by Quick Look (a PDF's first page, a frame of a video, the photo) and a
+video its length, read from the file's own header; elsewhere the card shows the kind of file instead.
+The round button on a card saves the file on the phone without opening it: a ring fills with the bytes
+that have arrived (tap it to cancel), then a check; tap the check to share it. A file gone from the Mac
+shows a warning instead. Tapping the rest of the card opens the preview: a picture whole (**Fullscreen**
+to pinch, double-tap and drag), a PDF in the page, a video with the phone's own player (never
+autoplaying, stopped when the sheet closes), and the folder it is in on the Mac, which opens its full
+path, type, size and date. **Share / Export** opens the share sheet, where "Save Video" and "Save to
+Files" are. A PDF is framed only when its first bytes say PDF. As with pictures, the phone names the answer,
 never a path. Each piece is sealed together with its file and its place in it, so the relay cannot swap
 or reorder them, and it is deleted from the relay as soon as the other side has taken it. The relay
 holds at most 40 MB in each direction at a time and tells the sender to wait beyond that. The Mac gives
@@ -737,8 +748,8 @@ plain Node.
 | `src/commands.mjs`, `src/menu.mjs` | slash commands, the `/config` menu, the `/model` and `/resume` pickers |
 | `src/ui.mjs`, `src/markdown.mjs`, `src/text.mjs` | rendering: header, panels, tool-step tree, status bar; measuring and wrapping coloured text |
 | `src/theme.mjs` | the one palette for the terminal and the phone app (amber brand, blue tool at work, purple thinking, green done, red failed); written as 24-bit, 256 or 16 colours depending on the terminal, none with `NO_COLOR` |
-| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone |
-| `src/transfer.mjs` | whole files between the phone and the Mac: encrypted pieces through the relay, the inbox, the files an answer offers for download |
+| `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone, the Quick Look picture on a file card |
+| `src/transfer.mjs` | whole files between the phone and the Mac: encrypted pieces through the relay, the inbox, the files an answer offers for download and what their cards show (a video's length, when it changed) |
 | `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout on the alternate screen (header pinned on top, input box at the bottom, the conversation scrolled inside SEEKER) and the input editor |
 

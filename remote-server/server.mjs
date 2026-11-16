@@ -217,7 +217,7 @@ export function createRelay({ authHash, trustProxy = false, maxTracked = MAX_TRA
     res.writeHead(200, {
       'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream',
       'cache-control': 'no-cache',
-      'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      'content-security-policy': "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src blob:; style-src 'self'; script-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
       'strict-transport-security': 'max-age=31536000',

@@ -416,15 +416,28 @@ dibuka utuh (foto yang dikirim sebelum versi ini terbuka sebagai pratinjau kecil
 
 File atau foto yang sudah sekali diambil dari Mac disimpan di HP (di penyimpanan aplikasi sendiri,
 paling banyak 300 MB, yang paling lama dihapus duluan), jadi saat dibuka lagi tidak perlu diunduh
-ulang; lembarnya menulis "saved on this phone". File di path yang sama dengan ukuran berbeda diambil
-ulang. **Settings → Files kept on this phone** menampilkan berapa yang tersimpan dan bisa
-menghapusnya; unpair juga menghapusnya. Yang tersimpan adalah file yang sudah didekripsi: kunci
-aplikasi menyembunyikannya, tapi tidak mengenkripsinya.
+ulang. Pratinjaunya baru menulis **Saved on this phone** setelah file benar-benar terbaca kembali dari
+penyimpanan itu; kalau HP menolak karena penuh, pratinjau mengatakannya, dan **Share / Export** tetap
+bisa dipakai. File di path yang sama dengan ukuran berbeda diambil ulang. **Settings → Files kept on
+this phone** menampilkan daftar file yang tersimpan: ketuk untuk membuka, **×** untuk menghapus satu,
+atau **Remove all**; unpair juga menghapus semuanya. Ini penyimpanan aplikasi sendiri, bukan Photos
+atau Files (pakai **Share / Export** untuk itu), dan iOS bisa mengosongkannya kalau ruang HP menipis.
+Yang tersimpan adalah file yang sudah didekripsi: kunci aplikasi menyembunyikannya, tapi tidak
+mengenkripsinya.
 
 Kalau jawaban agen menyebut file yang ada di Mac (video, audio, gambar, PDF, zip atau `.srt`, ditulis
-sebagai path, `~/…` atau relatif terhadap proyek), HP menampilkannya di bawah jawaban itu sebagai kartu
-dengan panah unduh (↓, oranye). Ketuk untuk mengambil filenya per potongan; video bisa diputar langsung, dan **Save** membuka
-share sheet, tempat "Simpan Video" dan "Simpan ke File". Sama seperti gambar, HP hanya menyebut
+sebagai path, `~/…` atau relatif terhadap proyek), HP menampilkannya di bawah jawaban itu sebagai kartu;
+kalau lebih dari satu, kartunya dikelompokkan di bawah **GENERATED FILES** beserta jumlah dan total
+ukurannya. Di macOS tiap kartu membawa gambar kecil buatan Quick Look (halaman pertama PDF, satu frame
+video, atau fotonya), dan video membawa durasinya yang dibaca dari header file itu sendiri; di sistem
+lain kartu menampilkan jenis filenya saja. Tombol bulat di kartu menyimpan file di HP tanpa membukanya:
+cincinnya terisi sesuai byte yang sudah tiba (ketuk untuk membatalkan), lalu berubah jadi centang;
+ketuk centangnya untuk membagikan file. File yang sudah tidak ada di Mac menampilkan tanda peringatan.
+Ketuk bagian lain kartu untuk membuka pratinjau: gambar utuh (**Fullscreen** untuk cubit, ketuk dua kali
+dan geser), PDF langsung di halaman, video dengan pemutar bawaan HP (tidak pernah autoplay, berhenti
+saat lembar ditutup), dan folder tempatnya di Mac, yang bisa dibuka untuk melihat path lengkap, jenis,
+ukuran dan tanggalnya. **Share / Export** membuka share sheet, tempat "Simpan Video" dan "Simpan ke
+File". PDF baru ditampilkan kalau byte awalnya memang PDF. Sama seperti gambar, HP hanya menyebut
 jawabannya, tidak pernah path. Tiap potongan dienkripsi bersama identitas file dan urutannya, jadi relay
 tidak bisa menukar atau mengacak urutannya, dan potongan langsung dihapus dari relay begitu sisi lain
 mengambilnya. Relay menampung paling banyak 40 MB per arah sekaligus dan menyuruh pengirim menunggu kalau
@@ -720,8 +733,8 @@ rantainya.
 | `src/skills.mjs` | skill: bawaan di `skills/` repo ini (kalah oleh skill milikmu yang bernama sama; matikan dengan `/config bundledSkills off`), `~/.seeker/skills/<nama>/SKILL.md`, `.seeker/skills/<nama>/SKILL.md`, dan skill plugin `~/.seeker/plugins/<plugin>/skills/…` yang dipanggil sebagai `/plugin:nama` |
 | `src/ui.mjs`, `src/markdown.mjs` | tampilan: header, panel, pohon langkah tool, status bar |
 | `src/theme.mjs` | satu palet untuk terminal dan aplikasi HP (amber merek, biru tool bekerja, ungu berpikir, hijau selesai, merah gagal); ditulis sebagai warna 24-bit, 256 atau 16 sesuai terminal, tanpa warna jika `NO_COLOR` diisi |
-| `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau dan gambar utuh untuk HP |
-| `src/transfer.mjs` | file utuh antara HP dan Mac: potongan terenkripsi lewat relay, folder kiriman, dan file yang ditawarkan jawaban untuk didownload |
+| `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau dan gambar utuh untuk HP, gambar Quick Look di kartu file |
+| `src/transfer.mjs` | file utuh antara HP dan Mac: potongan terenkripsi lewat relay, folder kiriman, dan file yang ditawarkan jawaban untuk didownload beserta isi kartunya (durasi video, waktu terakhir diubah) |
 | `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
 | `src/screen.mjs` | tata letak layar penuh di layar alternatif: header menempel di atas, kotak input di bawah, percakapan digulir di dalam SEEKER |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |
