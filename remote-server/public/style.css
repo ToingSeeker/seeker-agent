@@ -2825,7 +2825,7 @@ pre {
 .composer-box:not(.open) .extra {
   display: none;
 }
-.composer-box:not(.open) #commands {
+.composer-box:not(.open) #add {
   order: 0;
 }
 .composer-box:not(.open) .stop-btn,

@@ -60,8 +60,8 @@ test('the message box is one line at rest and opens to two levels while writing'
   const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
   // At rest only +, the writing area, Stop and Send are on the line; everything else waits for the box to open.
   const tag = (id) => form.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
-  for (const id of ['commands', 'input', 'stop', 'send']) assert.doesNotMatch(tag(id), /\bextra\b/, `${id} stays on the single line`);
-  for (const id of ['attach', 'mention', 'tokens']) assert.match(tag(id), /class="[^"]*\bextra\b/, `${id} shows only when the box is open`);
+  for (const id of ['add', 'input', 'stop', 'send']) assert.doesNotMatch(tag(id), /\bextra\b/, `${id} stays on the single line`);
+  for (const id of ['tokens']) assert.match(tag(id), /class="[^"]*\bextra\b/, `${id} shows only when the box is open`);
   assert.match(css, /\.composer-box:not\(\.open\) \.composer-bar \{\s*display: contents;/, 'at rest the tools join the writing line');
   assert.match(css, /\.composer-box:not\(\.open\) \.extra \{\s*display: none;/);
   assert.match(css, /\.composer-box\.open \{[^}]*flex-direction: column/, 'open, the writing area has a row of its own');
@@ -69,6 +69,21 @@ test('the message box is one line at rest and opens to two levels while writing'
   // It opens for focus, typed text or an attachment, and closes only after a pause so a tap on a tool still lands.
   assert.match(app, /document\.activeElement === input \|\| Boolean\(input\.value\) \|\| attachments\.length > 0/);
   assert.match(app, /setTimeout\(\(\) => \$\('form'\)\.classList\.remove\('open'\), \d+\)/);
+});
+
+test('+ offers everything that goes into a message, including files of any kind', () => {
+  const html = read('index.html');
+  const app = read('app.js');
+  const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
+  // One + on the bar; the picture and @ buttons, and the separate commands button, live in its sheet now.
+  assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'stop', 'send']);
+  // A PDF or a ZIP can be picked: the "Files" picker takes every kind, and the camera takes a picture.
+  assert.match(form, /<input id="anyfile" type="file" multiple hidden \/>/);
+  assert.match(form, /<input id="camera" type="file" accept="image\/\*" capture="environment" hidden \/>/);
+  const sheet = app.slice(app.indexOf('function addSheet()'), app.indexOf("$('add').addEventListener"));
+  for (const [label, does] of [['Camera', "$('camera').click()"], ['Photos & videos', "$('file').click()"], ['Files', "$('anyfile').click()"], ['Mention a file', 'mentionFile'], ['Model', 'chooseModel'], ['Commands', 'showCommands']]) {
+    assert.ok(sheet.includes(`'${label}'`) && sheet.includes(does), `${label} is in the + sheet and does what it says`);
+  }
 });
 
 test('how many colours a terminal shows is read from its environment', () => {
