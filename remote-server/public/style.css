@@ -177,6 +177,47 @@ svg {
 .session-top .state-chip.plain.muted {
   border: 0;
 }
+/* The Tools tab's filters, under the tabs: one row of chips that slides sideways when it is too wide. */
+.tool-filters {
+  display: flex;
+  gap: 6px;
+  margin: 10px -16px 0;
+  padding: 0 16px 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tool-filters::-webkit-scrollbar {
+  display: none;
+}
+.tool-filters button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: 999px;
+  background: var(--sk-surface);
+  color: var(--sk-text-secondary);
+  font: 600 13px/1 var(--sans);
+  white-space: nowrap;
+}
+.tool-filters .n {
+  font: 600 11.5px/1 var(--mono);
+  color: var(--sk-text-muted);
+}
+.tool-filters button.danger .n {
+  color: var(--sk-danger);
+}
+.tool-filters button.active {
+  color: var(--sk-text-primary);
+  border-color: rgba(255, 138, 0, 0.45);
+  background: rgba(255, 138, 0, 0.16);
+}
+.tool-filters button.active .n {
+  color: var(--sk-primary);
+}
 
 .mono {
   font-family: var(--mono);
@@ -2092,6 +2133,17 @@ button.stat:active {
 }
 .ev .sub {
   word-break: break-word;
+}
+/* The Tools tab keeps each step to two lines of command or path; opening a step shows all of it. */
+.timeline.compact .ev {
+  padding: 8px 0;
+}
+.timeline.compact .body > .sub.mono,
+.timeline.compact .more-box:not([open]) .sub.mono {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 .ev .headline {
   display: flex;

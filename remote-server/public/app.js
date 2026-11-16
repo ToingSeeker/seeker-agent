@@ -11,6 +11,7 @@
 import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, summary, workspaces as explorerRows } from './home.js';
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
+import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
@@ -107,6 +108,7 @@ const state = {
   view: { name: 'home' },
   homeTab: 'control',
   sessionTab: 'activity', // activity | tools | metrics
+  toolFilter: 'all', // the Tools tab: all | failed | edits | commands | reads
   error: '',
   picking: false, // the model sheet is open and waiting for lists from the Mac
   push: 'unknown', // unsupported | off | on | denied
@@ -817,7 +819,7 @@ function route(link) {
 
 const go = (view) => {
   // Another conversation opens on its activity; coming back to the same one keeps the tab.
-  if (view.name === 'session' && view.ws !== state.view.ws && view.ws !== state.view.from?.ws) state.sessionTab = 'activity';
+  if (view.name === 'session' && view.ws !== state.view.ws && view.ws !== state.view.from?.ws) (state.sessionTab = 'activity'), (state.toolFilter = 'all');
   if (view.name === 'session' && view.ws) store('seeker.sessions.last', (state.lastSession = view.ws));
   // What was being typed belongs to the session it was typed in: it waits there, and the next session shows its own.
   const from = state.view.name === 'session' ? state.view.ws : null;
@@ -1710,12 +1712,12 @@ function entryOf(item) {
 let keepFromBottom = null; // set when earlier entries are asked for: the reader stays on the entry they were on
 
 /** `items` in the order they happened; `tail` is one more entry to close the list with. */
-function timeline(ws, items = ws.items, tail = null) {
-  const shown = state.shown.get(ws.meta.id) ?? PAGE;
+function timeline(ws, items = ws.items, tail = null, { key = ws.meta.id, compact = false } = {}) {
+  const shown = state.shown.get(key) ?? PAGE;
   const visible = items.slice(-shown);
   return [
-    items.length > visible.length && h('button', { class: 'btn quiet small', onclick: () => ((keepFromBottom = $('view').scrollHeight - $('view').scrollTop), state.shown.set(ws.meta.id, shown + PAGE), render(true)) }, `Show ${Math.min(PAGE, items.length - visible.length)} earlier entries`),
-    h('ol', { class: 'timeline' }, visible.map(entry), tail),
+    items.length > visible.length && h('button', { class: 'btn quiet small', onclick: () => ((keepFromBottom = $('view').scrollHeight - $('view').scrollTop), state.shown.set(key, shown + PAGE), render(true)) }, `Show ${Math.min(PAGE, items.length - visible.length)} earlier entries`),
+    h('ol', { class: compact ? 'timeline compact' : 'timeline' }, visible.map(entry), tail),
   ];
 }
 
@@ -1825,8 +1827,8 @@ function session(ws) {
   const body =
     tab === 'tools'
       ? tools.length
-        ? timeline(ws, tools)
-        : [h('div', { class: 'empty' }, 'No tool has run in this conversation yet.')]
+        ? toolsBody(ws, tools, pending)
+        : [h('div', { class: 'empty' }, 'No tool has run in this conversation yet.'), pending && h('ol', { class: 'timeline' }, waitingEntry(pending))]
       : tab === 'metrics'
         ? [
             metrics(meta),
@@ -1850,8 +1852,26 @@ function session(ws) {
       up ? h('span', { class: `state-chip plain ${st.tone}${st.busy ? ' busy' : ''}`, role: 'status' }, h('i'), STATE_WORD[st.key]) : h('span', { class: 'state-chip plain danger', role: 'status' }, h('i'), 'Offline'),
       h('button', { class: 'more', 'aria-label': 'More', onclick: menu }, '•••')),
     h('div', { class: 'tabs seg', role: 'tablist', 'aria-label': 'Session views', onkeydown: tabKeys }, tabButton('activity', 'Activity'), tabButton('tools', tools.length ? `Tools · ${tools.length}` : 'Tools'), tabButton('metrics', 'Metrics')),
-  ];
+    tab === 'tools' && tools.length > 0 && toolFilters(tools),
+  ].filter(Boolean);
   return { head, body };
+}
+
+/** The Tools tab's filters, each with how many tools it holds. One that holds none is left out, unless it is the one chosen. */
+function toolFilters(tools) {
+  return h(
+    'div',
+    { class: 'tool-filters', role: 'group', 'aria-label': 'Show tools' },
+    filtersFor(tools, state.toolFilter).map((f) => h('button', { type: 'button', class: `${f.active ? 'active' : ''}${f.id === 'failed' && f.count ? ' danger' : ''}`, 'aria-pressed': String(f.active), onclick: () => ((state.toolFilter = f.id), render(true)) }, f.label, h('span', { class: 'n' }, f.count))),
+  );
+}
+
+/** The Tools tab: the tools that pass the filter, one or two lines each, and a request that waits for the user at the foot. */
+function toolsBody(ws, tools, pending) {
+  const shown = filterTools(tools, state.toolFilter);
+  const waiting = pending ? waitingEntry(pending) : null;
+  if (!shown.length) return [h('div', { class: 'empty' }, `No ${filterLabel(state.toolFilter).toLowerCase()} tools in this conversation.`), waiting && h('ol', { class: 'timeline' }, waiting)];
+  return timeline(ws, shown, waiting, { key: `${ws.meta.id}:tools:${state.toolFilter}`, compact: true });
 }
 
 function newConversation(meta) {
@@ -2209,7 +2229,7 @@ function draw() {
   // Stay at the bottom of a growing conversation, unless the reader has scrolled up.
   const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 80;
   const pinned = name === 'session' && state.sessionTab !== 'metrics' && atBottom;
-  const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab : ''}`;
+  const screen = `${name}:${state.view.ws ?? state.view.id ?? ''}:${name === 'home' ? state.homeTab : name === 'session' ? state.sessionTab + (state.sessionTab === 'tools' ? `:${state.toolFilter}` : '') : ''}`;
   // The Sessions list is left alone while nothing it shows has changed: a token streaming in another
   // project does not rebuild it, so a finger or the keyboard focus stays on the row it was on.
   const listed = !paired ? null : name === 'sessions' ? sessionsNow() : name === 'home' ? homeNow() : null;
