@@ -13,6 +13,7 @@ import { DEFAULTS, HOME_DIR, VERSION } from '../src/config.mjs';
 import { Permissions } from '../src/permissions.mjs';
 import { createProvider } from '../src/providers.mjs';
 import crypto from 'node:crypto';
+import { Session } from '../src/session.mjs';
 import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
 import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
 import { CHUNK_BYTES, sealChunk, unsealChunk } from '../src/transfer.mjs';
@@ -1125,6 +1126,75 @@ test('remote: a session running in a terminal joins the daemon, shows on the pho
   await until(() => me.state.replies.some((r) => r.t === 'toast' && /runs in a terminal/.test(r.text)));
   port.close();
   await until(() => !me.state.workspaces.has(mirror.id));
+});
+
+test('remote: a conversation from the phone continued in a terminal moves there, and one still at work stays on the phone', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-handoff-'));
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sk-')), 'l.sock');
+  const secret = 'a-long-secret-for-handing-a-conversation-over';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([[done('Hello from the phone.')], [call('write_file', { path: 'a.txt', content: 'one' }), { done: true }], [done('Written.')]]);
+  const config = { ...DEFAULTS, host: ollama.host, remote: { url, secret } };
+  const info = { tools: true, thinking: false, context: null };
+  const build = async (folder, ui, asker) => {
+    const agent = new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder });
+    agent.session = new Session(folder);
+    return { agent, session: agent.session };
+  };
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false, link });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  await until(() => me.state.workspaces.size === 1);
+  const [{ id }] = [...me.state.workspaces.values()];
+
+  // Started on the phone and saved on the Mac; then a second task waits there for an approval.
+  await me.send('message', { ws: id, text: 'hi' });
+  await until(() => me.state.workspaces.get(id).outcome === 'completed');
+  await me.send('message', { ws: id, text: 'write a' });
+  await until(() => me.state.approvals.length === 1);
+
+  // `seeker -c` in a terminal picks the saved conversation up, as cli.mjs does.
+  const handoffs = [];
+  const port = new TerminalLink({ file: link, info, retry: 50, onHandoff: (h) => handoffs.push(h) });
+  const mirror = new Workspace(port, cwd, { id: terminalId(cwd), terminal: true });
+  const session = new Session(cwd);
+  const loaded = session.loadLatest();
+  assert.ok(loaded.some((m) => m.role === 'user' && m.content === 'hi'));
+  port.claim(session.file);
+  const agent = new Agent({ config, ui: mirror.ui, permissions: new Permissions({ mode: 'ask', cwd, ask: async () => 'n' }), provider: createProvider('ollama', config), info, cwd });
+  port.build = async () => ({ agent, session });
+  await mirror.open();
+  port.start(() => ({ ...mirror.meta(), items: mirror.items }));
+  t.after(async () => {
+    me.close();
+    port.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+  });
+
+  // Still at work on the phone: it keeps the conversation, and the terminal is told so and lets go of it.
+  await until(() => handoffs.length === 1);
+  assert.equal(handoffs[0].busy, true);
+  assert.equal(port.claimed, null);
+  await until(() => me.state.workspaces.has(mirror.id));
+  assert.ok(me.state.workspaces.has(id));
+
+  // Once the phone's task is over, picking it up again (/resume) moves it: one conversation, now in the terminal.
+  await me.send('approve', { id_approval: me.state.approvals[0].id, decision: 'allow' });
+  await until(() => me.state.workspaces.get(id).outcome === 'completed' && me.state.workspaces.get(id).status === 'idle');
+  port.claim(session.file);
+  await until(() => handoffs.length === 2);
+  assert.equal(handoffs[1].busy, false);
+  assert.ok(handoffs[1].items.some((i) => i.kind === 'user' && i.text === 'hi'));
+  await until(() => !me.state.workspaces.has(id));
+  const moved = me.state.workspaces.get(mirror.id);
+  assert.ok(moved.items.some((i) => i.kind === 'user' && i.text === 'write a'), 'the phone shows the whole conversation under the terminal entry');
+  assert.ok(me.state.events.some((e) => e.t === 'moved' && e.from === id && e.to === mirror.id));
+  assert.ok(me.state.replies.some((r) => r.t === 'toast' && /continues in the terminal/.test(r.text)));
 });
 
 test('remote: the phone changes the settings /config holds, they take effect at once, and an API key is stored but never sent back', async (t) => {

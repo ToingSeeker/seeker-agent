@@ -638,6 +638,11 @@ running, the terminal works exactly as before.
   must not come from a lost phone stays in the terminal: `/hooks`, `/mcp`, `/rollback`, `/resume`, `/key`,
   `/paste`, `/exit`.
 - **Approvals** — asked in both places; the first answer decides and the other one closes.
+- **Moving a conversation from the phone to the terminal** — `cd` into the project and run `seeker -c` (or
+  `/resume` and pick it). The phone's copy closes, its transcript moves to the terminal session, and a phone
+  that had it open follows it there, so there is one conversation and nothing overwrites anything. If the
+  phone is still working on it (or has instructions queued), it keeps its copy and the terminal goes on in a
+  separate one; run `seeker -c` again once the phone has finished.
 - **Not from the phone** — a new conversation, another model, and closing the session are done in the
   terminal. A session started with `--yolo` shows on the phone but takes no tasks from it.
 

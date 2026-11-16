@@ -4,6 +4,11 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **A conversation started on the phone moves cleanly to the terminal.** `seeker -c` (or `/resume`) in a
+  terminal on the Mac closes the phone's copy of that conversation, moves its transcript to the terminal
+  session, and takes a phone that had it open there. Before, both copies stayed open and each saved over the
+  other. One still at work on the phone stays there, and the terminal continues in a separate file.
+
 - **Shell commands can run in a Docker container or on another machine.** `/backend docker:<image>` runs
   each command in a fresh container with the project mounted at the same path and nothing else of this
   machine visible; `/backend ssh:<host>[:<folder>]` runs it on another machine, copying the project there
