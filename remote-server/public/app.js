@@ -869,9 +869,21 @@ function header() {
 /** A strip across the top whenever what is on screen may be out of date. */
 function linkBanner() {
   if (!state.secret) return null;
-  if (!state.linked) return h('div', { class: 'banner warning', role: 'status' }, h('i', { class: 'spin' }), 'Reconnecting to the relay…');
-  if (!state.online) return h('div', { class: 'banner danger', role: 'status' }, dot('off'), 'Your Mac is offline. Run `seeker remote` on it.');
+  const strip = (tone, mark, title, sub) =>
+    h('div', { class: `banner link ${tone}`, role: 'status' }, mark, h('div', { class: 'grow' }, h('div', { class: 'title' }, title), h('div', { class: 'sub' }, ...sub)));
+  if (!state.linked) return strip('warning', h('i', { class: 'spin' }), 'Reconnecting to the relay…', ['What is on screen may be out of date.']);
+  if (!state.online) return strip('danger', dot('off'), 'Your Mac is offline', ['Run ', h('code', {}, 'seeker remote'), ' on it to reconnect.']);
   return null;
+}
+
+/** The screen with the link banner placed under the sticky brand header, which would otherwise cover it. */
+function withBanner(content) {
+  const parts = [content].flat(3).filter(Boolean);
+  const banner = linkBanner();
+  if (!banner) return parts;
+  const at = parts.findIndex((el) => el.classList?.contains('brand'));
+  parts.splice(at + 1, 0, banner);
+  return parts;
 }
 
 // ── home ───────────────────────────────────────────────────────────────────
@@ -2609,7 +2621,7 @@ function draw() {
   // The screen is rebuilt on every event. Starting each looping animation "this long ago" keeps
   // spinners and pulses in step across rebuilds instead of restarting them.
   view.style.setProperty('--t', `-${Math.round(performance.now())}ms`);
-  if (!unchanged) view.replaceChildren(...[linkBanner(), content].flat(3).filter(Boolean));
+  if (!unchanged) view.replaceChildren(...withBanner(content));
   if (typing && !unchanged) {
     const fresh = [...view.querySelectorAll('input.field')].find((el) => el.dataset.field === typing.dataset.field);
     if (fresh && !fresh.disabled) {
@@ -2771,7 +2783,10 @@ function queuePanel(ws, up) {
   el.replaceChildren(...parts.filter(Boolean));
 }
 
-/** Stop and Send, each on its own: Stop only while something runs, Send whenever there is something to send and somewhere for it to go. */
+/**
+ * Stop and Send share one place. While something runs and the box is empty it holds Stop; once there is
+ * something to send (text or an attachment) Send takes it, and clearing the box brings Stop back.
+ */
 function composerState() {
   const ws = state.workspaces.get(state.view.ws);
   if (!ws) return;
@@ -2784,7 +2799,9 @@ function composerState() {
   $('send').disabled = sending || !up || nowhere || empty;
   $('send').classList.toggle('busy', sending);
   const stoppable = st.busy && meta.can?.stop !== false;
-  $('stop').hidden = !stoppable;
+  const showStop = stoppable && empty && !sending;
+  $('stop').hidden = !showStop;
+  $('send').hidden = showStop;
   $('stop').disabled = !up || Boolean(meta.stopping) || (stopAsked !== null && stopAsked === (meta.turn ?? null));
   if (!st.busy) stopAsked = null;
 }
@@ -3145,6 +3162,8 @@ if (window.visualViewport) {
     // those would walk the page down slowly, so the full height comes back the moment typing ends.
     const keyboard = typing() && full - visualViewport.height > 120;
     $('app').style.height = keyboard ? `${visualViewport.height}px` : '';
+    // A long message scrolls inside the box instead of pushing it under the keyboard (style.css caps it).
+    document.documentElement.style.setProperty('--app-h', keyboard ? `${visualViewport.height}px` : '');
     document.documentElement.classList.toggle('keyboard', keyboard);
     if (keyboard || window.scrollY) window.scrollTo(0, 0);
   };
