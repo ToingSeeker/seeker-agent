@@ -240,3 +240,16 @@ test('backend: ssh refuses to run when the sandbox promises no network, instead 
   assert.equal(backendOf({ backend: 'ssh:box', sandbox: true, sandboxNetwork: true }, cwd).kind, 'ssh');
   await assert.rejects(bash({ command: 'touch ran' }, { cwd, backend: { kind: 'invalid', error: 'cannot be enforced on another machine' } }), /cannot be enforced/);
 });
+
+test('backend: a home folder reached through a link is still recognised and not mounted', (t) => {
+  const home = tmp('seeker-be-home-');
+  const link = path.join(tmp('seeker-be-link-'), 'home');
+  fs.symlinkSync(home, link);
+  const saved = process.env.HOME;
+  process.env.HOME = link;
+  t.after(() => (process.env.HOME = saved));
+  fs.mkdirSync(path.join(home, '.git'));
+  fs.mkdirSync(path.join(home, 'app'));
+  assert.equal(backendOf({ backend: 'docker:alpine' }, path.join(home, 'app')).root, path.join(home, 'app'));
+  assert.throws(() => backendOf({ backend: 'docker:alpine' }, home), /your whole home folder/);
+});

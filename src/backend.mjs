@@ -80,8 +80,16 @@ export function describeBackend(backend) {
 }
 
 /** Whether folder `outer` is `inner` or one of the folders it is in. */
+const real = (p) => {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+};
+// Compared as real paths: a home folder reached through a link (/tmp and /private/tmp on macOS) is still home.
 const holds = (outer, inner) => {
-  const rel = path.relative(path.resolve(outer), path.resolve(inner));
+  const rel = path.relative(real(outer), real(inner));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
