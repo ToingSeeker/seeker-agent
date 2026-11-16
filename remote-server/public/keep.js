@@ -28,19 +28,31 @@ export function toEvict(entries, limit = KEEP_LIMIT) {
 
 const open = (store) => store?.open(KEEP_CACHE);
 
-/** Keep a file fetched from `path` on the Mac. Never throws: keeping is a convenience. */
-export async function keep(file, path, { smaller = false, store = globalThis.caches, limit = KEEP_LIMIT } = {}) {
-  if (!path || !store || file.size > limit) return false;
+/**
+ * Keeps a file fetched from `path` on the Mac, and says whether it can be found again:
+ * `{ ok, reason }`, `reason` being 'full' (the phone refused the space), 'too-large', 'no-storage'
+ * or 'failed'. It is only `ok` once the file reads back at its full size. Never throws.
+ */
+export async function store(file, path, { smaller = false, store: where = globalThis.caches, limit = KEEP_LIMIT } = {}) {
+  if (!path || !where) return { ok: false, reason: 'no-storage' };
+  if (file.size > limit) return { ok: false, reason: 'too-large' };
   try {
-    const cache = await open(store);
+    const cache = await open(where);
     const headers = { 'content-type': file.type || 'application/octet-stream', 'x-name': encodeURIComponent(file.name), 'x-bytes': String(file.size), 'x-at': String(Date.now()) };
     if (smaller) headers['x-smaller'] = '1';
     await cache.put(keptUrl(path), new Response(file, { headers }));
     for (const url of toEvict(await entries(cache), limit)) await cache.delete(url);
-    return true;
-  } catch {
-    return false;
+    const back = await cache.match(keptUrl(path));
+    if (!back || (await back.blob()).size !== file.size) return { ok: false, reason: 'failed' };
+    return { ok: true, reason: null };
+  } catch (err) {
+    return { ok: false, reason: err?.name === 'QuotaExceededError' ? 'full' : 'failed' };
   }
+}
+
+/** Keep a file fetched from `path` on the Mac: true when it can be found again. Never throws. */
+export async function keep(file, path, options = {}) {
+  return (await store(file, path, options)).ok;
 }
 
 /** The file kept for `path`, or null. With `bytes`, one of another size does not count. */
@@ -62,9 +74,37 @@ async function entries(cache) {
   const out = [];
   for (const req of await cache.keys()) {
     const res = await cache.match(req);
-    if (res) out.push({ url: new URL(req.url ?? req, 'http://x').pathname, bytes: Number(res.headers.get('x-bytes')) || 0, at: Number(res.headers.get('x-at')) || 0 });
+    if (!res) continue;
+    const url = new URL(req.url ?? req, 'http://x').pathname;
+    out.push({
+      url,
+      path: url.startsWith(PREFIX) ? decodeURIComponent(url.slice(PREFIX.length)) : null,
+      name: decodeURIComponent(res.headers.get('x-name') ?? 'file'),
+      type: res.headers.get('content-type') ?? '',
+      bytes: Number(res.headers.get('x-bytes')) || 0,
+      at: Number(res.headers.get('x-at')) || 0,
+    });
   }
   return out;
+}
+
+/** Every kept file, newest first: `[{ path, name, type, bytes, at }]`. What the cards and Settings read. */
+export async function keptList({ store: where = globalThis.caches } = {}) {
+  if (!where) return [];
+  try {
+    return (await entries(await open(where))).filter((e) => e.path).sort((a, b) => b.at - a.at).map(({ url, ...e }) => e);
+  } catch {
+    return [];
+  }
+}
+
+/** Drop the file kept for `path`. */
+export async function forget(path, { store: where = globalThis.caches } = {}) {
+  try {
+    return !!(await (await open(where))?.delete(keptUrl(path)));
+  } catch {
+    return false;
+  }
 }
 
 /** How many files are kept and how many bytes they take. */

@@ -3139,32 +3139,241 @@ pre {
   cursor: pointer;
 }
 
-/* ── file cards: sent from here (↑ cyan) or offered by an answer (↓ orange) ── */
-.fcards {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
+/* ── file cards: GENERATED FILES under an answer, and the files a message sent from here ── */
+.fgroup {
+  margin-top: 12px;
+  max-width: 520px;
+  padding: 10px;
+  border: 1px solid var(--sk-border);
+  border-radius: 14px;
+  background: var(--sk-bg-secondary);
 }
-.fcard {
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) 30px;
+/* One file alone, or the files under a message sent from here: rows only, no frame around them. */
+.fgroup.single {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.fgroup.single .frow + .frow,
+.fglist .frow + .frow {
+  margin-top: 8px;
+}
+.fghead {
+  display: flex;
   align-items: center;
   gap: 12px;
-  width: 100%;
-  max-width: 480px;
-  padding: 10px 12px;
+  padding: 2px 4px 12px;
+}
+.fghead > .ico {
+  width: 22px;
+  height: 22px;
+  color: var(--sk-primary);
+}
+.fghead > span:last-child {
+  display: flex;
+  flex-direction: column;
+}
+.fgtitle {
+  font: 700 13px/1.2 var(--sans);
+  letter-spacing: 0.08em;
+  color: var(--sk-text-primary);
+}
+.fgsub {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--sk-text-muted);
+}
+.frow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 0;
   border: 1px solid var(--sk-border);
-  border-radius: var(--sk-radius-md);
+  border-radius: 12px;
   background: var(--sk-surface);
+  transition: background var(--sk-motion-fast);
+}
+.frow:has(.fopen:active) {
+  background: var(--sk-surface-hover);
+}
+.fopen {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 72px;
+  padding: 10px 0 10px 10px;
+  border: 0;
+  background: none;
   color: var(--sk-text-primary);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background var(--sk-motion-fast);
 }
-.fcard:active {
-  background: var(--sk-surface-hover);
+.fopen .fmain {
+  flex: 1;
+}
+.fthumb {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 10px;
+  font: 700 11px/1 var(--mono);
+  letter-spacing: 0.04em;
+}
+.fthumb > svg {
+  width: 26px;
+  height: 26px;
+}
+.fthumb.pic {
+  background: var(--sk-surface-elevated);
+}
+.fthumb.pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* A PDF's first page is shown whole, as a page, not cropped like a photo. */
+.fthumb.pic.page {
+  background: #fff;
+}
+.fthumb.pic.page img {
+  object-fit: contain;
+}
+/* A PDF with no picture of it: a page with its label and three lines of text. */
+.fthumb.doc {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 9px 8px;
+}
+.fthumb.doc b {
+  margin-bottom: 3px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--sk-danger) 30%, transparent);
+  font-size: 9px;
+}
+.fthumb.doc i {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0.45;
+}
+.fthumb.doc i:last-child {
+  width: 70%;
+}
+.fplay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  padding: 6px 5px 6px 7px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  transform: translate(-50%, -50%);
+}
+.fthumb.pic .fplay svg {
+  fill: currentColor;
+}
+.ftime {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font: 600 9.5px/1 var(--mono);
+  letter-spacing: 0;
+}
+.ffolder {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--sk-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ffolder .ico {
+  width: 14px;
+  height: 14px;
+  color: var(--sk-text-muted);
+}
+/* The button at the end of a card: save here, the progress (tap to cancel), saved, retry, gone. */
+.fact {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--sk-primary-soft);
+  color: var(--sk-primary);
+  cursor: pointer;
+}
+.fact .ico {
+  width: 20px;
+  height: 20px;
+  color: inherit;
+}
+.fact.saved {
+  background: var(--sk-success-soft);
+  color: var(--sk-success);
+}
+.fact.failed {
+  background: var(--sk-danger-soft);
+  color: var(--sk-danger);
+}
+.fact.gone,
+.fact.still {
+  background: var(--sk-surface-elevated);
+  color: var(--sk-text-muted);
+  cursor: default;
+}
+.fact.gone {
+  cursor: pointer;
+}
+.frow.up .fact.still {
+  background: var(--sk-user-soft);
+  color: var(--sk-user);
+}
+.fact.busy {
+  background: none;
+}
+.fact.busy .ico {
+  width: 14px;
+  height: 14px;
+}
+/* The bytes that arrived, as a ring (--p, set from the app, 0 to 1); turning when the total is not known yet. */
+.fring {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: conic-gradient(var(--sk-primary) calc(var(--p, 0) * 360deg), var(--sk-primary-soft) 0);
+  -webkit-mask: radial-gradient(circle, transparent 14px, #000 15px);
+  mask: radial-gradient(circle, transparent 14px, #000 15px);
+}
+.fring.spin {
+  background: conic-gradient(var(--sk-primary) 90deg, var(--sk-primary-soft) 0);
+  animation: spin 0.9s linear infinite;
 }
 .fbadge {
   display: flex;
@@ -3218,8 +3427,8 @@ pre {
 .fname {
   display: flex;
   min-width: 0;
-  font-size: 14.5px;
-  font-weight: 550;
+  font-size: 15px;
+  font-weight: 650;
 }
 .fname .stem {
   overflow: hidden;
@@ -3236,27 +3445,6 @@ pre {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.fdir {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  padding: 7px;
-  border-radius: 50%;
-}
-.fdir svg {
-  width: 100%;
-  height: 100%;
-}
-.fcard.up .fdir {
-  background: var(--sk-user-soft);
-  color: var(--sk-user);
-}
-.fcard.down .fdir {
-  background: var(--sk-primary-soft);
-  color: var(--sk-primary);
 }
 /* Where a file is on the Mac, under its preview. */
 .fpath {
@@ -3382,6 +3570,343 @@ pre {
   position: absolute;
   top: -7px;
   right: -12px;
+}
+
+/* ── the file preview sheet: one look for a picture, a PDF, a video and the rest ── */
+#sheet .panel.fpv {
+  max-height: 92dvh;
+  padding-top: 8px;
+}
+.fpv-head {
+  position: sticky;
+  top: -8px;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 44px 44px;
+  align-items: start;
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 8px 16px 14px;
+  border-bottom: 1px solid var(--sk-border);
+  background: var(--sk-surface);
+}
+.fpv-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  padding: 13px;
+  border: 1px solid var(--sk-border);
+  border-radius: 12px;
+}
+/* The tile names the kind in the app's colour; the badge colours stay on the cards. */
+.fpv-tile.t-image,
+.fpv-tile.t-video,
+.fpv-tile.t-audio,
+.fpv-tile.t-pdf,
+.fpv-tile.t-zip,
+.fpv-tile.t-code,
+.fpv-tile.t-text,
+.fpv-tile.t-other {
+  background: var(--sk-surface-elevated);
+  color: var(--sk-primary);
+}
+.fpv-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding-top: 2px;
+}
+#sheet .fpv-title h3 {
+  position: static;
+  margin: 0;
+  padding: 0;
+  background: none;
+  font-size: 18px;
+  font-weight: 700;
+}
+.fpv-facts {
+  margin-top: 3px;
+  color: var(--sk-text-secondary);
+  font-size: 13.5px;
+}
+.fpv-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.fpv-status.muted {
+  color: var(--sk-text-muted);
+  font-weight: 500;
+}
+.fpv-status.success {
+  color: var(--sk-success);
+}
+.fpv-status.warning {
+  color: var(--sk-warning);
+}
+.fpv-status.danger {
+  color: var(--sk-danger);
+}
+.fpv-status .ico {
+  width: 18px;
+  height: 18px;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--sk-success);
+  color: var(--sk-surface);
+}
+.fpv-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--sk-border);
+  border-radius: 12px;
+  background: var(--sk-surface-elevated);
+  color: var(--sk-text-primary);
+}
+.fpv-icon .ico {
+  width: 20px;
+  height: 20px;
+  color: inherit;
+}
+.fpv-icon:disabled {
+  opacity: 0.4;
+}
+.fpv-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--sk-border);
+  border-radius: 14px;
+  background: var(--sk-bg);
+}
+.fpv-stage.empty {
+  flex-direction: column;
+  gap: 12px;
+  min-height: 240px;
+  padding: 24px;
+  color: var(--sk-text-secondary);
+  text-align: center;
+}
+.fpv-stage.empty p {
+  margin: 0;
+}
+.fpv-stage.empty .btn {
+  width: auto;
+  min-width: 140px;
+  margin: 0;
+}
+.fpv-holder {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+/* The picture or video whole, never cropped: the frame letterboxes it. */
+.fpv-media {
+  display: block;
+  width: 100%;
+  max-height: calc(92dvh - 330px);
+  min-height: 160px;
+  object-fit: contain;
+  background: var(--sk-bg);
+}
+img.fpv-media {
+  cursor: zoom-in;
+}
+.fpv-media.doc {
+  height: calc(92dvh - 330px);
+  border: 0;
+  background: #fff;
+}
+.fpv-media.doc.wait {
+  background: var(--sk-bg);
+}
+.fpv-media.text {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  font: 12px/1.5 var(--mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+}
+.fpv-media.zip {
+  margin: 0;
+  padding: 4px 0;
+  overflow: auto;
+  list-style: none;
+  align-self: stretch;
+}
+.fpv-media.zip li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--sk-border-subtle);
+  font-size: 12.5px;
+}
+.fpv-media.zip li .mono {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fpv-audio {
+  width: calc(100% - 24px);
+  margin: 40px 12px;
+}
+.fpv-broken {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 36px 20px;
+  color: var(--sk-text-secondary);
+  text-align: center;
+}
+.fpv-broken p {
+  margin: 0;
+}
+.fpv-progress {
+  width: 100%;
+  max-width: 320px;
+}
+.fpv-progress .bar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--sk-surface-elevated);
+}
+.fpv-progress .bar span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--sk-primary);
+  transition: width var(--sk-motion-fast) linear;
+}
+.fpv-progress .bar.indeterminate span {
+  width: 30%;
+  animation: slide 1.2s ease-in-out infinite;
+}
+.fpv-progress .row-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.linkish {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--sk-primary);
+  font: 600 13.5px/1 var(--sans);
+}
+.fpv-src {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 14px;
+  padding: 0 4px;
+  border: 0;
+  border-top: 1px solid var(--sk-border);
+  border-bottom: 1px solid var(--sk-border);
+  background: none;
+  color: var(--sk-text-muted);
+  font: 15px/1.3 var(--sans);
+  text-align: left;
+}
+.fpv-src .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.fpv-src .last {
+  color: var(--sk-text-secondary);
+}
+.fpv-src .chev {
+  width: 18px;
+  height: 18px;
+  transition: transform var(--sk-motion-fast);
+}
+.fpv-src .chev.open {
+  transform: rotate(90deg);
+}
+.fpv-details {
+  padding: 6px 4px 4px;
+  border-bottom: 1px solid var(--sk-border);
+}
+.fpv-fact {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  font-size: 13px;
+}
+.fpv-fact > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.fpv-details .fpath {
+  margin: 8px 0 6px;
+}
+.fpv-actions {
+  margin-top: 16px;
+}
+.fpv-actions .btn {
+  min-height: 52px;
+  font-size: 16px;
+}
+.fpv-actions .btn:disabled {
+  opacity: 0.45;
+}
+/* ── a picture made big: over everything, pinch and drag; the page behind does not move ── */
+.zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--sk-bg);
+  touch-action: none;
+  animation: fade var(--sk-motion-fast) ease-out;
+}
+.zoom img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.zoom-close {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
 }
 
 /* ── bottom sheet and toast ── */

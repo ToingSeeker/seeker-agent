@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
 import { PHONE_FILES as MAC_MARKER } from '../src/commands.mjs';
-import { PHONE_FILES, fileKind, folderOf, listZip, previewKind, splitName, splitSent, zipDirectory } from '../remote-server/public/files.js';
+import { PHONE_FILES, cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, playTime, previewKind, splitName, splitSent, typeName, zipDirectory } from '../remote-server/public/files.js';
 
 const read = (file) => fs.readFileSync(new URL(`../remote-server/public/${file}`, import.meta.url), 'utf8');
 
@@ -103,8 +103,95 @@ test('files: cards replace the raw list in the timeline, and a waiting file open
   assert.match(app, /const \{ said, listed \} = splitSent\(item\.text\)/);
   assert.match(app, /sentFiles\(item, listed\)/);
   assert.match(app, /onclick: \(\) => previewWaiting\(a\)/, 'a file waiting in the composer can be checked');
-  assert.match(app, /startDownload\(state\.view\.ws, item\.id, index, f\.name, f\.file, f\.bytes\)/, 'a sent file is fetched back from the Mac to check it');
+  assert.match(app, /fileRow\(f, known && f\.mime \? \{ kind: 'download', ws: state\.view\.ws, item: item\.id, index,/, 'a sent file is fetched back from the Mac to check it');
   const css = read('style.css');
-  assert.match(css, /\.fcard\.up \.fdir \{[^}]*var\(--sk-user\)/, 'sent: cyan');
-  assert.match(css, /\.fcard\.down \.fdir \{[^}]*var\(--sk-primary\)/, 'offered: orange');
+  assert.match(css, /\.frow\.up \.fact\.still \{[^}]*var\(--sk-user\)/, 'sent: cyan');
+  assert.match(css, /\.fact \{[^}]*var\(--sk-primary\)/, 'offered: orange');
+});
+
+test('files: a card says what a file is in words, and a video how long it plays', () => {
+  assert.equal(typeName('application/pdf', 'a.pdf'), 'PDF Document');
+  assert.equal(typeName('image/jpeg', 'a.jpg'), 'JPEG Image');
+  assert.equal(typeName('image/png', 'IMG_3767.png'), 'PNG Image');
+  assert.equal(typeName('video/mp4', 'a.mp4'), 'MP4 Video');
+  assert.equal(typeName(null, 'photo.heic'), 'HEIC Image', 'from the name when the Mac gave no type');
+  assert.equal(typeName(null, 'notes.md'), 'MD File');
+  assert.equal(typeName(null, 'README'), 'File');
+  assert.equal(playTime(8), '0:08');
+  assert.equal(playTime(12.4), '0:12');
+  assert.equal(playTime(3725), '1:02:05');
+  for (const unknown of [0, -1, NaN, undefined, 'x']) assert.equal(playTime(unknown), '', 'no length is made up');
+});
+
+test('files: GENERATED FILES counts the files, and adds their size only when every size is known', () => {
+  const size = (b) => `${b} B`;
+  assert.equal(filesSummary([{ bytes: 16000 }, { bytes: 30000 }, { bytes: 3213330 }], size), '3 files · 3259330 B');
+  assert.equal(filesSummary([{ bytes: 10 }, {}], size), '2 files');
+  assert.equal(filesSummary([{ bytes: 10 }], size), '1 file · 10 B');
+  assert.equal(filesSummary(null, size), '0 files');
+});
+
+test('files: a PDF counts its pages from its page tree, and says nothing when it cannot tell', () => {
+  assert.equal(pdfPages('1 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >> endobj'), 2);
+  assert.equal(pdfPages('<< /Count 7 /Kids [1 0 R] /Type /Pages >>'), 7, 'in either order');
+  assert.equal(pdfPages('<< /Type /Pages /Count 3 >> << /Type /Pages /Count 12 >>'), 12, 'the root holds them all');
+  assert.equal(pdfPages('<< /Type /Page /Parent 1 0 R >>'), null);
+  assert.equal(pdfPages('%PDF-1.7 compressed object streams'), null);
+  const minimal = '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [ 3 0 R ]\n/Count 1\n>>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF';
+  assert.equal(pdfPages(minimal), 1, 'across lines, as most writers put it');
+});
+
+test('files: a card shows the Mac’s picture only if it is a small JPEG', () => {
+  assert.equal(cardPicture('/9j/4AAQSkZJRg=='), '/9j/4AAQSkZJRg==');
+  assert.equal(cardPicture('iVBORw0KGgo='), null, 'not a JPEG');
+  assert.equal(cardPicture('/9j/"><script>'), null, 'not base64');
+  assert.equal(cardPicture(`/9j/${'A'.repeat(20_000)}`), null, 'too large');
+  assert.equal(cardPicture(undefined), null);
+});
+
+test('files: a file card opens the file and its button only saves it, each its own button', () => {
+  const app = read('app.js');
+  const fn = (name) => app.slice(app.indexOf(`function ${name}(`), app.indexOf('\n}\n', app.indexOf(`function ${name}(`)));
+  const row = fn('fileRow');
+  assert.match(row, /class: 'fopen'[^]*onclick: open/, 'the row opens the preview');
+  assert.match(row, /fileAction\(src\)/, 'the button is separate');
+  const action = fn('fileAction');
+  for (const state of ["'fact busy'", "'fact saved'", "'fact gone'", "'fact failed'", '`Save ${name} on this phone`']) assert.ok(action.includes(state), state);
+  assert.doesNotMatch(action, /Math\.random|setInterval/, 'progress is the bytes that arrived, never made up');
+  assert.match(fn('progressBlock'), /share == null \? 'Fetching from your Mac…'/, 'no total, no percentage');
+  // "Saved on this phone" only once the file reads back from the phone's storage.
+  assert.match(fn('previewStatus'), /if \(shown\?\.saved\)/);
+  assert.match(app, /saved: outcome\.ok/);
+  const css = read('style.css');
+  assert.match(css, /\.fpv-media \{[^}]*object-fit: contain/, 'the preview never crops');
+});
+
+test('files: the phone asks the Mac by message and place, never by path', () => {
+  const app = read('app.js');
+  assert.match(app, /command\('download', \{ ws: src\.ws, item: src\.item, index: src\.index, req \}/);
+  assert.match(app, /command\('file', \{ ws: src\.ws, item: src\.item, index: src\.index, req \}/);
+  assert.doesNotMatch(app, /command\('(download|file)', \{[^}]*(where|path|file:)/);
+});
+
+test('files: the relay lets the app frame a PDF it made itself, and nothing else gets looser', async () => {
+  const { createRelay } = await import('../remote-server/server.mjs');
+  const relay = createRelay({ authHash: 'a'.repeat(64) });
+  await new Promise((resolve) => relay.listen(0, '127.0.0.1', resolve));
+  try {
+    const res = await fetch(`http://127.0.0.1:${relay.address().port}/`);
+    const csp = Object.fromEntries(res.headers.get('content-security-policy').split(';').map((d) => d.trim().split(/\s+/)).map(([k, ...v]) => [k, v.join(' ')]));
+    assert.equal(csp['frame-src'], 'blob:', 'only a blob this page made, never another site');
+    assert.equal(csp['script-src'], "'self'", 'a framed blob cannot run script: it inherits this');
+    // A blob takes the page's policy with it: with 'none' even the app could not frame its own PDF
+    // (WebKit, so the iPhone, refuses it). 'self' still keeps every other site from framing the app.
+    assert.equal(csp['frame-ancestors'], "'self'", 'never framed by another site');
+    assert.equal(csp['default-src'], "'self'");
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  } finally {
+    relay.close();
+  }
+  const app = read('app.js');
+  const inner = app.slice(app.indexOf('function previewInner('), app.indexOf('\n}\n', app.indexOf('function previewInner(')));
+  assert.match(inner, /if \(magic !== '%PDF-'\) return broken/, 'framed only when its bytes say PDF, not its name');
+  assert.ok(inner.indexOf("magic !== '%PDF-'") < inner.indexOf("h('iframe'"));
 });

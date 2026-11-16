@@ -14,12 +14,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { PHONE_FILES, isSlashCommand, runPhoneCommand } from './commands.mjs';
 import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './config.mjs';
-import { fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
+import { cardThumb, fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
 import { TOOL_BY_NAME } from './tools.mjs';
 import { ANSI } from './text.mjs';
-import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
+import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, cardFacts, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -31,6 +31,7 @@ const COMMAND_MAX_AGE = 5 * 60 * 1000;
 const NOTIFY_FINISHED_AFTER = 30_000; // a turn shorter than this ends without a notification
 const QUEUE_MAX = 20; // instructions that can wait in one project
 const PREVIEWS_KEPT = 6; // tool steps per workspace that keep their image previews in a snapshot
+const FILE_CARDS_KEPT = 12; // answers per workspace whose file cards keep their small pictures
 const PREVIEWS_PER_STEP = 4;
 const INSTRUCTION_MAX = 20_000; // characters in one of them
 const PAUSED = {
@@ -260,8 +261,14 @@ export class WebUI {
  */
 export function keepRecentPreviews(items, keep = PREVIEWS_KEPT) {
   let seen = 0;
+  let cards = 0;
   for (let i = items.length - 1; i >= 0; i--) {
     const item = items[i];
+    if (item.kind === 'assistant' && item.files?.some((f) => f.thumb)) {
+      // A file card without its picture still opens the file; it just shows its kind instead.
+      if (++cards > FILE_CARDS_KEPT) item.files = item.files.map(({ thumb, ...f }) => f);
+      continue;
+    }
     if (item.kind !== 'tool' || !item.images?.some((image) => image.thumb)) continue;
     if (++seen > keep) item.images = item.images.map(({ name, file }) => ({ name, mime: null, thumb: null, ...(file ? { file } : {}) }));
   }
@@ -343,7 +350,7 @@ export class Workspace {
         Object.assign(item, event.patch ?? {});
         if (event.append) item.text = (item.text ?? '') + event.append;
       }
-      if (event.patch?.images) keepRecentPreviews(this.items);
+      if (event.patch?.images || event.patch?.files) keepRecentPreviews(this.items);
     } else if (event.t === 'activity') {
       this.activity = event.text;
       this.phase = event.phase ?? null;
@@ -515,7 +522,13 @@ export class Workspace {
     for (const item of this.items) {
       if (item.kind !== 'assistant' || item.at < since || !item.text || item.files) continue;
       const files = filesNamed(item.text, this.cwd);
-      if (files.length) this.ui.offer(item.id, files);
+      if (!files.length) continue;
+      this.ui.offer(item.id, files);
+      // Their pictures and lengths take a moment to make, so the cards come first and fill in after.
+      Promise.all(files.map((f) => cardFacts(f, cardThumb))).then(
+        (rich) => this.items.some((i) => i.id === item.id) && this.ui.offer(item.id, rich),
+        () => {},
+      );
     }
   }
 
@@ -646,7 +659,7 @@ class LinkedWorkspace {
       if (!item) return;
       Object.assign(item, event.patch ?? {});
       if (event.append) item.text = (item.text ?? '') + event.append;
-      if (event.patch?.images) keepRecentPreviews(this.items);
+      if (event.patch?.images || event.patch?.files) keepRecentPreviews(this.items);
     }
   }
 

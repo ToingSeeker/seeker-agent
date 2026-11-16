@@ -24,7 +24,7 @@ test('the stylesheet takes every colour from a token', () => {
   const css = read('style.css');
   const rules = css.slice(css.indexOf('}', css.indexOf(':root')));
   assert.deepEqual(rules.match(/#[0-9a-fA-F]{6}\b/g) ?? [], [], 'a colour written out below the token block');
-  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--mono', 'var(--nav-h', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
+  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--mono', 'var(--nav-h', 'var(--p', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
   // The class names the app gives its states all have a rule.
   const app = read('app.js');
   for (const tone of ['primary', 'execution', 'reasoning', 'success', 'danger']) {

@@ -106,3 +106,63 @@ export async function listZip(blob, max = 500) {
   if (!dir || dir.offset + dir.size > blob.size) return null;
   return { count: dir.count, entries: zipEntries(new Uint8Array(await blob.slice(dir.offset, dir.offset + dir.size).arrayBuffer()), dir.count, max) };
 }
+
+const TYPE_NAMES = {
+  'application/pdf': 'PDF Document',
+  'application/zip': 'ZIP Archive',
+  'image/jpeg': 'JPEG Image',
+  'image/png': 'PNG Image',
+  'image/gif': 'GIF Image',
+  'image/webp': 'WebP Image',
+  'video/mp4': 'MP4 Video',
+  'video/quicktime': 'QuickTime Video',
+  'video/webm': 'WebM Video',
+  'audio/mpeg': 'MP3 Audio',
+  'audio/mp4': 'M4A Audio',
+  'audio/wav': 'WAV Audio',
+};
+
+/** What a file is, in words for its card: "PDF Document", "JPEG Image"; from the name when the type is unknown. */
+export function typeName(type, name = '') {
+  const known = TYPE_NAMES[String(type ?? '')];
+  if (known) return known;
+  const { label, tone } = fileKind(name);
+  if (tone === 'image') return `${label} Image`;
+  if (tone === 'video') return `${label} Video`;
+  if (tone === 'audio') return `${label} Audio`;
+  if (tone === 'code' || tone === 'text') return `${label} File`;
+  return label === 'FILE' ? 'File' : `${label} File`;
+}
+
+/** A play time as a video player shows it: 0:08, 3:05, 1:02:09. */
+export function playTime(seconds) {
+  const s = Math.round(Number(seconds));
+  if (!Number.isFinite(s) || s <= 0) return '';
+  const hh = Math.floor(s / 3600);
+  const mm = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`;
+}
+
+/**
+ * How many pages a PDF has, from its page tree (`/Type /Pages … /Count n`), or null when it does not
+ * say plainly (a compressed object stream, say). The largest count is the root's.
+ */
+export function pdfPages(text) {
+  let most = 0;
+  for (const m of String(text ?? '').matchAll(/\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)|\/Count\s+(\d+)[^>]*?\/Type\s*\/Pages\b/g)) most = Math.max(most, Number(m[1] ?? m[2]));
+  return most || null;
+}
+
+/** A card's small picture from the Mac, if it is a JPEG and small: the base64, or null. */
+export function cardPicture(thumb) {
+  return typeof thumb === 'string' && thumb.length <= 16_000 && thumb.startsWith('/9j/') && /^[A-Za-z0-9+/]+={0,2}$/.test(thumb) ? thumb : null;
+}
+
+/** The line under GENERATED FILES: "3 files · 3.2 MB"; the size only when every file's is known. */
+export function filesSummary(files, size) {
+  const list = Array.isArray(files) ? files : [];
+  const known = list.every((f) => Number.isFinite(f.bytes));
+  const total = list.reduce((sum, f) => sum + (Number.isFinite(f.bytes) ? f.bytes : 0), 0);
+  return [`${list.length} file${list.length === 1 ? '' : 's'}`, known && list.length && size(total)].filter(Boolean).join(' · ');
+}

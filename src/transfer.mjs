@@ -177,6 +177,70 @@ export function listedFiles(text, marker) {
   return files;
 }
 
+/**
+ * How long an MP4 or QuickTime file plays, in seconds, from its movie header (`moov` → `mvhd`),
+ * or null when the file has none to read. Only the box headers and that one box are read.
+ */
+export function mediaDuration(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(16);
+    for (let at = 0; at + 8 <= size; ) {
+      fs.readSync(fd, head, 0, 16, at);
+      let box = head.readUInt32BE(0);
+      const type = head.toString('latin1', 4, 8);
+      let start = 8;
+      if (box === 1) (box = Number(head.readBigUInt64BE(8))), (start = 16);
+      else if (box === 0) box = size - at;
+      if (box < start) return null;
+      if (type === 'moov') {
+        const moov = Buffer.alloc(Math.min(box - start, 8 * 1024 * 1024));
+        fs.readSync(fd, moov, 0, moov.length, at + start);
+        for (let i = 0; i + 8 <= moov.length; ) {
+          const inner = moov.readUInt32BE(i);
+          if (inner < 8) return null;
+          if (moov.toString('latin1', i + 4, i + 8) === 'mvhd') {
+            const v1 = moov[i + 8] === 1;
+            const scale = moov.readUInt32BE(i + (v1 ? 28 : 20));
+            const length = v1 ? Number(moov.readBigUInt64BE(i + 32)) : moov.readUInt32BE(i + 24);
+            return scale > 0 && length > 0 ? length / scale : null;
+          }
+          i += inner;
+        }
+        return null;
+      }
+      at += box;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd != null) fs.closeSync(fd);
+  }
+}
+
+/**
+ * What a card on the phone shows of an offered file besides its name: when it last changed, how long
+ * a video plays, and a small picture of it when `thumb` makes one. Each is left out when unknown.
+ */
+export async function cardFacts(f, thumb) {
+  const facts = { ...f };
+  try {
+    facts.modified = Math.round(fs.statSync(f.file).mtimeMs);
+  } catch {}
+  if (/^video\/(mp4|quicktime)$/.test(f.mime)) {
+    const seconds = mediaDuration(f.file);
+    if (seconds) facts.duration = Math.round(seconds * 10) / 10;
+  }
+  if (/^(image|video)\/|^application\/pdf$/.test(f.mime)) {
+    const data = await thumb(f.file);
+    if (data) facts.thumb = data;
+  }
+  return facts;
+}
+
 /** What a file is, if it may be offered to the phone. */
 export function transferable(file) {
   const mime = TRANSFER_TYPES[path.extname(file).toLowerCase()];
