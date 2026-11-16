@@ -33,6 +33,7 @@ export const COMMANDS = [
   ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
   ['/agents', 'Agents of your own: helpers with a role, a model and a set of tools'],
   ['/sandbox', 'Run shell commands in a sandbox that writes only in the project: on · off'],
+  ['/backend', 'Where shell commands run: local · docker:<image> · ssh:<host>[:<folder>]'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
   ['/context', 'What fills the context: instructions, tools, messages, tool results'],
   ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
@@ -154,6 +155,16 @@ async function chooseModel(ctx) {
   if (!agent.caps.tools) ui.warn('  ⚠ This model cannot call tools — it can only chat.');
 }
 
+/** Where the model's shell commands run, in words; a malformed setting says so. */
+async function whereCommandsRun(config, cwd) {
+  const { backendOf, describeBackend } = await import('./backend.mjs');
+  try {
+    return describeBackend(backendOf(config, cwd));
+  } catch (err) {
+    return err.message;
+  }
+}
+
 /** Saves one setting and pushes it into the running session. */
 export async function applySetting(key, value, ctx) {
   const { agent, ui, config, permissions } = ctx;
@@ -165,6 +176,8 @@ export async function applySetting(key, value, ctx) {
   config[key] = value;
   saveConfig({ [key]: value });
   if (key === 'permissionMode') permissions.mode = value;
+  // The model is told where its commands run, and the copy it is told about changes with these.
+  if (key === 'backend' || key === 'backendExclude') agent.reload();
   if (key === 'autoLearn') permissions.autoLearn = value;
   if (key === 'showThinking') ui.showThinking = value;
   if (key === 'animation') {
@@ -316,6 +329,7 @@ export async function runCommand(input, ctx) {
         if (agent.primary) ui.line(`  ${c.dim('        ')} ${c.yellow(`standing in for ${agent.primary.model} via ${agent.primary.provider.label}`)}`);
         ui.line(`  ${c.dim('undo    ')} ${config.checkpoints === false ? 'checkpoints off' : 'checkpoints on (/rollback)'}`);
         ui.line(`  ${c.dim('sandbox ')} ${config.sandbox ? 'on: shell commands write only in the project' : 'off'}`);
+        ui.line(`  ${c.dim('commands')} run on ${await whereCommandsRun(config, agent.cwd)}`);
       }
       return;
     }
@@ -358,6 +372,28 @@ export async function runCommand(input, ctx) {
         ui.line(`  ${' '.repeat(wide)}  ${c.dim([a.source === 'project' ? 'this project' : 'yours', a.model ? `model ${a.model}` : 'the model helpers run on', a.tools ? `tools: ${a.tools.join(', ')}` : 'all tools a helper has'].join(' · '))}`);
       }
       ui.line(`  ${c.dim('SEEKER hands work to one through its task tool. Ask for it by name: "have the reviewer look at this change".')}`);
+      return;
+    }
+
+    case 'backend': {
+      const { LOCAL, backendOf, checkBackend, describeBackend, parseBackend } = await import('./backend.mjs');
+      const given = rest.join(' ').trim();
+      if (given) {
+        const value = parseBackend(given);
+        if (value === undefined) return ui.warn('  /backend local | docker:<image> | ssh:<host>[:<folder>]   e.g. docker:node:22, ssh:me@build-box:work/app');
+        if (value !== LOCAL) {
+          const backend = backendOf({ ...config, backend: value }, agent.cwd);
+          ui.line(`  ${c.dim('Checking…')}`);
+          const check = await checkBackend(backend);
+          if (!check.ok) return ui.warn(`  Not switched: ${check.detail}`);
+          ui.line(`  ${c.dim(check.detail)}`);
+        }
+        await apply('backend', value);
+        return ui.notice(value === LOCAL ? '  Shell commands run on this machine again.' : `  Shell commands now run on ${describeBackend(backendOf(config, agent.cwd))}. Approvals are asked as before.`);
+      }
+      ui.line(`  ${c.dim('backend')} ${parseBackend(config.backend ?? LOCAL) ?? config.backend}`);
+      ui.line(`  ${c.dim('runs on')} ${await whereCommandsRun(config, agent.cwd)}`);
+      ui.line(`  ${c.dim('/backend docker:<image> runs each command in a fresh container with the project mounted; /backend ssh:<host>[:<folder>] runs it on another machine with the project copied there and back. Your own !commands, and a provider that runs its own tools (Claude Code), stay on this machine.')}`);
       return;
     }
 
@@ -765,7 +801,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
+const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).

@@ -9,6 +9,7 @@ import { PLAN_NOTE } from './permissions.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
+import { backendOf } from './backend.mjs';
 import { loadAgents, roleText } from './agents.mjs';
 import { recordUsage } from './usage.mjs';
 import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
@@ -127,7 +128,7 @@ export class Agent {
     this.skills = loadSkills(this.cwd, this.config.skillDirs, { bundled: this.config.bundledSkills !== false });
     // Helpers with a role of their own (src/agents.mjs). A helper has none: it cannot start another.
     this.agents = this.config.agents === false ? [] : loadAgents(this.cwd);
-    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, agents: this.agents, provider, contextLimit: this.contextLimit() });
+    const { prompt, instructionFiles, contextFiles } = buildSystemPrompt({ cwd: this.cwd, model, skills: this.skills, skillDirs: this.config.skillDirs, agents: this.agents, provider, contextLimit: this.contextLimit(), backend: this.#backend() });
     this.system = prompt;
     this.instructionFiles = instructionFiles;
     this.hints = new SubdirectoryHints(this.cwd, contextFiles);
@@ -138,6 +139,15 @@ export class Agent {
   #specs() {
     // A local model reads its prompt at tens of tokens a second, so every definition it is sent costs time as well as room.
     return toolSpecs(this.tools(), { compact: Boolean(this.provider.local) || this.contextLimit() < COMPACT_TOOLS_BELOW });
+  }
+
+  /** Where shell commands run: null for this machine. */
+  #backend() {
+    try {
+      return backendOf(this.config, this.cwd);
+    } catch (err) {
+      return { kind: 'invalid', error: err.message };
+    }
   }
 
   /** Re-reads skills and instruction files from disk. */
@@ -728,6 +738,8 @@ export class Agent {
       skills: this.skills,
       // Shell commands run under the sandbox when it is switched on (macOS).
       sandbox: this.config.sandbox ? { write: this.config.sandboxWrite ?? [], network: this.config.sandboxNetwork === true } : null,
+      // Or in a container or on another machine (src/backend.mjs); a malformed setting stops the command with its reason.
+      backend: this.#backend(),
       vision: this.caps.vision,
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
       delegate: this.withheld.has('task') ? null : (prompt, label, agent) => this.#delegate(prompt, label, agent),

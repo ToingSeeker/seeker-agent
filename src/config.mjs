@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseBackend, parseExclude } from './backend.mjs';
 
 export const VERSION = '0.4.0';
 // Under `node --test` with no SEEKER_HOME given, a scratch folder stands in: a test run must
@@ -50,6 +51,11 @@ export const DEFAULTS = {
   sandbox: false,
   sandboxWrite: [],
   sandboxNetwork: false,
+  // Where those commands run: 'local' (this machine), 'docker:<image>' (a fresh container, the project
+  // mounted at the same path) or 'ssh:<host>[:<folder>]' (another machine, the project copied there before
+  // each command and back after it). backendExclude: what that copy leaves out, both ways.
+  backend: 'local',
+  backendExclude: ['node_modules', '.venv', 'venv', '__pycache__', '.next', 'target', '.DS_Store'],
   // How hard an Anthropic model works on a reply: low, medium, high, xhigh or max. Empty: the model's own
   // default. Lower is cheaper and faster; it applies where the model has such a setting.
   effort: '',
@@ -85,6 +91,8 @@ export const SETTINGS = {
   sandbox: { parse: bool, help: 'run shell commands in a sandbox that writes only in the project (macOS, Linux with bubblewrap)' },
   sandboxNetwork: { parse: bool, help: 'let sandboxed commands reach the network (package installs, git push)' },
   sandboxWrite: { parse: (v) => (['none', 'off', '-', ''].includes(v.toLowerCase()) ? [] : v.split(',').map((p) => p.trim()).filter(Boolean)), help: 'extra folders sandboxed commands may write to, comma separated ("none" to clear)' },
+  backend: { parse: (v) => parseBackend(v), help: 'where shell commands run: local, docker:<image>, or ssh:<host>[:<folder>]' },
+  backendExclude: { parse: (v) => parseExclude(v), help: 'what ssh: leaves out of the copy both ways, comma separated ("default" or "none")' },
   effort: { parse: (v) => (['', 'default', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : ['low', 'medium', 'high', 'xhigh', 'max'].includes(v.toLowerCase()) ? v.toLowerCase() : undefined), help: 'how hard Anthropic models work on a reply: low, medium, high, xhigh, max ("default" to clear)' },
   maxHelpers: { parse: (v) => (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 20 ? Number(v) : undefined), help: 'helper agents that run side by side (1 to 20)' },
   subagentModel: { parse: (v) => (['same', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : v), help: 'model for helper agents and the review: "model" or "provider:model" ("same" to clear)' },

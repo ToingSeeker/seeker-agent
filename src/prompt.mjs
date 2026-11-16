@@ -6,6 +6,7 @@ import { discoverContextFiles } from './context-files.mjs';
 import { MEMORY_GUIDANCE, SESSION_SEARCH_GUIDANCE, memoryBlocks } from './memory.mjs';
 import { BUNDLED_SKILLS_DIR } from './skills.mjs';
 import { agentsSection } from './agents.mjs';
+import { describeBackend } from './backend.mjs';
 
 export { projectSlug };
 
@@ -112,7 +113,17 @@ function skillRoots(cwd, skillDirs = []) {
   return { plugins, dirs };
 }
 
-export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], agents = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768 }) {
+/** Where bash runs, when it is not this machine: the paths and tools a command sees differ. */
+function backendLine(backend) {
+  if (!backend) return '';
+  if (backend.kind === 'invalid') return `\n- bash cannot run: ${backend.error}`;
+  const where = describeBackend(backend);
+  return backend.kind === 'ssh'
+    ? `\n- bash runs on ${where}. Paths in its output are that machine's; your file tools work on this machine's copy in the working directory. Install what a command needs there; background servers listen there, not here.`
+    : `\n- bash runs in ${where}. It has only the tools of that image; install what you need with the image's package manager (not kept for the next command unless it lands in the project).`;
+}
+
+export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], agents = [], provider = { label: 'Ollama', local: true }, contextLimit = 32_768, backend = null }) {
   const memory = memorySection(cwd, contextLimit);
   const own = memoryBlocks(cwd);
   const where = provider.local
@@ -161,7 +172,7 @@ export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], age
 - Working directory: ${cwd}
 - Git repository: ${isGit ? 'yes' : 'no'}
 - Platform: ${os.platform()} ${os.arch()}, shell ${path.basename(process.env.SHELL || 'sh')}
-- Today: ${new Date().toISOString().slice(0, 10)}`,
+- Today: ${new Date().toISOString().slice(0, 10)}${backendLine(backend)}`,
   ];
   parts.push(`# Memory and skills\n${MEMORY_GUIDANCE}\n\n${SESSION_SEARCH_GUIDANCE}\n\nWhen you work out a non-trivial workflow, record it with skill_manage for future reuse.`);
   if (skills.length) parts.push(skillsSection(skills, contextLimit));
