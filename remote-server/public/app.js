@@ -43,6 +43,7 @@ const ICONS = {
   back: svg('<path d="M15 6l-6 6 6 6"/>'),
   down: svg('<path d="M6 9l6 6 6-6"/>'),
   folder: svg('<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>'),
+  grid: svg('<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>'),
   home: svg('<path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6h-6v6H5a1 1 0 01-1-1z"/>'),
   terminal: svg('<path d="M5 8l4 4-4 4M12 16h7"/>'),
   file: svg('<path d="M7 3h7l5 5v12a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v5h5"/>'),
@@ -1312,8 +1313,8 @@ function homeNow() {
 }
 
 function home(model) {
-  const tab = (id, label) => h('button', { class: state.homeTab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.homeTab === id), onclick: () => ((state.homeTab = id), render(true)) }, label);
-  return [header(), h('div', { class: 'tabs', role: 'tablist' }, tab('control', 'CONTROL CENTER'), tab('projects', 'PROJECTS')), state.homeTab === 'projects' ? workspaceExplorer(model) : controlCenter(model)];
+  const tab = (id, icon, label) => h('button', { class: state.homeTab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.homeTab === id), onclick: () => ((state.homeTab = id), render(true)) }, h('span', { class: 'tab-icon', icon }), h('span', {}, label));
+  return [header(), h('div', { class: 'tabs home-tabs', role: 'tablist' }, tab('control', 'grid', 'Control Center'), tab('projects', 'folder', 'Projects')), state.homeTab === 'projects' ? workspaceExplorer(model) : controlCenter(model)];
 }
 
 function sendText(wsId, text, images = [], files = []) {
