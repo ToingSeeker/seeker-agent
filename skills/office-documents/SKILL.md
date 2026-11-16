@@ -1,6 +1,6 @@
 ---
 name: office-documents
-description: Create and edit Word (.docx) and Excel (.xlsx) files: reports, letters, templates, and spreadsheets with live formulas and formatting; verify by reopening. Use for "make a Word doc", "edit this docx", "build a spreadsheet", "fix this Excel file", "export to xlsx".
+description: 'Create and edit Word (.docx) and Excel (.xlsx) files: reports, letters, templates, and spreadsheets with live formulas and formatting; verify by reopening. Use for "make a Word doc", "edit this docx", "build a spreadsheet", "fix this Excel file", "export to xlsx".'
 ---
 
 # Office Documents (.docx and .xlsx)

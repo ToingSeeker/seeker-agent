@@ -4,6 +4,10 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Bundled skills open without a YAML error on GitHub.** 22 skills had a description with a colon followed by
+  a space, which strict YAML readers take as a second key; GitHub showed "Error in user YAML" above them. They
+  are quoted now, SEEKER reads quoted values as YAML does (`''` and `\"` included), and a test keeps it so.
+
 - **Approvals asked at the same moment are put to you one at a time.** When Claude Code ran several tools
   side by side, every one of them asked at once: the phone showed several cards, answering two or three made
   the rest disappear, and the session stayed waiting for an approval that was no longer listed. Now each is

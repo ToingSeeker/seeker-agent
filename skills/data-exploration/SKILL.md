@@ -1,6 +1,6 @@
 ---
 name: data-exploration
-description: Profile an unfamiliar dataset before analysing it: shape, column types, missing values, distributions, keys and duplicates, joins, and data-quality problems. Use for "explore this CSV", "what's in this table", "profile the data", "check data quality", "is this data clean".
+description: 'Profile an unfamiliar dataset before analysing it: shape, column types, missing values, distributions, keys and duplicates, joins, and data-quality problems. Use for "explore this CSV", "what''s in this table", "profile the data", "check data quality", "is this data clean".'
 ---
 
 # Data Exploration

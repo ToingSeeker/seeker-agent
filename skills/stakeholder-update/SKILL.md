@@ -1,6 +1,6 @@
 ---
 name: stakeholder-update
-description: Write weekly or monthly status updates and roadmap updates for stakeholders: what changed, progress against plan, risks, decisions and asks. Use for "write a status update", "weekly update", "update leadership", "roadmap update", "project status report", "tell stakeholders we're slipping".
+description: 'Write weekly or monthly status updates and roadmap updates for stakeholders: what changed, progress against plan, risks, decisions and asks. Use for "write a status update", "weekly update", "update leadership", "roadmap update", "project status report", "tell stakeholders we''re slipping".'
 ---
 
 # Stakeholder Updates

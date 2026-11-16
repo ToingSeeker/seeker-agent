@@ -1,6 +1,6 @@
 ---
 name: knowledge-base
-description: Create and maintain a Markdown knowledge base or Obsidian vault that people and agents can search: structure, frontmatter, links, index notes, and hygiene (orphans, broken links, stale notes). Use for "start a knowledge base", "add this to my notes", "organise my vault".
+description: 'Create and maintain a Markdown knowledge base or Obsidian vault that people and agents can search: structure, frontmatter, links, index notes, and hygiene (orphans, broken links, stale notes). Use for "start a knowledge base", "add this to my notes", "organise my vault".'
 ---
 
 # Knowledge Base

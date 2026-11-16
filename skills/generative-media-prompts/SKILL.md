@@ -1,6 +1,6 @@
 ---
 name: generative-media-prompts
-description: Write and iterate prompts for image and video generation models: subject, composition, camera, lighting, style, motion, and negative constraints, adapted to the model's syntax. Use for "write an image prompt", "prompt for video generation", "improve this AI image", "consistent character prompts".
+description: 'Write and iterate prompts for image and video generation models: subject, composition, camera, lighting, style, motion, and negative constraints, adapted to the model''s syntax. Use for "write an image prompt", "prompt for video generation", "improve this AI image", "consistent character prompts".'
 ---
 
 # Generative Media Prompts

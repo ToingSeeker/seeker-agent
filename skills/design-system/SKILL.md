@@ -1,6 +1,6 @@
 ---
 name: design-system
-description: Build or tidy a design system: token layers (primitive, semantic, component), type/space/colour scales, component specs, and audits for hardcoded values. Use for "set up design tokens", "create a design system", "theme support", "find hardcoded colours", "make styles consistent".
+description: 'Build or tidy a design system: token layers (primitive, semantic, component), type/space/colour scales, component specs, and audits for hardcoded values. Use for "set up design tokens", "create a design system", "theme support", "find hardcoded colours", "make styles consistent".'
 ---
 
 # Design System

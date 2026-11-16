@@ -1,6 +1,6 @@
 ---
 name: app-architecture
-description: Design a multi-screen app top-down before pixels: users and jobs, information architecture, navigation, user flows, screen inventory and per-screen states, plus a handoff spec. Use for "plan the app structure", "design the screens", "user flows", "sitemap", "IA", "handoff spec".
+description: 'Design a multi-screen app top-down before pixels: users and jobs, information architecture, navigation, user flows, screen inventory and per-screen states, plus a handoff spec. Use for "plan the app structure", "design the screens", "user flows", "sitemap", "IA", "handoff spec".'
 ---
 
 # App Architecture (UX)

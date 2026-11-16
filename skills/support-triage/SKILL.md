@@ -1,6 +1,6 @@
 ---
 name: support-triage
-description: Triage customer support tickets: categorise, set priority, route to an owner, find duplicates, and build an escalation package engineering can act on. Use for "triage these tickets", "what's urgent in the queue", "is this a bug", "escalate this to engineering", "write up this issue for devs".
+description: 'Triage customer support tickets: categorise, set priority, route to an owner, find duplicates, and build an escalation package engineering can act on. Use for "triage these tickets", "what''s urgent in the queue", "is this a bug", "escalate this to engineering", "write up this issue for devs".'
 ---
 
 # Support Ticket Triage and Escalation

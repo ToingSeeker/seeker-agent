@@ -1,6 +1,6 @@
 ---
 name: web-scraping
-description: Extract data from websites responsibly: look for an API or export first, respect robots.txt, terms and rate limits, handle pagination, selectors, retries and storage. Use for "scrape this site", "pull data from these pages", "build a scraper", "crawl this", "extract the table from this page".
+description: 'Extract data from websites responsibly: look for an API or export first, respect robots.txt, terms and rate limits, handle pagination, selectors, retries and storage. Use for "scrape this site", "pull data from these pages", "build a scraper", "crawl this", "extract the table from this page".'
 ---
 
 # Web Scraping

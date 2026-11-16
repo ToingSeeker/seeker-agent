@@ -1,6 +1,6 @@
 ---
 name: ux-copy
-description: Write or improve interface microcopy: button labels, error messages, empty states, confirmations, tooltips, onboarding hints and notifications. Use for "rewrite this error message", "better button text", "empty state copy", "UX writing", "make the wording clearer".
+description: 'Write or improve interface microcopy: button labels, error messages, empty states, confirmations, tooltips, onboarding hints and notifications. Use for "rewrite this error message", "better button text", "empty state copy", "UX writing", "make the wording clearer".'
 ---
 
 # UX Copy

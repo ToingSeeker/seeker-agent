@@ -1,6 +1,6 @@
 ---
 name: signup-onboarding
-description: Reduce signup friction and get new users to first value fast: define the activation moment, audit signup and first-run step by step, ship fixes (fewer fields, deferred setup, empty states, checklists). Use for "signup conversion", "onboarding", "activation", "users sign up then leave".
+description: 'Reduce signup friction and get new users to first value fast: define the activation moment, audit signup and first-run step by step, ship fixes (fewer fields, deferred setup, empty states, checklists). Use for "signup conversion", "onboarding", "activation", "users sign up then leave".'
 ---
 
 # Signup and Onboarding

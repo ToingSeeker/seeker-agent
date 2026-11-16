@@ -1,6 +1,6 @@
 ---
 name: hiring
-description: Run a fair, structured hiring process: role scorecard, job post, screening criteria, interview plan with questions and rubrics, and an offer letter draft. Use for "write a job post", "help me hire a X", "interview questions", "screen these applicants", "draft an offer letter". Not legal/HR advice.
+description: 'Run a fair, structured hiring process: role scorecard, job post, screening criteria, interview plan with questions and rubrics, and an offer letter draft. Use for "write a job post", "help me hire a X", "interview questions", "screen these applicants", "draft an offer letter". Not legal/HR advice.'
 ---
 
 # Hiring

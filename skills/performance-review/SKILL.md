@@ -1,6 +1,6 @@
 ---
 name: performance-review
-description: Write fair, evidence-based performance reviews: an employee self-assessment, a manager review, or calibration prep across a team. Use for "write my self-review", "help me review my report", "performance review", "prep for calibration", "how do I give this feedback". Not HR or legal advice.
+description: 'Write fair, evidence-based performance reviews: an employee self-assessment, a manager review, or calibration prep across a team. Use for "write my self-review", "help me review my report", "performance review", "prep for calibration", "how do I give this feedback". Not HR or legal advice.'
 ---
 
 # Performance Reviews

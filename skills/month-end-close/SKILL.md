@@ -1,6 +1,6 @@
 ---
 name: month-end-close
-description: Run a month-end close: build the checklist, prepare journal entries with support, reconcile balance-sheet accounts, and review results before sign-off. Use for "month-end close", "close the books", "draft accrual entries", "reconcile this account", "bank doesn't match". Not professional advice.
+description: 'Run a month-end close: build the checklist, prepare journal entries with support, reconcile balance-sheet accounts, and review results before sign-off. Use for "month-end close", "close the books", "draft accrual entries", "reconcile this account", "bank doesn''t match". Not professional advice.'
 ---
 
 # Month-End Close
