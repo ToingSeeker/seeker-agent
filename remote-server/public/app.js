@@ -62,6 +62,7 @@ const ICONS = {
   download: svg('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
   film: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M10 9.5v5l4-2.5z"/>'),
   image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>'),
+  camera: svg('<path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/><circle cx="12" cy="12.8" r="3.4"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   cross: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
@@ -2508,7 +2509,6 @@ $('view').addEventListener('scroll', fabs, { passive: true });
 const input = $('input');
 $('send').innerHTML = ICONS.send;
 $('stop').innerHTML = ICONS.stop;
-$('mention').innerHTML = ICONS.at;
 // Stop ends the task that is running when it is pressed, and only that one.
 $('stop').addEventListener('click', async () => {
   const ws = state.workspaces.get(state.view.ws);
@@ -2522,7 +2522,7 @@ $('stop').addEventListener('click', async () => {
   }
 });
 // "@" starts a reference to a file: @file:src/app.js is read and attached on the Mac.
-$('mention').addEventListener('click', () => {
+function mentionFile() {
   const at = input.selectionStart ?? input.value.length;
   const before = input.value.slice(0, at);
   const insert = `${before && !/\s$/.test(before) ? ' ' : ''}@file:`;
@@ -2531,9 +2531,8 @@ $('mention').addEventListener('click', () => {
   input.selectionStart = input.selectionEnd = at + insert.length;
   grow();
   composerState();
-});
-$('attach').innerHTML = ICONS.image;
-$('commands').innerHTML = ICONS.plus;
+}
+$('add').innerHTML = ICONS.plus;
 let sending = false;
 
 /**
@@ -2672,7 +2671,11 @@ input.addEventListener('keydown', (e) => {
     $('form').requestSubmit();
   }
 });
-$('attach').addEventListener('click', () => $('file').click());
+$('camera').addEventListener('change', async (e) => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  await addImages(files);
+});
 $('file').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = ''; // so the same picture can be chosen again
@@ -2690,7 +2693,45 @@ input.addEventListener('paste', (e) => {
   e.preventDefault();
   addImages(files);
 });
-$('commands').addEventListener('click', () => {
+/**
+ * "+": everything that can go into a message, in one sheet — something to attach, a file on the Mac to
+ * mention, and the session's model and commands. Each row closes the sheet, then does the real thing.
+ */
+function addSheet() {
+  const ws = state.workspaces.get(state.view.ws);
+  if (!ws) return;
+  const { meta } = ws;
+  const busy = agentState(meta).busy;
+  const item = (icon, label, sub, run, { value = null, off = false, more = false } = {}) =>
+    h(
+      'button',
+      { class: 'row', type: 'button', disabled: off, onclick: () => (closeSheet(), run()) },
+      h('span', { class: 'ico', icon }),
+      h('span', { class: 'grow' }, h('span', { class: 'label' }, label), sub && h('span', { class: 'sub' }, sub)),
+      value != null && h('span', { class: 'value' }, value),
+      more && h('span', { class: 'chev', icon: 'chevron' }),
+    );
+  sheet(
+    'Add to message',
+    h(
+      'div',
+      { class: 'group add-group' },
+      item('camera', 'Camera', null, () => $('camera').click()),
+      item('image', 'Photos & videos', null, () => $('file').click()),
+      item('file', 'Files', 'PDF, ZIP or anything else — saved on the Mac', () => $('anyfile').click()),
+      item('at', 'Mention a file', 'A file in the project, read on the Mac', mentionFile),
+    ),
+    h(
+      'div',
+      { class: 'group add-group' },
+      item('cube', 'Model', null, chooseModel, { value: meta.model, off: busy || Boolean(meta.terminal), more: true }),
+      item('terminal', 'Commands', 'Slash commands and earlier messages', showCommands, { more: true }),
+    ),
+  );
+}
+$('add').addEventListener('click', addSheet);
+
+function showCommands() {
   const ws = state.workspaces.get(state.view.ws);
   if (!ws) return;
   // Earlier messages, newest first, to send again or edit: the phone's stand-in for the ↑ key.
@@ -2715,7 +2756,7 @@ $('commands').addEventListener('click', () => {
       ),
     ),
   );
-});
+}
 
 // With the on-screen keyboard open the app is sized to what is actually visible, which keeps the
 // message box above the keys. Whether the keyboard is up is judged against the tallest the visible
