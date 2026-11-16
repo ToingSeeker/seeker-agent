@@ -384,21 +384,12 @@ export class Workspace {
       always: always ? plain(always) : null,
       at: Date.now(),
     };
-    const before = this.status;
-    this.status = 'approval';
-    this.touch();
-    const answer = await this.daemon.ask(approval);
-    this.status = before;
-    this.touch();
-    return answer;
+    return this.#waiting(() => this.daemon.ask(approval));
   }
 
   /** The model's own question to the user; resolves with their answer, or null if they stopped the turn. */
   async #question({ question, options }) {
-    const before = this.status;
-    this.status = 'approval';
-    this.touch();
-    const answer = await this.daemon.ask({
+    return this.#waiting(() => this.daemon.ask({
       id: crypto.randomBytes(6).toString('hex'),
       ws: this.id,
       wsName: this.name,
@@ -407,10 +398,24 @@ export class Workspace {
       options: options ?? [],
       cwd: tildify(this.cwd),
       at: Date.now(),
-    });
-    this.status = before;
+    }));
+  }
+
+  /**
+   * Shows the workspace as waiting while `ask` is open. Counted, so that with more than one open it goes back
+   * to work only when the last is answered, not when whichever began first ends.
+   */
+  async #waiting(ask) {
+    this.asking = (this.asking ?? 0) + 1;
+    this.status = 'approval';
     this.touch();
-    return answer;
+    try {
+      return await ask();
+    } finally {
+      this.asking -= 1;
+      if (!this.asking && this.status === 'approval') this.status = 'working';
+      this.touch();
+    }
   }
 
   /**

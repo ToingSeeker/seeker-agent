@@ -91,6 +91,7 @@ export class Agent {
     this.usage = { input: 0, output: 0, totalInput: 0, totalOutput: 0, known: false };
     // Tools a provider is running itself, by call id: { about, row } where `row` is its line on screen.
     this.external = new Map();
+    this.externalAsks = Promise.resolve(); // approvals for a provider's own tools, one after another
     // Tools from outside SEEKER (MCP servers), added and removed while it runs.
     this.extraTools = [];
     // Names of tools this agent may not use (a helper agent cannot start helpers or question the user).
@@ -574,7 +575,22 @@ export class Agent {
   }
 
   /** Asked by a provider before one of its own tools does something that needs approval. */
-  async #externalPermission({ id, name, input }) {
+  /**
+   * A provider that runs its own tools may ask about several at once (parallel tool calls). They are put to the
+   * user one at a time, each with its own row and diff on screen: asked together, the phone showed one card's
+   * details for another, an answer to one closed the others, and the session stayed "waiting for approval".
+   * One asked after the turn was stopped is refused without asking; one an "always" answer now covers goes through.
+   */
+  #externalPermission(request) {
+    const asked = this.externalAsks.then(() => {
+      if (this.controller?.signal.aborted) return { ok: false, reason: 'The user interrupted before answering.' };
+      return this.#askExternal(request);
+    });
+    this.externalAsks = asked.catch(() => {});
+    return asked;
+  }
+
+  async #askExternal({ id, name, input }) {
     const { ui } = this;
     const about = describeExternal(name, input, this.cwd);
     const entry = { about, row: null };

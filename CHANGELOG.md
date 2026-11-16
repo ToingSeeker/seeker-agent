@@ -4,6 +4,12 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Approvals asked at the same moment are put to you one at a time.** When Claude Code ran several tools
+  side by side, every one of them asked at once: the phone showed several cards, answering two or three made
+  the rest disappear, and the session stayed waiting for an approval that was no longer listed. Now each is
+  asked after the one before is answered, with its own command or diff on the card, and an "always" answer
+  covers the ones still waiting. Stopping the task refuses those still waiting without asking.
+
 - **A conversation started on the phone moves cleanly to the terminal.** `seeker -c` (or `/resume`) in a
   terminal on the Mac closes the phone's copy of that conversation, moves its transcript to the terminal
   session, and takes a phone that had it open there. Before, both copies stayed open and each saved over the
