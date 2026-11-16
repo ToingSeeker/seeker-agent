@@ -343,6 +343,12 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
 - Notifikasi push (persetujuan, pertanyaan dari model, tugas selesai) dikirim langsung dari Mac ke layanan push HP
   dengan enkripsi Web Push (`src/webpush.mjs`); relay tidak terlibat. Nyalakan di Settings aplikasi HP.
   Di iPhone, aplikasinya harus dipasang dulu lewat Share → Add to Home Screen.
+- Kunci aplikasi (Settings → App lock): Face ID, dengan PIN 6 digit sebagai cadangan, diminta saat aplikasi
+  dibuka atau setelah tidak dipakai 1, 5, 15, atau 60 menit. Semuanya di HP saja: PIN disimpan sebagai hash
+  PBKDF2 bersalt, Face ID memakai passkey untuk situs ini yang wajib melaporkan pengguna sudah terverifikasi.
+  Setelah lima kali PIN salah, tiap percobaan menunggu makin lama (30 detik, berlipat, maksimal 15 menit). Lupa
+  PIN berarti pairing ulang. Kunci ini menyembunyikan layar, tidak mengenkripsi data aplikasi di HP, dan teks
+  notifikasi push tetap tampil di lock screen.
 
 ## Gambar
 

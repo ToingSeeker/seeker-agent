@@ -12,6 +12,7 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, 
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
+import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, makePin, readLock, sameId, userVerified, writeLock } from './lock.js';
 
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
@@ -58,6 +59,7 @@ const ICONS = {
   bolt: svg('<path d="M13 3L5 14h6l-1 7 8-11h-6z"/>'),
   bell: svg('<path d="M6 16V11a6 6 0 1112 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 004 0"/>'),
   lock: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 118 0v3"/>'),
+  face: svg('<path d="M4 8V6a2 2 0 012-2h2M16 4h2a2 2 0 012 2v2M20 16v2a2 2 0 01-2 2h-2M8 20H6a2 2 0 01-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5V13h-1M9.5 15.5a3.5 3.5 0 005 0"/>'),
   wifi: svg('<path d="M3 9a14 14 0 0118 0M6 12.5a9.5 9.5 0 0112 0M9 16a5 5 0 016 0"/><circle cx="12" cy="19" r="0.6"/>'),
   pulse: svg('<path d="M3 12h4l2-6 4 12 2-6h6"/>'),
   list: svg('<path d="M8 7h12M8 12h12M8 17h12"/><circle cx="4" cy="7" r="0.6"/><circle cx="4" cy="12" r="0.6"/><circle cx="4" cy="17" r="0.6"/>'),
@@ -129,6 +131,8 @@ const state = {
   everLinked: false, // the relay has answered at least once since the app opened
   explorer: { query: '', sort: stored('seeker.workspaces.sort', 'recent'), source: 'all', local: false, localQuery: '' }, // Home → Projects
   lastSession: stored('seeker.sessions.last', null), // the session opened last, marked in the list
+  locked: false, // the app lock is up: nothing behind it is shown until Face ID or the PIN
+  faceIdAvailable: null, // this phone can unlock with Face ID / Touch ID (null: not known yet)
 };
 /** A convenience kept on this phone only. Private windows may refuse storage; the app works without it. */
 function stored(key, fallback) {
@@ -2133,6 +2137,7 @@ function settings() {
       check('error', 'Errors', 'alert'),
       state.push === 'on' && row('plane', 'Send a test notification', null, { onclick: () => command('push_test') }),
     ),
+    ...lockSettings(toggle),
     section('PRIVACY & SECURITY'),
     h(
       'div',
@@ -2151,7 +2156,7 @@ function settings() {
       row('folder', 'Open projects', String(state.workspaces.size)),
     ),
     h('div', { class: 'actions even' }, h('button', { class: 'btn quiet', disabled: !up, onclick: () => command('sync').then((ok) => ok && toast('Asked your Mac for a fresh copy.')) }, 'Refresh from the Mac'), h('button', { class: 'btn quiet', onclick: reconnect }, 'Reconnect')),
-    h('button', { class: 'btn quiet danger unpair', onclick: () => confirm('Remove the pairing from this phone?') && signOut() }, 'Unpair this phone'),
+    h('button', { class: 'btn quiet danger unpair', onclick: () => confirm('Remove the pairing from this phone?') && (saveLock(null), signOut()) }, 'Unpair this phone'),
   ];
 }
 
@@ -2189,6 +2194,258 @@ function agentSettings(up, toggle) {
     h('div', { class: 'muted small pad' }, 'Saved on your Mac. Projects opened from this app change at once; a seeker already running in a terminal keeps what it started with.'),
   ];
 }
+
+// ── app lock: Face ID, a 6-digit PIN behind it (lock.js holds the rules) ─────
+const lockStore = {
+  getItem: (key) => stored(key, null),
+  setItem: store,
+  removeItem: (key) => {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  },
+};
+let lockCfg = readLock(lockStore);
+let lastActive = Number.parseInt(stored(ACTIVE_KEY, ''), 10);
+let activeSaved = 0;
+let pad = null; // the PIN pad on screen: { kind: 'unlock' | 'verify' | 'set', title, sub, entry, note, then }
+
+function saveLock(cfg) {
+  lockCfg = cfg;
+  writeLock(lockStore, cfg);
+}
+
+/** The app was used: the lock's clock starts again. Written to storage at most every 5 s, and always when the app goes away. */
+function touched(force = false) {
+  if (state.locked) return;
+  lastActive = Date.now();
+  if (force || lastActive - activeSaved > 5000) {
+    activeSaved = lastActive;
+    store(ACTIVE_KEY, String(lastActive));
+  }
+}
+
+function lockNow() {
+  if (!lockCfg || !state.secret) return;
+  state.locked = true;
+  closeSheet();
+  if (pad?.kind !== 'unlock') openPad({ kind: 'unlock', title: 'SEEKER is locked', sub: lockCfg.faceId ? 'Use Face ID or enter your PIN.' : 'Enter your PIN.' });
+}
+
+/** Locks once the app has gone unused for the time chosen in Settings. */
+function checkLock() {
+  if (lockCfg && state.secret && !state.locked && dueToLock({ lastActive, now: Date.now(), after: lockCfg.after })) lockNow();
+}
+
+function covered(on) {
+  document.body.classList.toggle('locked', on);
+  $('app').inert = on;
+  $('sheet').inert = on;
+}
+
+function openPad(p) {
+  pad = { entry: '', note: '', bad: false, ...p };
+  drawPad();
+  if (p.kind !== 'set' && lockCfg?.faceId && !document.hidden) tryFace(true);
+}
+
+function closePad() {
+  pad = null;
+  clearTimeout(drawPad.timer);
+  $('lock').hidden = true;
+  $('lock').replaceChildren();
+  covered(false);
+}
+
+function drawPad() {
+  if (!pad) return;
+  const el = $('lock');
+  const wait = pad.kind !== 'set' && lockCfg?.until > Date.now() ? Math.ceil((lockCfg.until - Date.now()) / 1000) : 0;
+  const key = (d) => h('button', { class: 'pin-key', type: 'button', disabled: wait > 0, onclick: () => press(d) }, d);
+  const face = pad.kind !== 'set' && lockCfg?.faceId ? h('button', { class: 'pin-key aux', type: 'button', 'aria-label': 'Unlock with Face ID', onclick: () => tryFace() }, h('span', { class: 'ico', icon: 'face' })) : h('span');
+  const note = wait ? `Too many wrong PINs. Try again in ${wait} s.` : pad.note || pad.sub;
+  el.replaceChildren(
+    h(
+      'div',
+      { class: 'lock-screen', role: 'dialog', 'aria-modal': 'true', 'aria-label': pad.title },
+      h('span', { class: state.device?.settings?.animation === false ? 'mark still' : 'mark', icon: 'logo' }),
+      h('h2', {}, pad.title),
+      h('p', { class: wait || pad.bad ? 'lock-note bad' : 'lock-note', 'aria-live': 'polite' }, note),
+      h('div', { class: `pin-dots${pad.bad ? ' bad' : ''}${pad.shake ? ' shake' : ''}`, role: 'img', 'aria-label': `${pad.entry.length} of ${PIN_LENGTH} digits entered` }, ...Array.from({ length: PIN_LENGTH }, (_, i) => h('i', { class: i < pad.entry.length ? 'on' : null }))),
+      h('div', { class: 'pin-pad' }, ...'123456789'.split('').map(key), face, key('0'), h('button', { class: 'pin-key aux', type: 'button', 'aria-label': 'Delete the last digit', onclick: () => press('del') }, h('span', { class: 'ico', icon: 'back' }))),
+      pad.kind === 'unlock' ? h('button', { class: 'btn quiet small', type: 'button', onclick: forgotPin }, 'Forgot the PIN?') : h('button', { class: 'btn quiet small', type: 'button', onclick: closePad }, 'Cancel'),
+    ),
+  );
+  pad.shake = false; // once per wrong PIN, not on every redraw
+  el.hidden = false;
+  covered(true);
+  clearTimeout(drawPad.timer);
+  if (wait) drawPad.timer = setTimeout(drawPad, 1000);
+}
+
+async function press(d) {
+  if (!pad || pad.busy) return;
+  if (d === 'del') pad.entry = pad.entry.slice(0, -1);
+  else if (pad.entry.length < PIN_LENGTH) Object.assign(pad, { entry: pad.entry + d, note: '', bad: false });
+  drawPad();
+  if (pad.entry.length < PIN_LENGTH) return;
+  const current = pad;
+  current.busy = true;
+  try {
+    await entered(current.entry);
+  } finally {
+    current.busy = false;
+  }
+}
+
+async function entered(pin) {
+  if (pad.kind === 'set') {
+    if (!pad.first) Object.assign(pad, { first: pin, entry: '', sub: 'Enter the same PIN again.' });
+    else if (pin !== pad.first) Object.assign(pad, { first: null, entry: '', sub: pad.start, note: 'The two PINs did not match. Choose one again.', bad: true, shake: true });
+    else {
+      const then = pad.then;
+      closePad();
+      return then(pin);
+    }
+    return drawPad();
+  }
+  if (lockCfg.until > Date.now()) return Object.assign(pad, { entry: '' }), drawPad();
+  if (await checkPin(lockCfg, pin)) return passed();
+  saveLock(failed(lockCfg, Date.now()));
+  Object.assign(pad, { entry: '', note: 'Wrong PIN.', bad: true, shake: true });
+  navigator.vibrate?.(120);
+  drawPad();
+}
+
+function passed() {
+  const then = pad?.kind === 'verify' ? pad.then : null;
+  if (lockCfg.failures || lockCfg.until) saveLock(cleared(lockCfg));
+  state.locked = false;
+  closePad();
+  touched(true);
+  if (then) then();
+  render(true);
+}
+
+const random = (n) => crypto.getRandomValues(new Uint8Array(n));
+
+/** Face ID: the phone checks the face against the passkey made at setup; only an answer that says "verified" opens. */
+async function tryFace(auto = false) {
+  if (!pad || !lockCfg?.faceId || pad.facing) return;
+  const asking = pad;
+  asking.facing = true;
+  try {
+    const cred = await navigator.credentials.get({ publicKey: { challenge: random(32), rpId: location.hostname, allowCredentials: [{ type: 'public-key', id: fromBase64(lockCfg.faceId), transports: ['internal'] }], userVerification: 'required', timeout: 60_000 } });
+    if (pad !== asking) return;
+    if (cred && sameId(cred.rawId, lockCfg.faceId) && userVerified(cred.response.authenticatorData)) return passed();
+    Object.assign(pad, { note: 'Face ID did not confirm it was you. Enter your PIN.', bad: true });
+  } catch {
+    // Without a tap first, iOS may refuse to ask: the Face ID key on the pad asks again.
+    if (pad === asking && !auto) Object.assign(pad, { note: 'Face ID did not unlock. Try again or enter your PIN.', bad: false });
+  } finally {
+    asking.facing = false;
+    if (pad === asking) drawPad();
+  }
+}
+
+async function enrollFace() {
+  try {
+    const cred = await navigator.credentials.create({
+      publicKey: {
+        challenge: random(32),
+        rp: { name: 'SEEKER Remote', id: location.hostname },
+        user: { id: random(16), name: 'SEEKER Remote', displayName: 'SEEKER Remote' },
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },
+          { type: 'public-key', alg: -257 },
+        ],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+        attestation: 'none',
+        timeout: 60_000,
+      },
+    });
+    if (!cred) return;
+    saveLock({ ...lockCfg, faceId: toBase64(new Uint8Array(cred.rawId)) });
+    toast('Face ID unlocks SEEKER now.');
+  } catch (e) {
+    toast(e?.name === 'NotAllowedError' ? 'Face ID was not turned on.' : `Face ID could not be turned on: ${e?.message ?? e}`);
+  }
+  render(true);
+}
+
+/** Asks for Face ID or the PIN before a change to the lock itself. */
+function verify(then) {
+  openPad({ kind: 'verify', title: 'Confirm it is you', sub: lockCfg.faceId ? 'Use Face ID or enter your PIN.' : 'Enter your PIN.', then });
+}
+
+function choosePin(title, then) {
+  const start = '6 digits. It unlocks SEEKER whenever Face ID cannot.';
+  openPad({ kind: 'set', title, sub: start, start, then });
+}
+
+function setupLock() {
+  choosePin('Choose a PIN', async (pin) => {
+    saveLock({ ...(await makePin(pin)), after: DEFAULT_AFTER, faceId: null, failures: 0, until: 0 });
+    touched(true);
+    toast(state.faceIdAvailable ? 'App lock is on. Turn on Face ID below.' : 'App lock is on.');
+    render(true);
+  });
+}
+
+function forgotPin() {
+  if (!confirm('Unpair this phone?\n\nWithout the PIN, the way back in is to pair again: run seeker remote --setup on your Mac. Nothing on the Mac is lost.')) return;
+  saveLock(null);
+  state.locked = false;
+  closePad();
+  signOut();
+}
+
+function lockSettings(toggle) {
+  const line = (icon, label, sub, control) => h('div', { class: 'row' }, h('span', { class: 'ico', icon }), h('span', { class: 'grow' }, h('span', { class: 'label' }, label), h('span', { class: 'sub' }, sub)), control);
+  const note = h('div', { class: 'muted small pad' }, 'Kept on this phone only. The PIN is stored as a salted hash, never as the digits.');
+  if (!lockCfg) return [section('APP LOCK'), h('div', { class: 'group' }, line('lock', 'App lock', 'Ask for Face ID or a 6-digit PIN when SEEKER opens', toggle(false, setupLock, 'App lock'))), note];
+  const faceSub = state.faceIdAvailable === false ? 'Not available on this phone or browser' : lockCfg.faceId ? 'Unlocks with your face; the PIN stays as the backup' : 'Off: only the PIN unlocks';
+  return [
+    section('APP LOCK'),
+    h(
+      'div',
+      { class: 'group' },
+      line('lock', 'App lock', 'On: Face ID or the PIN opens SEEKER', toggle(true, () => verify(() => (saveLock(null), toast('App lock is off.'))), 'App lock')),
+      line('face', 'Face ID', faceSub, toggle(Boolean(lockCfg.faceId), lockCfg.faceId ? () => verify(() => saveLock({ ...lockCfg, faceId: null })) : enrollFace, 'Face ID', !lockCfg.faceId && !state.faceIdAvailable)),
+      row('timer', 'Lock after', afterLabel(lockCfg.after), { sub: 'Locks when SEEKER has not been used for this long', onclick: () => choose('Lock after', AFTER_OPTIONS.map((m) => [m, afterLabel(m)]), lockCfg.after, (m) => saveLock({ ...lockCfg, after: m })) }),
+      row('key', 'Change PIN', null, { onclick: () => verify(() => choosePin('Choose a new PIN', async (pin) => (saveLock({ ...lockCfg, ...(await makePin(pin)), failures: 0, until: 0 }), toast('PIN changed.')))) }),
+      row('lock', 'Lock now', null, { onclick: lockNow }),
+    ),
+    note,
+  ];
+}
+
+document.addEventListener('pointerdown', () => touched(), { capture: true, passive: true });
+document.addEventListener(
+  'keydown',
+  (e) => {
+    if (!pad) return touched();
+    if (/^\d$/.test(e.key)) press(e.key);
+    else if (e.key === 'Backspace') press('del');
+    else if (e.key === 'Escape' && pad.kind !== 'unlock') closePad();
+    else return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  },
+  { capture: true },
+);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    touched(true);
+    // What the app switcher shows of SEEKER while the lock is on: nothing.
+    document.body.classList.toggle('veiled', Boolean(lockCfg && state.secret));
+    return;
+  }
+  checkLock();
+  document.body.classList.remove('veiled');
+  if (state.locked && pad) tryFace(true);
+});
+setInterval(() => !document.hidden && checkLock(), 15_000);
 
 function login() {
   const input = h('input', { class: 'field', placeholder: 'Pairing link or code', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
@@ -2805,8 +3062,17 @@ if (window.visualViewport) {
   route(location.hash);
   if (fromLink) history.replaceState(null, '', location.pathname);
   const secret = fromLink ?? localStorage.getItem('seeker.secret');
-  if (secret) await pair(secret);
+  // Opened after the lock's time has passed (or for the first time since it was turned on): locked before anything is drawn.
+  if (secret) {
+    state.secret = secret;
+    checkLock();
+    await pair(secret);
+  }
   render();
+  globalThis.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.()
+    .then((ok) => ((state.faceIdAvailable = ok), render()))
+    .catch(() => (state.faceIdAvailable = false));
+  if (!globalThis.PublicKeyCredential) state.faceIdAvailable = false;
   if ('serviceWorker' in navigator) {
     // The service worker shows notifications; tapping one sends the screen to open here.
     navigator.serviceWorker.addEventListener('message', (event) => event.data?.open && route(event.data.open));

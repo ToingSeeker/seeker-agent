@@ -3631,3 +3631,126 @@ pre {
     transition: none !important;
   }
 }
+
+/* ── app lock (lock.js): Face ID, or a 6-digit PIN on its own keypad ── */
+/* While it is up, nothing behind it is drawn: hidden, not just covered. Also when the app goes to
+   the background with the lock on, so the app switcher shows no conversation. */
+body.locked #app,
+body.locked #sheet,
+body.veiled #app,
+body.veiled #sheet {
+  visibility: hidden;
+}
+#lock {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+  background: var(--sk-bg);
+  overflow-y: auto;
+}
+#lock[hidden] {
+  display: none;
+}
+.lock-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 320px;
+  text-align: center;
+}
+.lock-screen .mark {
+  width: 56px;
+  height: 56px;
+}
+.lock-screen h2 {
+  margin: 18px 0 6px;
+  font-size: 21px;
+  font-weight: 750;
+}
+.lock-note {
+  min-height: 2.9em;
+  margin: 0 0 18px;
+  color: var(--sk-text-secondary);
+  font-size: 14px;
+}
+.lock-note.bad {
+  color: var(--sk-danger);
+}
+.pin-dots {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 30px;
+}
+.pin-dots i {
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--sk-border-strong);
+  border-radius: 50%;
+  transition: background var(--sk-motion-fast), border-color var(--sk-motion-fast);
+}
+.pin-dots i.on {
+  border-color: var(--sk-primary);
+  background: var(--sk-primary);
+}
+.pin-dots.bad i {
+  border-color: var(--sk-danger);
+}
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 72px);
+  gap: 16px 26px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.pin-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border: 1px solid var(--sk-border);
+  border-radius: 50%;
+  background: var(--sk-surface);
+  font: 500 28px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  transition: background var(--sk-motion-fast);
+}
+.pin-key:active {
+  background: var(--sk-surface-elevated);
+}
+.pin-key:disabled {
+  opacity: 0.4;
+}
+.pin-key.aux {
+  border-color: transparent;
+  background: none;
+  color: var(--sk-text-secondary);
+}
+.pin-key .ico {
+  width: 28px;
+  height: 28px;
+}
+.pin-key .ico svg {
+  width: 100%;
+  height: 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pin-dots.shake {
+    animation: pin-shake 360ms ease-in-out;
+  }
+}
+@keyframes pin-shake {
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
