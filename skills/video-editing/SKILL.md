@@ -1,6 +1,6 @@
 ---
 name: video-editing
-description: Edit existing video files with a bundled Python script on top of ffmpeg: trim, join, reframe to 9:16 or square, change speed, cut out silences, burn in captions or a title, fix or replace sound, add music, make a GIF, compress. Use for "cut this video", "remove the pauses", "add subtitles".
+description: 'Edit existing video files with a bundled Python script on top of ffmpeg: trim, join, reframe to 9:16 or square, change speed, cut out silences, burn in captions or a title, fix or replace sound, add music, make a GIF, compress. Use for "cut this video", "remove the pauses", "add subtitles".'
 ---
 
 # Video Editing

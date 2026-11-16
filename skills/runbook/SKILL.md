@@ -1,6 +1,6 @@
 ---
 name: runbook
-description: Write operational runbooks and process docs that someone unfamiliar can follow under pressure: triggers, prerequisites, exact steps, verification, rollback, escalation. Use for "write a runbook", "document this process", "on-call playbook", "how do we restore the database", "SOP for X".
+description: 'Write operational runbooks and process docs that someone unfamiliar can follow under pressure: triggers, prerequisites, exact steps, verification, rollback, escalation. Use for "write a runbook", "document this process", "on-call playbook", "how do we restore the database", "SOP for X".'
 ---
 
 # Runbooks and Process Docs

@@ -1,6 +1,6 @@
 ---
 name: video-production
-description: Plan and produce short videos programmatically: script, shot list, assets, edit with ffmpeg or code-based compositions (e.g. Remotion), captions, audio, and export per platform. Use for "make a video", "explainer video", "promo clip", "add captions", "edit this footage", "render a reel".
+description: 'Plan and produce short videos programmatically: script, shot list, assets, edit with ffmpeg or code-based compositions (e.g. Remotion), captions, audio, and export per platform. Use for "make a video", "explainer video", "promo clip", "add captions", "edit this footage", "render a reel".'
 ---
 
 # Video Production

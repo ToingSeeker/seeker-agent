@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Research a topic across many sources and produce a cited report: plan sub-questions, search, read primary sources, cross-check claims and state confidence. Use for "research this", "compare options", "what's the current state of", "find evidence for", "briefing with sources".
+description: 'Research a topic across many sources and produce a cited report: plan sub-questions, search, read primary sources, cross-check claims and state confidence. Use for "research this", "compare options", "what''s the current state of", "find evidence for", "briefing with sources".'
 ---
 
 # Deep Research

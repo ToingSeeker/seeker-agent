@@ -1,6 +1,6 @@
 ---
 name: algorithmic-art
-description: Create generative art in code with p5.js, HTML canvas or SVG: seeded randomness, exposed parameters, reproducible outputs and high-resolution export. Use for "generative art", "creative coding", "p5.js sketch", "make a pattern", "flow field", "procedural poster".
+description: 'Create generative art in code with p5.js, HTML canvas or SVG: seeded randomness, exposed parameters, reproducible outputs and high-resolution export. Use for "generative art", "creative coding", "p5.js sketch", "make a pattern", "flow field", "procedural poster".'
 ---
 
 # Algorithmic Art

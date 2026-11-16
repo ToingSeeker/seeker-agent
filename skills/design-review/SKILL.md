@@ -1,6 +1,6 @@
 ---
 name: design-review
-description: Visual QA of a built UI: hierarchy, spacing, alignment, consistency, interaction states and responsive behaviour, then fix and re-check on the rendered page. Use for "review the design", "does this look right", "polish this page", "visual QA", "design critique".
+description: 'Visual QA of a built UI: hierarchy, spacing, alignment, consistency, interaction states and responsive behaviour, then fix and re-check on the rendered page. Use for "review the design", "does this look right", "polish this page", "visual QA", "design critique".'
 ---
 
 # Design Review

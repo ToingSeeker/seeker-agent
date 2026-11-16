@@ -1,6 +1,6 @@
 ---
 name: brand-identity
-description: Define or review a brand: positioning, voice and tone, messaging pillars, visual identity basics (logo use, colour, type, imagery) and a consistency review of existing materials. Use for "brand guidelines", "brand voice", "messaging", "is this on-brand", "brand review", "identity refresh".
+description: 'Define or review a brand: positioning, voice and tone, messaging pillars, visual identity basics (logo use, colour, type, imagery) and a consistency review of existing materials. Use for "brand guidelines", "brand voice", "messaging", "is this on-brand", "brand review", "identity refresh".'
 ---
 
 # Brand Identity

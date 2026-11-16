@@ -12,6 +12,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_DIR } from './config.mjs';
 
+/** A YAML scalar written in quotes, as it reads: '' inside single quotes is one quote, \" and \\ inside double quotes are escapes. */
+const unquote = (value) => {
+  if (/^'.*'$/.test(value) && value.length > 1) return value.slice(1, -1).replace(/''/g, "'");
+  if (/^".*"$/.test(value) && value.length > 1) return value.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  return value;
+};
+
 /** Parses the small YAML subset skills use: `key: value`, with folded / indented continuation lines. */
 export function parseSkillFile(text) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
@@ -23,7 +30,7 @@ export function parseSkillFile(text) {
     if (field) {
       key = field[1];
       const value = field[2].trim();
-      meta[key] = /^[>|][+-]?$/.test(value) ? '' : value.replace(/^(['"])(.*)\1$/, '$2');
+      meta[key] = /^[>|][+-]?$/.test(value) ? '' : unquote(value);
     } else if (key && /^\s+\S/.test(line)) {
       meta[key] = `${meta[key]} ${line.trim()}`.trim();
     }

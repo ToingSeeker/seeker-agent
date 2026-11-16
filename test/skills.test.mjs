@@ -230,3 +230,24 @@ test('the command list: arrows move the highlight, Tab completes, Enter runs, Es
   assert.equal(press('left', '/cmd'), null);
   assert.equal(picker.key({ name: 'return', shift: true }, '/cmd'), null);
 });
+
+test('bundled skills: frontmatter is YAML that GitHub and other readers accept, and quoting reads back as written', async () => {
+  const { parseSkillFile } = await import('../src/skills.mjs');
+  const dir = new URL('../skills/', import.meta.url);
+  const plainProblems = [];
+  for (const name of fs.readdirSync(dir)) {
+    const file = new URL(`${name}/SKILL.md`, dir);
+    if (!fs.existsSync(file)) continue;
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(fs.readFileSync(file, 'utf8'))?.[1];
+    assert.ok(front, `${name} has frontmatter`);
+    for (const line of front.split(/\r?\n/)) {
+      const value = /^[A-Za-z_][\w-]*:\s*(.*)$/.exec(line)?.[1]?.trim();
+      // Unquoted, ": " starts a second mapping and " #" a comment: strict YAML readers reject or cut the line.
+      if (value && !/^['"|>]/.test(value) && /: | #/.test(value)) plainProblems.push(`${name}: ${line.slice(0, 60)}`);
+    }
+  }
+  assert.deepEqual(plainProblems, []);
+  const { meta } = parseSkillFile(`---\nname: x\ndescription: 'Say "hi": it''s fine'\nother: "a \\"b\\" \\\\ c"\n---\nbody`);
+  assert.equal(meta.description, `Say "hi": it's fine`);
+  assert.equal(meta.other, 'a "b" \\ c');
+});

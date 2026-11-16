@@ -1,6 +1,6 @@
 ---
 name: accessibility-audit
-description: WCAG 2.2 AA audit of a page or component: keyboard access, focus, contrast, semantics, accessible names, screen-reader behaviour, motion and zoom, with fixes. Use for "accessibility check", "a11y audit", "is this WCAG compliant", "screen reader support", "keyboard navigation".
+description: 'WCAG 2.2 AA audit of a page or component: keyboard access, focus, contrast, semantics, accessible names, screen-reader behaviour, motion and zoom, with fixes. Use for "accessibility check", "a11y audit", "is this WCAG compliant", "screen reader support", "keyboard navigation".'
 ---
 
 # Accessibility Audit
