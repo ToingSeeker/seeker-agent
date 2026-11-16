@@ -117,7 +117,7 @@ test('backend: through ssh the project is copied there, the command runs there, 
   // The stand-in for ssh: drops the options, notes the host, and runs the command in the "remote" home.
   fs.writeFileSync(
     path.join(bin, 'ssh'),
-    `#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -o) shift 2;; -*) shift;; *) break;; esac; done\necho "$1" >> '${log}'\nshift\ncd '${home}' || exit 1\nexec sh -c "$*"\n`,
+    `#!/bin/sh\nwhile [ $# -gt 0 ]; do case "$1" in -o|-l|-p|-i|-F|-e) shift 2;; -*) shift;; *) break;; esac; done\necho "$1" >> '${log}'\nshift\ncd '${home}' || exit 1\nexec sh -c "$*"\n`,
     { mode: 0o755 },
   );
   const saved = process.env.PATH;
@@ -135,7 +135,8 @@ test('backend: through ssh the project is copied there, the command runs there, 
   assert.match(r.output, /from here/);
   assert.ok(!/node_modules/.test(r.output), 'the excluded folder is not copied there');
   assert.equal(fs.readFileSync(path.join(cwd, 'b.txt'), 'utf8'), 'made there\n', 'what the command made came back');
-  assert.ok(fs.readFileSync(log, 'utf8').split('\n').every((h) => !h || h === 'me@box'));
+  // GNU rsync passes the user as -l me and the host alone; ssh itself gets me@box.
+  assert.ok(fs.readFileSync(log, 'utf8').split('\n').every((h) => !h || h === 'me@box' || h === 'box'));
 
   // Removed here: removed there before the next command; something only there is never removed here.
   fs.rmSync(path.join(cwd, 'a.txt'));
