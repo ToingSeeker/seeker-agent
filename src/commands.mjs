@@ -793,6 +793,7 @@ export const PHONE_COMMANDS = [
   ['/goal', 'Set a goal SEEKER keeps working on until it is done'],
   ['/loop', 'Re-run a prompt: /loop 5m check the deploy'],
   ['/heartbeat', 'Re-enter this session when idle: /heartbeat every 10m <instruction>'],
+  ['/resume', 'Continue a saved conversation of this project: /resume shows them, /resume 2 picks one'],
   ['/restart', 'Restart SEEKER remote on the Mac safely (after an update)'],
   ['/help', 'Show the commands that work from the phone'],
 ];
@@ -840,6 +841,23 @@ export async function runPhoneCommand(input, ctx) {
     return;
   }
   if (PHONE_ELSEWHERE[name]) return ui.notice(`  ${PHONE_ELSEWHERE[name]}`);
+  if (name === 'resume') {
+    if (!ctx.resume) return ui.warn('  This conversation runs in a terminal on your Mac; /resume it there.');
+    const saved = ctx.session.list();
+    if (!saved.length) return ui.notice('  No saved conversations for this folder yet.');
+    const about = (s) => `${s.file === ctx.session.file ? 'open now · ' : ''}${s.preview} — ${s.when} · ${s.count} messages`;
+    if (!arg) {
+      // The phone shows them to tap; each tap sends /resume <n>.
+      if (ctx.choose) return void ctx.choose({ mode: 'send', title: 'Continue a conversation', items: saved.map((s, i) => ({ value: `resume ${i + 1}`, description: about(s) })) });
+      return ui.notice(`  Saved conversations — continue one with /resume <n>:\n${saved.map((s, i) => `  ${i + 1}. ${about(s)}`).join('\n')}`);
+    }
+    const n = Number(arg);
+    if (!Number.isInteger(n) || n < 1 || n > saved.length) return ui.warn(`  /resume 1 to ${saved.length}, or /resume on its own for the list.`);
+    if (saved[n - 1].file === ctx.session.file) return ui.notice('  That is the conversation open now.');
+    const messages = ctx.resume(saved[n - 1].file);
+    if (!messages) return ui.warn('  That conversation could not be read.');
+    return ui.notice(`  Continuing: ${saved[n - 1].preview} (${messages.length} messages)`);
+  }
   if (name === 'restart') {
     if (!ctx.restart) return ui.warn('  /restart is sent from a project opened on the phone; this conversation runs in a terminal on your Mac.');
     await ctx.restart(); // says why not when it cannot, e.g. another project is still working

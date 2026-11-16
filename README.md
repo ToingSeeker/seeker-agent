@@ -643,8 +643,12 @@ running, the terminal works exactly as before.
   `/loop`, `/help` and any `/<skill>` run as they would typed in the terminal (in a project opened from the
   phone too). Settings (`/yolo`, `/think`, `/config`) change only projects opened from the phone, and are saved
   like the Settings tab; a terminal session's own settings are changed in that terminal. What needs a picker or
-  must not come from a lost phone stays in the terminal: `/hooks`, `/mcp`, `/rollback`, `/resume`, `/key`,
-  `/paste`, `/exit`.
+  must not come from a lost phone stays in the terminal: `/hooks`, `/mcp`, `/rollback`, `/key`, `/paste`,
+  `/exit`; and in a terminal session, `/resume`.
+- **Continuing a saved conversation** — in a project opened from the phone, `/resume` (also in the `/` menu and
+  on the home screen) lists that folder's saved conversations, newest first; tap one to continue it, with its
+  transcript back on the phone. After a restart (`/restart`, or `seeker remote` started again) each project
+  carries on with the conversation it had, instead of opening empty.
 - **Approvals** — asked in both places; the first answer decides and the other one closes.
 - **Moving a conversation from the phone to the terminal** — `cd` into the project and run `seeker -c` (or
   `/resume` and pick it). The phone's copy closes, its transcript moves to the terminal session, and a phone

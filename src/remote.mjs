@@ -17,6 +17,7 @@ import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './c
 import { fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
+import { TOOL_BY_NAME } from './tools.mjs';
 import { ANSI } from './text.mjs';
 import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, filesNamed, listedFiles, receiveFile, sendFile } from './transfer.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
@@ -270,6 +271,38 @@ export function keepRecentPreviews(items, keep = PREVIEWS_KEPT) {
 
 const TITLES = { exec: 'Run this command?', write: 'Apply this change?', net: 'Open this address?', other: 'Use this tool?' };
 
+/**
+ * A saved conversation as the phone's transcript: what was said, and each step taken (without its output,
+ * which is not saved). Used when a conversation is continued: after /resume, and after a restart.
+ */
+export function transcriptOf(messages, at = Date.now()) {
+  const items = [];
+  const add = (item) => items.push({ id: `h${items.length + 1}`, at, ...item });
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (message?.role === 'user' && typeof message.content === 'string' && message.content.trim()) add({ kind: 'user', text: message.content });
+    if (message?.role !== 'assistant') continue;
+    if (typeof message.content === 'string' && message.content.trim()) add({ kind: 'assistant', text: message.content });
+    for (const call of Array.isArray(message.tool_calls) ? message.tool_calls : []) {
+      const name = String(call?.function?.name ?? 'tool');
+      let args = call?.function?.arguments ?? {};
+      if (typeof args === 'string') {
+        try {
+          args = JSON.parse(args);
+        } catch {
+          args = {};
+        }
+      }
+      const tool = TOOL_BY_NAME.get(name);
+      let summary = '';
+      try {
+        summary = String(tool?.summary?.(args) ?? '');
+      } catch {}
+      add({ kind: 'tool', state: 'done', doing: tool?.verbs?.[0] ?? name, done: tool?.verbs?.[1] ?? name, summary: plain(summary).replace(/\s*\n\s*/g, ' ⏎ ').slice(0, 400) });
+    }
+  }
+  return items.slice(-MAX_ITEMS);
+}
+
 export class Workspace {
   /**
    * @param {object} daemon  the RemoteDaemon, or for a session running in a terminal the TerminalLink that leads to one
@@ -443,6 +476,7 @@ export class Workspace {
       this.ui.answerStream().flush();
       this.#offerFiles(started);
       this.session.save(this.agent.messages, this.agent.model);
+      this.daemon.conversationChanged?.(this);
     } finally {
       this.status = 'idle';
       this.activity = '';
@@ -494,7 +528,13 @@ export class Workspace {
       const choose = (list) => this.ui.choose(list);
       const settings = (items) => this.ui.settings(items);
       const restart = this.daemon.restart ? () => this.daemon.restart(this) : null;
-      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose, settings, restart });
+      // The transcript is replaced by the one continued; the phone is sent it whole.
+      const resume = (file) => {
+        const messages = this.resume(file);
+        if (messages) this.daemon.send(this.daemon.snapshot(), { snapshot: true });
+        return messages;
+      };
+      result = await runPhoneCommand(text, { agent, ui: this.ui, term: null, config: agent.config, permissions: agent.permissions, session, hub: null, autonomy: null, configure, choose, settings, restart, resume });
     } catch (err) {
       this.ui.warn(`  ${err.message}`);
     } finally {
@@ -521,6 +561,26 @@ export class Workspace {
   steer(text) {
     if (this.status === 'idle') return false;
     return this.agent.steer(text, () => this.ui.user(text, [], 'steer'));
+  }
+
+  /**
+   * Continues the conversation saved in `file`: the model has it back, the phone gets its transcript, and
+   * what follows is saved to that same file. Null when it cannot be read; nothing is changed then.
+   */
+  resume(file) {
+    if (typeof this.session?.load !== 'function') return null;
+    const messages = this.session.load(file);
+    if (!messages) return null;
+    this.reset();
+    this.session.file = file; // reset() began a new file; this conversation keeps its own
+    this.agent.messages = messages;
+    let at = Date.now();
+    try {
+      at = fs.statSync(file).mtimeMs;
+    } catch {}
+    this.items = transcriptOf(messages, at);
+    this.daemon.conversationChanged?.(this);
+    return messages;
   }
 
   reset() {
@@ -687,7 +747,13 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, respawn = respawnDaemon }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, respawn = respawnDaemon, conversationsFile = remember ? path.join(HOME_DIR, 'remote-conversations.json') : null }) {
+    // Which saved conversation each project opened from the phone holds, so a restart continues it: folder → file.
+    this.conversationsFile = conversationsFile;
+    this.conversations = {};
+    try {
+      if (conversationsFile) this.conversations = JSON.parse(fs.readFileSync(conversationsFile, 'utf8')) ?? {};
+    } catch {}
     this.respawn = respawn; // starts the process that replaces this one; see restart()
     this.quit = null; // how this process ends itself (set by whoever started it); without one, restart() only stops the daemon
     this.restarting = false;
@@ -1069,6 +1135,9 @@ export class RemoteDaemon {
     if (existing) return existing;
     const workspace = new Workspace(this, cwd);
     await workspace.open();
+    // Opened again (after a restart, or closed and opened): it carries on with the conversation it had.
+    const held = this.conversations[cwd];
+    if (typeof held === 'string' && path.dirname(held) === workspace.session?.dir && fs.existsSync(held) && workspace.resume(held)) this.log(`${workspace.name}: continuing its conversation`);
     // A saved queue belongs to the folder it was made for, and to no other.
     if (this.queues.get(workspace.id) && this.queues.get(workspace.id).cwd !== cwd) this.queues.delete(workspace.id);
     this.workspaces.set(workspace.id, workspace);
@@ -1161,6 +1230,17 @@ export class RemoteDaemon {
     } catch (err) {
       this.log(`${workspace.name}: ${err.message}`);
     }
+  }
+
+  /** A project's conversation was saved, started anew or swapped for a saved one. */
+  conversationChanged(workspace) {
+    const file = workspace.session?.file;
+    if (typeof file !== 'string') return;
+    this.conversations[workspace.cwd] = file;
+    if (!this.conversationsFile) return;
+    try {
+      fs.writeFileSync(this.conversationsFile, JSON.stringify(this.conversations), { mode: 0o600 });
+    } catch {}
   }
 
   #remember() {
@@ -1308,6 +1388,7 @@ export class RemoteDaemon {
           if (workspace?.linked) return this.send({ t: 'toast', text: 'This conversation runs in a terminal on your Mac. Start a new one there.' });
           if (!workspace || workspace.status !== 'idle') return;
           workspace.reset();
+          this.conversationChanged(workspace);
           return this.send(this.snapshot(), { snapshot: true });
         case 'open': {
           const before = new Set(this.workspaces.keys());
