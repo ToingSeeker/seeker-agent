@@ -87,3 +87,26 @@ test('the Python check cannot be made to run code from the project it checks', {
   assert.match(out.output, /Syntax check FAILED for app\.py/, 'the real parser did the check');
   assert.equal(fs.existsSync(path.join(cwd, 'ran.txt')), false);
 });
+
+test('files dragged into the message box show as short names, and only when the paste is nothing but files', async () => {
+  const { compactDropped } = await import('../src/images.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-drop-'));
+  for (const name of ['Screenshot 2026-11-16 at 00.31.22.png', 'b.jpg', 'clip.MOV', 'Report 2026.pdf', 'notes']) fs.writeFileSync(path.join(dir, name), 'x');
+  const escaped = (name) => path.join(dir, name).replace(/ /g, '\\ ');
+
+  const one = compactDropped(`${escaped('Screenshot 2026-11-16 at 00.31.22.png')} `, dir);
+  assert.equal(one.text, '[image.png] ');
+  assert.deepEqual(one.files, [{ token: '[image.png]', written: escaped('Screenshot 2026-11-16 at 00.31.22.png') }]);
+
+  // Several at once, quoted or escaped, each named by what it is.
+  const many = compactDropped(`${escaped('Screenshot 2026-11-16 at 00.31.22.png')} "${path.join(dir, 'b.jpg')}" ${escaped('clip.MOV')} ${escaped('Report 2026.pdf')} ${path.join(dir, 'notes')}`, dir);
+  assert.equal(many.text, '[image.png] [image.jpg] [video.mov] [file.pdf] [file]');
+  assert.equal(many.files[1].written, `"${path.join(dir, 'b.jpg')}"`);
+  // A name already in the box is not used twice: the second picture of a kind is numbered.
+  assert.equal(compactDropped(escaped('b.jpg'), dir, new Set(['[image.jpg]'])).text, '[image 2.jpg]');
+
+  // A path inside pasted words, or one that is not a file here, stays as it was.
+  assert.equal(compactDropped(`look at ${escaped('b.jpg')} please`, dir), null);
+  assert.equal(compactDropped('/no/such/file.png', dir), null);
+  assert.equal(compactDropped('   ', dir), null);
+});

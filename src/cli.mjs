@@ -764,7 +764,8 @@ export async function main(argv) {
       await runDue();
       continue;
     }
-    ui.userEcho(text);
+    // Files dragged in are shown by their short names, as they were in the box; the model gets the paths.
+    ui.userEcho(term.shownAs(input).trim());
 
     if (text.startsWith('!')) {
       const result = await TOOL_BY_NAME.get('bash').run({ command: text.slice(1) }, { cwd, state: {} }).catch((e) => ({ output: e.message }));

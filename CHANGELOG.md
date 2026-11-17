@@ -4,6 +4,11 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **A file dragged into the terminal shows by a short name.** Instead of its whole escaped path, the message
+  box shows `[image.png]`, `[video.mp4]` or `[file.pdf]` (a second one of a kind is numbered), and so does the
+  conversation once it is sent; the model still gets the full path. Backspace removes the name whole. Only a
+  paste that is nothing but files is shortened, and a picture sent from the phone shows the same way.
+
 - **Saved conversations can be continued from the phone, and survive a restart.** `/resume` in a project
   opened from the phone (also in the `/` menu, and the home screen's /resume button, which only opened the
   session list before) lists that folder's saved conversations to tap; the one picked comes back with its

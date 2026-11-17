@@ -370,7 +370,9 @@ Sebut file gambar di pesanmu, dan model melihat gambarnya, bukan hanya path-nya:
 › /paste error apa ini?        # mengirim gambar di clipboard, misalnya screenshot
 ```
 
-Menyeret file ke terminal akan mengetikkan path-nya, dan itu juga bisa. Model juga dapat membuka gambar
+Menyeret file ke terminal juga bisa. Kotak pesan menampilkannya dengan nama pendek, `[image.png]`,
+`[video.mp4]` atau `[file.pdf]`, dan model menerima path lengkapnya saat pesan dikirim; Backspace menghapus
+nama itu sekaligus. Model juga dapat membuka gambar
 sendiri lewat `read_file`. PNG, JPEG, GIF dan WebP, masing-masing maksimal 3,7 MB.
 
 Modelnya harus mendukung vision; `/status` menunjukkan apakah model yang aktif bisa. Untuk Ollama, itu

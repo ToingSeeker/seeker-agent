@@ -7,6 +7,7 @@ import readline from 'node:readline';
 import { PassThrough } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { HOME_DIR } from './config.mjs';
+import { compactDropped } from './images.mjs';
 import { layout } from './text.mjs';
 
 export { layout };
@@ -198,6 +199,24 @@ export class Terminal {
     const state = { text: initial, cursor: initial.length };
     let result = null;
     let pasting = false;
+    let pasteFrom = 0;
+    // Files dragged in show as a short name ([image.png]); what was dragged goes back in their place when the message is sent.
+    const dropped = new Map(); // short name → the path as the terminal typed it
+    const expand = (text) => {
+      for (const [token, written] of dropped) text = text.split(token).join(written);
+      return text;
+    };
+    const compact = (from, to) => {
+      if (!multiline) return;
+      const found = compactDropped(state.text.slice(from, to), process.cwd(), new Set(dropped.keys()));
+      if (!found) return;
+      for (const { token, written } of found.files) dropped.set(token, written);
+      state.text = state.text.slice(0, from) + found.text + state.text.slice(to);
+      state.cursor = from + found.text.length;
+    };
+    // A short name is taken out whole, not a letter at a time.
+    const tokenBefore = () => [...dropped.keys()].find((t) => state.text.slice(0, state.cursor).endsWith(t));
+    const tokenAfter = () => [...dropped.keys()].find((t) => state.text.startsWith(t, state.cursor));
     let historyAt = this.history.length;
     let draft = '';
 
@@ -232,14 +251,21 @@ export class Terminal {
       if (picked) {
         if (picked.replace !== undefined) replace(picked.replace);
         if (picked.submit) {
-          result = state.text;
+          result = expand(state.text);
+          this.shown = { text: result, as: state.text };
           return true;
         }
         draw(state, recalled());
         return false;
       }
-      if (name === 'paste-start') pasting = true;
-      else if (name === 'paste-end') pasting = false;
+      if (name === 'paste-start') {
+        pasting = true;
+        pasteFrom = state.cursor;
+      } else if (name === 'paste-end') {
+        pasting = false;
+        // A drag from the file manager arrives as a paste of the file's path.
+        if (state.cursor > pasteFrom) compact(pasteFrom, state.cursor);
+      }
       else if (pasting && (name === 'return' || name === 'enter')) insert(multiline ? '\n' : ' ');
       else if (key.ctrl && name === 'c') {
         const action = onCtrlC(state);
@@ -256,19 +282,24 @@ export class Terminal {
           state.cursor--;
           insert('\n');
         } else {
-          result = state.text;
+          result = expand(state.text);
+          this.shown = { text: result, as: state.text };
           return true;
         }
       } else if (name === 'backspace' && key.meta) {
         const from = wordStart(state.text, state.cursor);
         state.text = state.text.slice(0, from) + state.text.slice(state.cursor);
         state.cursor = from;
+      } else if (name === 'backspace' && tokenBefore()) {
+        const token = tokenBefore();
+        state.text = state.text.slice(0, state.cursor - token.length) + state.text.slice(state.cursor);
+        state.cursor -= token.length;
       } else if (name === 'backspace') {
         if (state.cursor > 0) {
           state.text = state.text.slice(0, state.cursor - 1) + state.text.slice(state.cursor);
           state.cursor--;
         }
-      } else if (name === 'delete') state.text = state.text.slice(0, state.cursor) + state.text.slice(state.cursor + 1);
+      } else if (name === 'delete') state.text = state.text.slice(0, state.cursor) + state.text.slice(state.cursor + (tokenAfter()?.length ?? 1));
       else if ((name === 'left' && key.meta) || (key.meta && name === 'b')) state.cursor = wordStart(state.text, state.cursor);
       else if ((name === 'right' && key.meta) || (key.meta && name === 'f')) state.cursor = wordEnd(state.text, state.cursor);
       else if (name === 'left') state.cursor = Math.max(0, state.cursor - 1);
@@ -297,7 +328,16 @@ export class Terminal {
     };
 
     // Lets text arrive from somewhere other than the keyboard while this is being typed.
-    expose?.({ text: () => state.text, insert: (s) => (insert(s), draw(state)) });
+    // A picture sent from the phone is put in as its path, and shown short like a dragged one.
+    expose?.({
+      text: () => expand(state.text),
+      insert: (s) => {
+        const from = state.cursor;
+        insert(s);
+        compact(from, state.cursor);
+        draw(state);
+      },
+    });
     draw(state);
     return this.captureKeys(onKey).then(() => result);
   }
@@ -351,6 +391,11 @@ export class Terminal {
     // Woken by a schedule rather than ended by the user: an empty message, which the caller reads as "look for due work".
     if (text === null && this.woken && !this.closed) return '';
     return text;
+  }
+
+  /** How `text`, just sent from the message box, was shown there: with the short names of the files dragged in. */
+  shownAs(text) {
+    return this.shown?.text === text ? this.shown.as : text;
   }
 
   /** Puts text into the message box as if typed: now if it is open, otherwise the next time it opens. */
