@@ -64,6 +64,14 @@
   --nav-h: 62px;
   /* The home indicator needs only the lowest part of the safe area; the rest is ours to use. */
   --safe-b: max(0px, env(safe-area-inset-bottom) - 16px);
+  /* Glass: the pills and circles every button is drawn as (the layer at the end of this file). */
+  --sk-glass-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035));
+  --sk-glass-fill-press: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.07));
+  --sk-glass-edge: rgba(255, 255, 255, 0.11);
+  --sk-glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --sk-glass-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  --sk-glass-float: rgba(28, 31, 36, 0.62);
+  --sk-glass-blur: blur(22px) saturate(170%);
   color-scheme: dark;
 }
 
@@ -4482,5 +4490,197 @@ body.veiled #sheet {
   40%,
   80% {
     transform: translateX(8px);
+  }
+}
+
+/* ── pills and glass: one look for every button ──
+   Buttons with words are pills, buttons with only an icon are circles. Each is a sheet of glass:
+   a faint light fill, a hairline edge, a highlight along the top and a soft shadow. Only what floats
+   over moving content (the bars, the sheet, the round buttons over the timeline) blurs what is behind
+   it; a button on a plain surface gets the same look without the blur, which costs the phone a lot. */
+/* Pills */
+.btn,
+.ctl,
+.sw-action,
+.tabs,
+.tabs button,
+.tabs.home-tabs button {
+  border-radius: 999px;
+}
+/* Circles */
+.icon-btn,
+.fpv-icon,
+.switch-btn,
+.tool-btn,
+.topbar .back,
+.topbar .more,
+.fab,
+.zoom-close {
+  border-radius: 50%;
+}
+
+/* Glass on a plain surface */
+.btn:where(:not(.primary):not(.quiet)),
+.ctl,
+.sw-action,
+.icon-btn,
+.fpv-icon,
+.pin-key:where(:not(.aux)),
+.tabs:where(:not(.home-tabs)),
+.tabs.home-tabs button,
+.topbar .back,
+.topbar .more {
+  border: 1px solid var(--sk-glass-edge);
+  background: var(--sk-glass-fill);
+  box-shadow: var(--sk-glass-hi), var(--sk-glass-shadow);
+}
+.tabs:not(.home-tabs) {
+  box-shadow: var(--sk-glass-hi);
+}
+/* Coloured kinds keep their colour, now as tinted glass. */
+.btn.approve,
+.ctl.approve,
+.ctl.resume,
+.icon-btn.primary,
+.icon-btn.on,
+.sw-action.all,
+.tabs.home-tabs button.active {
+  border-color: rgba(255, 138, 0, 0.45);
+  background: linear-gradient(180deg, rgba(255, 138, 0, 0.22), rgba(255, 138, 0, 0.09));
+}
+.btn.unpair {
+  border-color: rgba(241, 109, 118, 0.38);
+}
+/* The selected tab is a raised piece of glass in its track, the amber kept for its words. */
+.tabs:not(.home-tabs) button {
+  border-color: transparent;
+}
+.tabs:not(.home-tabs) button.active {
+  border-color: rgba(255, 138, 0, 0.35);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+  box-shadow: var(--sk-glass-hi), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.tabs.seg button.active::before {
+  display: none;
+}
+/* The amber buttons: the same glass, lit from above. */
+.btn.primary,
+.send {
+  border: 1px solid rgba(255, 190, 110, 0.55);
+  background: linear-gradient(180deg, var(--sk-primary-hover), var(--sk-primary) 55%, color-mix(in srgb, var(--sk-primary) 92%, black));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 18px rgba(255, 138, 0, 0.28);
+}
+.stop-btn {
+  border: 1px solid var(--sk-glass-edge);
+  background: var(--sk-glass-fill-press);
+  box-shadow: var(--sk-glass-hi);
+}
+
+/* Glass over moving content: it blurs what scrolls beneath. */
+.fab,
+.zoom-close {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--sk-glass-float);
+  box-shadow: var(--sk-glass-hi), 0 8px 24px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: var(--sk-glass-blur);
+  backdrop-filter: var(--sk-glass-blur);
+}
+#sheet .panel {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(21, 23, 27, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: var(--sk-glass-blur);
+  backdrop-filter: var(--sk-glass-blur);
+}
+#nav {
+  border-top-color: rgba(255, 255, 255, 0.07);
+  background: rgba(11, 13, 16, 0.78);
+  -webkit-backdrop-filter: var(--sk-glass-blur);
+  backdrop-filter: var(--sk-glass-blur);
+}
+
+/* Pressed: a little lighter and a little smaller. */
+.btn,
+.ctl,
+.sw-action,
+.icon-btn,
+.fpv-icon,
+.switch-btn,
+.tool-btn,
+.fab,
+.pin-key,
+.stop-btn,
+.send,
+.fact,
+.topbar .back,
+.topbar .more,
+.tabs button {
+  transition: transform var(--sk-motion-fast), background var(--sk-motion-fast), border-color var(--sk-motion-fast), opacity var(--sk-motion-fast);
+}
+.btn:not(:disabled):active,
+.ctl:not(:disabled):active,
+.sw-action:not(:disabled):active,
+.icon-btn:not(:disabled):active,
+.fpv-icon:not(:disabled):active,
+.switch-btn:active,
+.tool-btn:active,
+.fab:active,
+.pin-key:not(:disabled):active,
+.stop-btn:not(:disabled):active,
+.send:active,
+.fact:active,
+.topbar .back:active,
+.topbar .more:active {
+  transform: scale(0.96);
+}
+.btn:not(.primary):not(.quiet):not(:disabled):active,
+.ctl:not(:disabled):active,
+.sw-action:not(:disabled):active,
+.icon-btn:not(:disabled):active,
+.fpv-icon:not(:disabled):active,
+.pin-key:not(.aux):not(:disabled):active,
+.topbar .back:active,
+.topbar .more:active {
+  background: var(--sk-glass-fill-press);
+}
+.btn.primary:not(:disabled):active {
+  background: linear-gradient(180deg, var(--sk-primary), color-mix(in srgb, var(--sk-primary) 90%, black));
+}
+
+/* Where the phone is asked for less transparency, solid surfaces again. */
+@media (prefers-reduced-transparency: reduce) {
+  .fab,
+  .zoom-close {
+    background: var(--sk-surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  #sheet .panel {
+    background: var(--sk-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  #nav {
+    background: var(--sk-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn:active,
+  .ctl:active,
+  .sw-action:active,
+  .icon-btn:active,
+  .fpv-icon:active,
+  .switch-btn:active,
+  .tool-btn:active,
+  .fab:active,
+  .pin-key:active,
+  .stop-btn:active,
+  .send:active,
+  .fact:active,
+  .topbar .back:active,
+  .topbar .more:active {
+    transform: none;
   }
 }
