@@ -14,7 +14,7 @@ import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view a
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
-import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, makePin, readLock, sameId, userVerified, writeLock } from './lock.js';
+import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCKOUT_TRIES, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, readLock, sameId, triesLeft, userVerified, writeLock } from './lock.js';
 
 const $ = (id) => document.getElementById(id);
 const enc = new TextEncoder();
@@ -1376,7 +1376,7 @@ function sendText(wsId, text, images = [], files = []) {
   // What was just sent is what the reader wants to follow: back to the bottom, so the reply stays in view.
   const view = $('view');
   view.scrollTop = view.scrollHeight;
-  return command('message', { ws: wsId, text, ...(images.length ? { images } : {}), ...(files.length ? { files: files.map(({ id, name, bytes }) => ({ id, name, bytes })) } : {}) });
+  return command('message', { ws: wsId, text, locked: Boolean(lockCfg), ...(images.length ? { images } : {}), ...(files.length ? { files: files.map(({ id, name, bytes }) => ({ id, name, bytes })) } : {}) });
 }
 
 // ── images ─────────────────────────────────────────────────────────────────
@@ -2897,9 +2897,23 @@ async function entered(pin) {
   if (lockCfg.until > Date.now()) return Object.assign(pad, { entry: '' }), drawPad();
   if (await checkPin(lockCfg, pin)) return passed();
   saveLock(failed(lockCfg, Date.now()));
-  Object.assign(pad, { entry: '', note: 'Wrong PIN.', bad: true, shake: true });
   navigator.vibrate?.(120);
+  if (lockedOut(lockCfg)) return lockOut();
+  const left = triesLeft(lockCfg);
+  Object.assign(pad, { entry: '', note: `Wrong PIN. ${left} more wrong ${left === 1 ? 'try' : 'tries'} and this phone is unpaired.`, bad: true, shake: true });
   drawPad();
+}
+
+/**
+ * The third wrong PIN within ten minutes: the Mac is told, then everything that lets this phone in is
+ * removed from it (the pairing, the lock, the files kept here). Pairing again is the only way back.
+ */
+async function lockOut() {
+  await command('lockout', {}, { quiet: true });
+  saveLock(null);
+  state.locked = false;
+  closePad();
+  signOut(`${LOCKOUT_TRIES} wrong PINs within 10 minutes: this phone was unpaired. To use it again, run seeker remote --setup on your Mac and open the link on this phone.`);
 }
 
 function passed() {

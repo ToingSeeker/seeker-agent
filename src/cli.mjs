@@ -627,7 +627,7 @@ export async function main(argv) {
   // From the phone. A picture by itself goes into the message being typed here, as a path, the way
   // a dragged file would; a message with words is a turn of its own, if the terminal is free for one.
   port.onStop = () => agent.busy && mirror.stop();
-  port.onMessage = ({ text, images }) => {
+  port.onMessage = ({ text, images, locked }) => {
     if (!text) {
       if (!images.length) return;
       let files;
@@ -640,8 +640,8 @@ export async function main(argv) {
       const what = images.length > 1 ? `${images.length} pictures are` : 'The picture is';
       return port.toast(term.reading ? `${what} in the message being typed in the terminal.` : `${what} waiting in the terminal's message box.`);
     }
-    // A phone may be lost or borrowed: it never gets to start work that runs without asking.
-    if (permissions.mode === 'auto') return port.toast('This terminal session runs without asking (--yolo), so it cannot be given tasks from the phone.');
+    // A phone may be lost or borrowed: work that runs without asking is taken only from one behind its app lock.
+    if (permissions.mode === 'auto' && !locked) return port.toast('This terminal session runs without asking (--yolo). Turn on the app lock (Settings → App lock) to give it tasks from the phone.');
     if (agent.busy || !term.inject({ text, images })) port.toast(`${mirror.name} is busy in the terminal. Send it again when it has finished.`);
   };
   port.onHandoff = ({ name, busy, items }) => {

@@ -322,7 +322,10 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
   menimpa. Kalau HP masih mengerjakannya (atau masih ada instruksi yang antre), salinan HP tetap dipakai dan
   terminal lanjut di salinan terpisah; jalankan `seeker -c` lagi setelah HP selesai.
 - **Tidak dari HP** — percakapan baru, ganti model, dan menutup sesi dilakukan di terminal. Sesi yang
-  dijalankan dengan `--yolo` tampil di HP tapi tidak menerima tugas dari sana.
+  dijalankan dengan `--yolo` menerima tugas dari HP hanya kalau kunci aplikasi di HP itu aktif (Settings → App
+  lock), karena tugasnya dijalankan tanpa bertanya. Status kunci itu dilaporkan oleh HP sendiri, jadi ini
+  pengingat untuk aplikasinya, bukan pemeriksaan yang bisa dipastikan Mac: yang menjaga dari orang lain adalah
+  secret pairing.
 
 ### Setelah terpasang
 
@@ -357,8 +360,9 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
 - Kunci aplikasi (Settings → App lock): Face ID, dengan PIN 6 digit sebagai cadangan, diminta saat aplikasi
   dibuka atau setelah tidak dipakai 1, 5, 15, atau 60 menit. Semuanya di HP saja: PIN disimpan sebagai hash
   PBKDF2 bersalt, Face ID memakai passkey untuk situs ini yang wajib melaporkan pengguna sudah terverifikasi.
-  Setelah lima kali PIN salah, tiap percobaan menunggu makin lama (30 detik, berlipat, maksimal 15 menit). Lupa
-  PIN berarti pairing ulang. Kunci ini menyembunyikan layar, tidak mengenkripsi data aplikasi di HP, dan teks
+  Tiga kali PIN salah dalam 10 menit membuat HP itu di-unpair (pairing, kunci, dan file yang disimpan di HP
+  dihapus, dan Mac mengirim notifikasi); jalan kembalinya adalah pairing ulang dengan `seeker remote --setup`.
+  Lupa PIN juga berarti pairing ulang. Kunci ini menyembunyikan layar, tidak mengenkripsi data aplikasi di HP, dan teks
   notifikasi push tetap tampil di lock screen.
 
 ## Gambar

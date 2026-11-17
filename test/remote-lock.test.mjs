@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
-import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCK_KEY, afterLabel, checkPin, cleared, dueToLock, failed, makePin, minutes, penalty, readLock, sameId, userVerified, validPin, writeLock } from '../remote-server/public/lock.js';
+import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCK_KEY, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, minutes, readLock, triesLeft, sameId, userVerified, validPin, writeLock } from '../remote-server/public/lock.js';
 
 const read = (file) => fs.readFileSync(new URL(`../remote-server/public/${file}`, import.meta.url), 'utf8');
 const MIN = 60_000;
@@ -41,14 +41,25 @@ test('lock: it locks once unused for 1, 5, 15 or 60 minutes, as chosen', () => {
   assert.deepEqual(AFTER_OPTIONS.map(afterLabel), ['1 minute', '5 minutes', '15 minutes', '1 hour']);
 });
 
-test('lock: wrong PINs are free five times, then each try waits longer, up to 15 minutes', () => {
-  assert.deepEqual([0, 1, 4].map(penalty), [0, 0, 0]);
-  assert.deepEqual([5, 6, 7].map(penalty), [30_000, 60_000, 120_000]);
-  assert.equal(penalty(40), 15 * MIN);
-  let cfg = { hash: 'x', salt: 'y', failures: 0, until: 0 };
-  for (let i = 0; i < 5; i++) cfg = failed(cfg, 1000);
-  assert.deepEqual([cfg.failures, cfg.until], [5, 1000 + 30_000]);
-  assert.deepEqual([cleared(cfg).failures, cleared(cfg).until], [0, 0]);
+test('lock: the third wrong PIN within ten minutes locks the phone out; older ones do not count', () => {
+  let cfg = { hash: 'x', salt: 'y' };
+  cfg = failed(cfg, 0);
+  assert.deepEqual([lockedOut(cfg), triesLeft(cfg)], [false, 2]);
+  cfg = failed(cfg, 5 * MIN);
+  assert.deepEqual([lockedOut(cfg), triesLeft(cfg)], [false, 1]);
+  // The first was more than ten minutes before this one: it has run out, so two count, not three.
+  cfg = failed(cfg, 10 * MIN + 1);
+  assert.deepEqual([lockedOut(cfg), triesLeft(cfg), cfg.misses.length], [false, 1, 2]);
+  cfg = failed(cfg, 11 * MIN);
+  assert.equal(lockedOut(cfg), true);
+  // No wait between tries any more: three are all there is.
+  assert.equal(cfg.until, 0);
+  // The right PIN forgets the wrong ones.
+  assert.deepEqual([lockedOut(cleared(cfg)), triesLeft(cleared(cfg))], [false, 3]);
+  // Three in a row, quickly.
+  let quick = { hash: 'x', salt: 'y' };
+  for (const at of [1000, 2000, 3000]) quick = failed(quick, at);
+  assert.equal(lockedOut(quick), true);
 });
 
 test('lock: Face ID opens only when the answer says the user was verified, with the passkey made at setup', () => {
