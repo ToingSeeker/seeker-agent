@@ -3571,6 +3571,11 @@ pre {
   top: -7px;
   right: -12px;
 }
+/* While a search field has the keyboard, the app is only as tall as what is visible, which would
+   lift the bar onto the keys and take space from the list. It comes back as the keyboard closes. */
+.keyboard #nav {
+  display: none;
+}
 
 /* ── the file preview sheet: one look for a picture, a PDF, a video and the rest ── */
 #sheet .panel.fpv {
