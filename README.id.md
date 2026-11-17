@@ -417,11 +417,11 @@ dibuka utuh (foto yang dikirim sebelum versi ini terbuka sebagai pratinjau kecil
 File atau foto yang sudah sekali diambil dari Mac disimpan di HP (di penyimpanan aplikasi sendiri,
 paling banyak 300 MB, yang paling lama dihapus duluan), jadi saat dibuka lagi tidak perlu diunduh
 ulang. Pratinjaunya baru menulis **Saved on this phone** setelah file benar-benar terbaca kembali dari
-penyimpanan itu; kalau HP menolak karena penuh, pratinjau mengatakannya, dan **Share / Export** tetap
+penyimpanan itu; kalau HP menolak karena penuh, pratinjau mengatakannya, dan **Save** tetap
 bisa dipakai. File di path yang sama dengan ukuran berbeda diambil ulang. **Settings → Files kept on
 this phone** menampilkan daftar file yang tersimpan: ketuk untuk membuka, **×** untuk menghapus satu,
 atau **Remove all**; unpair juga menghapus semuanya. Ini penyimpanan aplikasi sendiri, bukan Photos
-atau Files (pakai **Share / Export** untuk itu), dan iOS bisa mengosongkannya kalau ruang HP menipis.
+atau Files (buka filenya lalu ketuk **Save** untuk itu), dan iOS bisa mengosongkannya kalau ruang HP menipis.
 Yang tersimpan adalah file yang sudah didekripsi: kunci aplikasi menyembunyikannya, tapi tidak
 mengenkripsinya.
 
@@ -436,8 +436,10 @@ ketuk centangnya untuk membagikan file. File yang sudah tidak ada di Mac menampi
 Ketuk bagian lain kartu untuk membuka pratinjau: gambar utuh (**Fullscreen** untuk cubit, ketuk dua kali
 dan geser), PDF langsung di halaman, video dengan pemutar bawaan HP (tidak pernah autoplay, berhenti
 saat lembar ditutup), dan folder tempatnya di Mac, yang bisa dibuka untuk melihat path lengkap, jenis,
-ukuran dan tanggalnya. **Share / Export** membuka share sheet, tempat "Simpan Video" dan "Simpan ke
-File". PDF baru ditampilkan kalau byte awalnya memang PDF. Sama seperti gambar, HP hanya menyebut
+ukuran dan tanggalnya. **Save to Photos** (gambar atau video) atau **Save to Files** (file lain) membuka
+share sheet; satu ketukan lagi di "Simpan Gambar", "Simpan Video" atau "Simpan ke File" menyelesaikannya,
+karena web app tidak bisa menulis ke Photos sendiri. Tombol share di pojok atas membuka sheet yang sama
+untuk AirDrop dan aplikasi lain. Tanpa share sheet (browser desktop) tombolnya jadi **Download**. PDF baru ditampilkan kalau byte awalnya memang PDF. Sama seperti gambar, HP hanya menyebut
 jawabannya, tidak pernah path. Tiap potongan dienkripsi bersama identitas file dan urutannya, jadi relay
 tidak bisa menukar atau mengacak urutannya, dan potongan langsung dihapus dari relay begitu sisi lain
 mengambilnya. Relay menampung paling banyak 40 MB per arah sekaligus dan menyuruh pengirim menunggu kalau
