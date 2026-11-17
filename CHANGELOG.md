@@ -4,6 +4,13 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Claude Code can still ask for approval after a command it left running in the background.** When Claude
+  Code (as the engine) started something in the background, such as a CI watch or a long build, and finished its
+  answer, it was woken again when that ended, but by then its input had been closed. Every step that needed
+  approval failed with "Tool permission request failed: AbortError: Stream closed". The reply now stays open
+  until those commands are done (30 minutes at most, `providers.claude-code.backgroundWait`), and what it
+  says when woken follows in the same reply.
+
 - **Three wrong PINs within 10 minutes unpair the phone.** The app lock used to make each try wait longer
   after five wrong PINs. Now the third wrong PIN within ten minutes tells the Mac (which sends a
   notification), then removes the pairing, the lock and the files kept on that phone; pairing again is the

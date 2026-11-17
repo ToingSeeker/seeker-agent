@@ -12,6 +12,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 
+// How long a reply waits, after Claude Code's answer, for commands it left running in the background
+// (providers.claude-code.backgroundWait, in ms); and for it to go on once the last of them is done.
+const BACKGROUND_WAIT = 30 * 60_000;
+const QUIET_AFTER_TASK = 30_000;
+
 const MODELS = [
   { name: 'default', title: 'whatever Claude Code is set to use' },
   { name: 'fable', title: 'most capable' },
@@ -79,8 +84,25 @@ export function claudeCodeProvider(def, config, deps = {}) {
       ? messages.slice(session.seen.length).filter((m) => m.role === 'user').map((m) => m.content).join('\n\n')
       : renderTranscript(messages);
 
+    // The prompt goes in as a stream that stays open until Claude Code is really done. Given as plain text,
+    // the SDK closes Claude Code's input at the first result, and a command it left running in the background
+    // (a CI watch, a long build) then wakes it to a turn whose every approval fails with "Stream closed".
+    let closeInput;
+    const inputDone = new Promise((resolve) => (closeInput = resolve));
+    const input = (async function* () {
+      yield { type: 'user', message: { role: 'user', content: prompt }, parent_tool_use_id: null };
+      await inputDone;
+    })();
+    const background = new Set(); // tasks Claude Code started that have not reported back
+    let waitTimer = null;
+    const waitFor = (ms) => {
+      clearTimeout(waitTimer);
+      waitTimer = setTimeout(closeInput, ms);
+      waitTimer.unref?.();
+    };
+
     const controller = new AbortController();
-    const onAbort = () => controller.abort();
+    const onAbort = () => (closeInput(), controller.abort());
     signal?.addEventListener('abort', onAbort, { once: true });
     const env = { ...process.env };
     // Set when SEEKER itself was started from inside Claude Code; the child must not think it is nested.
@@ -113,11 +135,29 @@ export function claudeCodeProvider(def, config, deps = {}) {
     const started = Date.now();
     let result = null;
     let usage = null;
+    let separated = null;
     try {
-      for await (const event of query({ prompt, options })) {
+      for await (const event of query({ prompt: input, options })) {
         if (event.type === 'result') {
-          result = event;
+          result = event; // its usage counts the whole run so far
+          // Done, unless something it started is still running: then it is woken when that finishes.
+          if (!background.size || event.is_error) closeInput();
+          else waitFor(settings().backgroundWait ?? BACKGROUND_WAIT);
           continue;
+        }
+        if (event.type === 'system' && event.subtype === 'task_started') background.add(event.task_id);
+        if (event.type === 'system' && event.subtype === 'task_notification') {
+          background.delete(event.task_id);
+          // It normally goes on with a new turn; if it does not, the reply is over.
+          if (result && !background.size) waitFor(QUIET_AFTER_TASK);
+        }
+        if (result && (event.type === 'stream_event' || event.type === 'assistant')) {
+          clearTimeout(waitTimer);
+          // A turn after a result: set apart from what was said before.
+          if (separated !== result && event.type === 'stream_event' && event.event?.type === 'message_start' && !event.parent_tool_use_id) {
+            separated = result;
+            yield { message: { content: '\n\n' } };
+          }
         }
         // Work done by a sub-agent is reported through the call that started it.
         if (event.parent_tool_use_id) continue;
@@ -144,6 +184,8 @@ export function claudeCodeProvider(def, config, deps = {}) {
       const detail = stderr.trim().split('\n').at(-1);
       throw new Error(`Claude Code: ${err.message}${detail ? ` (${detail})` : ''}`);
     } finally {
+      clearTimeout(waitTimer);
+      closeInput();
       signal?.removeEventListener('abort', onAbort);
     }
 

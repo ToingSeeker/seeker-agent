@@ -242,8 +242,9 @@ test('Claude Code provider: runs as a full agent, reports its tool activity and 
   const calls = [];
   // A stand-in for the Agent SDK's query(): records what it was given and plays a scripted turn.
   const query = ({ prompt, options }) => {
-    calls.push({ prompt, options });
     return (async function* () {
+      // The prompt arrives as a stream of user messages; the first one is what was asked.
+      calls.push({ prompt: (await prompt[Symbol.asyncIterator]().next()).value.message.content, options });
       const delta = (d) => ({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 0, delta: d } });
       yield { type: 'system', subtype: 'init', session_id: 'sess-1' };
       if (options.resume) {
@@ -304,6 +305,39 @@ test('Claude Code provider: runs as a full agent, reports its tool activity and 
   await collect(provider.chat({ model: 'opus', system: 'NOTES', messages: [{ role: 'user', content: 'summary' }, { role: 'assistant', content: 'ok' }, { role: 'user', content: 'go on' }], hooks }));
   assert.equal(calls.at(-1).options.resume, undefined);
   assert.match(calls.at(-1).prompt, /already under way[\s\S]*<user>\nsummary\n<\/user>[\s\S]*<assistant>\nok\n<\/assistant>[\s\S]*<user>\ngo on\n<\/user>/);
+});
+
+test('Claude Code provider: input stays open while a background command runs, so the turn it wakes to can still ask', async () => {
+  const { claudeCodeProvider } = await import('../src/claude-code.mjs');
+  const open = async (stream) => {
+    // Whether the input is still open: its next read has not finished after a moment.
+    const next = stream.next().then(({ done }) => (done ? 'closed' : 'message'));
+    return Promise.race([next, new Promise((r) => setTimeout(() => r('open'), 50))]);
+  };
+  const seen = [];
+  const query = ({ prompt, options }) => (async function* () {
+    const stream = prompt[Symbol.asyncIterator]();
+    await stream.next();
+    const delta = (text) => ({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } });
+    yield { type: 'system', subtype: 'task_started', task_id: 'b1', task_type: 'local_bash' };
+    yield delta('Waiting.');
+    yield { type: 'result', subtype: 'success', is_error: false, session_id: 's', usage: { input_tokens: 1, output_tokens: 1 } };
+    seen.push(await open(stream));
+    yield { type: 'system', subtype: 'task_notification', task_id: 'b1', status: 'completed' };
+    yield { type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start' } };
+    const verdict = await options.canUseTool('Bash', { command: 'gh pr merge 1' }, { toolUseID: 't2' });
+    seen.push(verdict.behavior);
+    yield delta('Merged.');
+    yield { type: 'result', subtype: 'success', is_error: false, session_id: 's', usage: { input_tokens: 2, output_tokens: 2 } };
+    seen.push(await open(stream));
+  })();
+  const provider = claudeCodeProvider({ id: 'claude-code', kind: 'claude-code', context: 200000 }, { ...DEFAULTS, providers: {} }, { query });
+  const asked = [];
+  const out = await collect(provider.chat({ model: 'opus', system: '', messages: [{ role: 'user', content: 'watch CI, then merge' }], hooks: { permission: async (r) => (asked.push(r.input.command), { ok: true }) } }));
+  assert.deepEqual(seen, ['open', 'allow', 'closed'], 'open after the first answer, closed once nothing runs');
+  assert.deepEqual(asked, ['gh pr merge 1']);
+  assert.equal(out.map((c) => c.message?.content ?? '').join(''), 'Waiting.\n\nMerged.');
+  assert.equal(out.at(-1).spent.output, 2, 'the last result counts the whole run');
 });
 
 test('Claude Code tools are described for display and classified for approval', async () => {
