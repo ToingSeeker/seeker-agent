@@ -2284,18 +2284,7 @@ function timeline(ws, items = ws.items, tail = null, { key = ws.meta.id, compact
   ];
 }
 
-/** Says no to a request without opening it. Saying yes is only offered on the review screen, where the whole request is shown. */
-async function rejectFromTimeline(pending) {
-  if (state.deciding.has(pending.id)) return;
-  state.deciding.add(pending.id);
-  render(true);
-  if (!(await command('approve', { id_approval: pending.id, decision: 'deny', note: '' }))) {
-    state.deciding.delete(pending.id);
-    render(true);
-  }
-}
-
-/** The step that is waiting for the user, at the end of the timeline. It opens the review screen, where the whole request is shown. */
+/** The step that is waiting for the user, at the end of the timeline. It only says what is waiting: the Review button above the message box opens it. */
 function waitingEntry(pending) {
   const question = pending.kind === 'question';
   const what = question ? pending.title : `${pending.doing} ${pending.summary}`;
@@ -2308,12 +2297,6 @@ function waitingEntry(pending) {
       { class: 'body' },
       h('div', { class: 'headline' }, h('span', { class: 'title' }, question ? 'Waiting for your answer' : 'Pending approval'), h('time', { class: 'at' }, clock(pending.at))),
       h('span', { class: 'sub mono' }, what.length > 200 ? `${what.slice(0, 200)}…` : what),
-      h(
-        'div',
-        { class: 'pair' },
-        h('button', { class: 'btn small approve', onclick: () => go({ name: 'review', id: pending.id, from: state.view }) }, h('span', { icon: question ? 'chevron' : 'check' }), question ? 'Answer' : 'Review'),
-        !question && h('button', { class: 'btn small reject', disabled: state.deciding.has(pending.id), onclick: () => rejectFromTimeline(pending) }, h('span', { icon: 'cross' }), 'Reject'),
-      ),
     ),
   );
 }
