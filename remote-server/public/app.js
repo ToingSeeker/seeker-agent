@@ -2039,7 +2039,7 @@ function previewInner(file, meta, holder) {
   if (previewUrl) URL.revokeObjectURL(previewUrl);
   previewUrl = URL.createObjectURL(file);
   const url = previewUrl;
-  const broken = (el, why = 'Unable to preview this file.') => el.replaceWith(h('div', { class: 'fpv-broken' }, h('span', { class: 'ico big', icon: 'alert' }), h('p', {}, why), h('p', { class: 'muted small' }, 'Share / Export still gives you the file.')));
+  const broken = (el, why = 'Unable to preview this file.') => el.replaceWith(h('div', { class: 'fpv-broken' }, h('span', { class: 'ico big', icon: 'alert' }), h('p', {}, why), h('p', { class: 'muted small' }, 'The button below still saves the file.')));
   const kind = previewKind(file.type, file.name);
   if (kind === 'image') {
     const img = h('img', { class: 'fpv-media', src: url, alt: file.name, onclick: () => zoomView(url, file.name) });
@@ -2089,7 +2089,7 @@ function previewInner(file, meta, holder) {
     });
     return list;
   }
-  return h('div', { class: 'fpv-broken' }, h('span', { class: 'ico big', icon: 'file' }), h('p', {}, 'Preview is not available for this file type.'), h('p', { class: 'muted small' }, 'Share / Export still gives you the file.'));
+  return h('div', { class: 'fpv-broken' }, h('span', { class: 'ico big', icon: 'file' }), h('p', {}, 'Preview is not available for this file type.'), h('p', { class: 'muted small' }, 'The button below still saves the file.'));
 }
 
 /** The folder it is in on the Mac; tapped, the details: the whole path, its type, size, dates, where it is kept. */
@@ -2118,7 +2118,17 @@ function sourceRow(meta, shown, toggle, open) {
   );
 }
 
-/** Fullscreen (a picture or video) or Open (a PDF, in the phone's viewer), and Share / Export. */
+/**
+ * Where Save puts a file of this kind: a picture or video into Photos, anything else into Files.
+ * Both go through the share sheet (a web page cannot write to Photos itself), so "Save Image",
+ * "Save Video" or "Save to Files" is one more tap there. Without a share sheet it is a download.
+ */
+function saveLabel(kind, file) {
+  if (file && !navigator.canShare?.({ files: [file] })) return 'Download';
+  return kind === 'image' || kind === 'video' ? 'Save to Photos' : 'Save to Files';
+}
+
+/** Fullscreen (a picture or video) or Open (a PDF, in the phone's viewer), and Save. */
 function previewActions(meta, shown) {
   const kind = previewKind(meta.type ?? meta.mime, meta.name);
   const media = () => $('sheet').querySelector('.fpv-media');
@@ -2130,7 +2140,7 @@ function previewActions(meta, shown) {
     if (kind === 'video' && video) return video.webkitEnterFullscreen ? video.webkitEnterFullscreen() : video.requestFullscreen?.();
     window.open(previewUrl, '_blank');
   };
-  return h('div', { class: 'actions even fpv-actions' }, h('button', { type: 'button', class: 'btn', disabled: !shown, onclick: open }, big ? 'Fullscreen' : 'Open'), h('button', { type: 'button', class: 'btn primary', disabled: !shown, onclick: () => shown && saveFile(shown.file, previewUrl) }, 'Share / Export'));
+  return h('div', { class: 'actions even fpv-actions' }, h('button', { type: 'button', class: 'btn', disabled: !shown, onclick: open }, big ? 'Fullscreen' : 'Open'), h('button', { type: 'button', class: 'btn primary', disabled: !shown, onclick: () => shown && saveFile(shown.file, previewUrl) }, saveLabel(kind, shown?.file)));
 }
 
 /** The pictures a step or message showed, tapped: the whole of one, from this phone or the Mac. */
@@ -2729,7 +2739,7 @@ async function keptSheet() {
   const total = list.reduce((sum, e) => sum + e.bytes, 0);
   sheet(
     'Files kept on this phone',
-    h('p', { class: 'sheet-sub' }, `${list.length} file${list.length === 1 ? '' : 's'} · ${fileSize(total)} in this app’s storage. Not in Photos or Files: use Share / Export for that. The phone may clear them when it runs short of space.`),
+    h('p', { class: 'sheet-sub' }, `${list.length} file${list.length === 1 ? '' : 's'} · ${fileSize(total)} in this app’s storage. Not in Photos or Files: open one and tap Save for that. The phone may clear them when it runs short of space.`),
     list.length
       ? h(
           'div',
