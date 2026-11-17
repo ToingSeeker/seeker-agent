@@ -62,7 +62,9 @@ Name an image file in your message and the model sees the image, not just its pa
 › /paste what is this error?        # sends the image on the clipboard, e.g. a screenshot
 ```
 
-Dragging a file into the terminal types its path, which works too. The model can also open an image
+Dragging a file into the terminal works too. The message box shows it by a short name, `[image.png]`,
+`[video.mp4]` or `[file.pdf]`, and the model gets its full path when you send; Backspace removes the whole
+name. The model can also open an image
 itself with `read_file`. PNG, JPEG, GIF and WebP, up to 3.7 MB each.
 
 The model has to support vision; `/status` says whether the current one does. With Ollama that is read

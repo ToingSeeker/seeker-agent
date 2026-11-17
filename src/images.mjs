@@ -239,6 +239,43 @@ function exists(candidate, cwd) {
   }
 }
 
+const VIDEO_PATH = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
+
+/**
+ * Text that is nothing but the paths of files that exist (one or more files dragged into the terminal),
+ * with a short name for each to show in the message box instead: [image.png], [video.mp4], [file.pdf].
+ * `taken` are names already in use, so that a second picture is [image 2.png]. Null for anything else,
+ * such as a path inside a sentence that was pasted.
+ * @returns {{ text: string, files: { token: string, written: string }[] } | null}
+ */
+export function compactDropped(text, cwd, taken = new Set()) {
+  const source = String(text);
+  if (!source.trim()) return null;
+  const files = [];
+  let rest = '';
+  let at = 0;
+  const used = new Set(taken);
+  for (const { file, at: start, written } of filesNamedIn(source, cwd)) {
+    rest += source.slice(at, start);
+    at = start + written.length;
+    const ext = path.extname(file).slice(1).toLowerCase();
+    const kind = IMAGE_PATH.test(file) ? 'image' : VIDEO_PATH.test(file) ? 'video' : 'file';
+    let token;
+    for (let n = 1; !token || used.has(token); n++) token = `[${kind}${n > 1 ? ` ${n}` : ''}${ext ? `.${ext}` : ''}]`;
+    used.add(token);
+    files.push({ token, written, start: start, end: at });
+  }
+  rest += source.slice(at);
+  if (!files.length || rest.trim()) return null;
+  let out = '';
+  let from = 0;
+  for (const f of files) {
+    out += source.slice(from, f.start) + f.token;
+    from = f.end;
+  }
+  return { text: out + source.slice(from), files: files.map(({ token, written }) => ({ token, written })) };
+}
+
 /** Whether a message opens with the path of a file that exists — a file dragged into the terminal, not a /command. */
 export function startsWithFile(text, cwd) {
   const { value } = filesNamedIn(String(text).trimStart(), cwd).next();
