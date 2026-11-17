@@ -1994,14 +1994,6 @@ button.stat:active {
 .ev.pending .title {
   color: var(--sk-primary);
 }
-.ev.pending .pair {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  gap: 8px;
-  margin-top: 8px;
-  max-width: 420px;
-}
 .topbar {
   display: flex;
   align-items: center;
