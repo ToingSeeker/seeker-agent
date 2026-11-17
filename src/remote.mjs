@@ -663,8 +663,9 @@ class LinkedWorkspace {
     }
   }
 
-  message(text, images) {
-    writeLine(this.socket, { t: 'message', text, images });
+  /** `locked`: the phone that sent it has its app lock on (Face ID or PIN), which a session running with --yolo asks for. */
+  message(text, images, locked = false) {
+    writeLine(this.socket, { t: 'message', text, images, locked });
   }
 
   stop() {
@@ -1225,7 +1226,7 @@ export class RemoteDaemon {
     const list = saved.map((f) => `- ${f.path} (${kilobytes(f.bytes)})`).join('\n');
     const text = `${said || `Here ${saved.length > 1 ? 'are the files' : 'is a file'} I sent from my phone.`}\n\n${PHONE_FILES}\n${list}`;
     this.send({ t: 'toast', text: `Your Mac has ${saved.length > 1 ? `the ${saved.length} files` : saved[0].path.split(path.sep).pop()}.` });
-    if (workspace.linked) return workspace.message(text, images);
+    if (workspace.linked) return workspace.message(text, images, command.locked === true);
     if (workspace.status !== 'idle') return this.send({ t: 'toast', text: `${workspace.name} started something else meanwhile. The files are in ${tildify(this.inbox)}.` });
     this.#dispatch(workspace, text, images);
   }
@@ -1306,7 +1307,7 @@ export class RemoteDaemon {
             const said = typeof command.text === 'string' ? command.text.trim() : '';
             if (!said && !images.length) return;
             this.log(`${workspace.name} (terminal) ← ${said ? said.split('\n')[0].slice(0, 70) : `${images.length} image${images.length > 1 ? 's' : ''}`}`);
-            return workspace.message(said, images);
+            return workspace.message(said, images, command.locked === true);
           }
           const text = (typeof command.text === 'string' ? command.text.trim() : '') || (images.length ? `Look at ${images.length > 1 ? 'these images' : 'this image'}.` : '');
           if (!text) return;
@@ -1355,6 +1356,10 @@ export class RemoteDaemon {
           return await this.#sendFile(command, workspace);
         case 'download':
           return void this.#download(command, workspace).catch((err) => this.log(`download: ${err.message}`));
+        case 'lockout':
+          // The phone is unpairing itself after three wrong PINs within ten minutes.
+          this.log('a phone unpaired itself after 3 wrong PINs in 10 minutes');
+          return void this.notify({ title: 'SEEKER: a phone was locked out', body: 'Three wrong PINs within 10 minutes. That phone was unpaired; pair it again with seeker remote --setup if it was you.', url: '/', tag: 'lockout' }, 'error');
         case 'ping':
           // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
           return this.send({ t: 'pong', id: command.id });

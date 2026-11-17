@@ -165,3 +165,48 @@ test('remote: /restart from the phone starts the replacement and then stops; ref
   await until(() => quits === 1, 4000);
   assert.equal(daemon.running, false);
 });
+
+test('remote: a message tells a terminal session whether the phone has its app lock on, and a lockout reaches the Mac', async (t) => {
+  const { TerminalLink, terminalId } = await import('../src/link.mjs');
+  const { Workspace } = await import('../src/remote.mjs');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-lockflag-'));
+  const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'sk-')), 'l.sock');
+  const secret = 'a-long-secret-for-the-app-lock-flag-and-lockout';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const config = { ...DEFAULTS, host: 'http://127.0.0.1:9', remote: { url, secret } };
+  const logs = [];
+  const daemon = new RemoteDaemon({ config, folders: [], build: async () => ({}), remember: false, link, log: (l) => logs.push(l) });
+  const notified = [];
+  daemon.notify = async (payload, kind) => (notified.push({ payload, kind }), 0);
+  const running = daemon.start();
+  const got = [];
+  const port = new TerminalLink({ file: link, info: { tools: true }, retry: 50, onMessage: (m) => got.push(m) });
+  const mirror = new Workspace(port, cwd, { id: terminalId(cwd), terminal: true });
+  const agent = new Agent({ config, ui: mirror.ui, permissions: new Permissions({ mode: 'auto', cwd, ask: null }), provider: createProvider('ollama', config), info: { tools: true }, cwd });
+  port.build = async () => ({ agent, session: { save() {}, startNew() {} } });
+  await mirror.open();
+  port.start(() => ({ ...mirror.meta(), items: mirror.items }));
+  t.after(async () => {
+    port.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+  });
+  const { key, token } = deriveKeys(secret);
+  let n = 0;
+  const send = (type, fields) => fetch(`${url}/api/command`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ c: seal(key, { id: `l${++n}`, at: Date.now(), type, ...fields }) }) });
+  await until(() => daemon.workspaces.has(mirror.id));
+
+  await send('message', { ws: mirror.id, text: 'from a locked phone', locked: true });
+  await send('message', { ws: mirror.id, text: 'from an unlocked one' });
+  await until(() => got.length === 2);
+  assert.deepEqual(got.map((m) => [m.text, m.locked]), [['from a locked phone', true], ['from an unlocked one', false]]);
+
+  await send('lockout', {});
+  await until(() => notified.length === 1);
+  assert.match(notified[0].payload.title, /locked out/);
+  assert.equal(notified[0].kind, 'error');
+  assert.ok(logs.some((l) => /3 wrong PINs/.test(l)));
+});

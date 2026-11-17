@@ -678,7 +678,9 @@ running, the terminal works exactly as before.
   phone is still working on it (or has instructions queued), it keeps its copy and the terminal goes on in a
   separate one; run `seeker -c` again once the phone has finished.
 - **Not from the phone** — a new conversation, another model, and closing the session are done in the
-  terminal. A session started with `--yolo` shows on the phone but takes no tasks from it.
+  terminal. A session started with `--yolo` takes tasks from the phone only when that phone has its app lock on
+  (Settings → App lock), since they run without asking. The phone says whether its lock is on; that is a
+  reminder for the app, not a check the Mac can verify: what keeps others out is the pairing secret.
 
 ### Later
 
@@ -712,8 +714,10 @@ running, the terminal works exactly as before.
   Share → Add to Home Screen.
 - App lock (Settings → App lock): Face ID, with a 6-digit PIN as the backup, asked for when the app opens
   or has gone unused for 1, 5, 15 or 60 minutes. It lives on the phone only: the PIN is kept as a salted
-  PBKDF2 hash, Face ID is a passkey for this site that must report the user as verified. After five wrong
-  PINs each try waits longer (30 s, doubling, up to 15 min). A forgotten PIN means pairing again. The lock
+  PBKDF2 hash, Face ID is a passkey for this site that must report the user as verified. Three wrong PINs
+  within 10 minutes unpair the phone (its pairing, lock and kept files are removed, and the Mac sends a
+  notification); pairing again with `seeker remote --setup` is the way back. A forgotten PIN means pairing
+  again too. The lock
   hides the screens; it does not encrypt what the app keeps on the phone, and push notifications still show
   their text on the lock screen.
 

@@ -4,6 +4,13 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Three wrong PINs within 10 minutes unpair the phone.** The app lock used to make each try wait longer
+  after five wrong PINs. Now the third wrong PIN within ten minutes tells the Mac (which sends a
+  notification), then removes the pairing, the lock and the files kept on that phone; pairing again is the
+  way back. The PIN pad says how many tries are left.
+- **A terminal session started with `--yolo` takes tasks from the phone** when the phone has its app lock on.
+  Before, it took none, since a lost phone could have started work that runs without asking.
+
 - **A file dragged into the terminal shows by a short name.** Instead of its whole escaped path, the message
   box shows `[image.png]`, `[video.mp4]` or `[file.pdf]` (a second one of a kind is numbered), and so does the
   conversation once it is sent; the model still gets the full path. Backspace removes the name whole. Only a

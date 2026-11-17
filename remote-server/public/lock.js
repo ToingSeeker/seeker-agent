@@ -15,7 +15,9 @@ export const AFTER_OPTIONS = [1, 5, 15, 60]; // minutes
 export const DEFAULT_AFTER = 5;
 export const PIN_LENGTH = 6;
 export const ITERATIONS = 210_000;
-const FREE_TRIES = 5; // wrong PINs before each further try has to wait
+// Three wrong PINs within ten minutes and this phone is unpaired: someone is guessing.
+export const LOCKOUT_TRIES = 3;
+export const LOCKOUT_WINDOW = 10 * 60_000;
 
 const enc = new TextEncoder();
 const toBase64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -59,12 +61,6 @@ export function dueToLock({ lastActive, now, after }) {
 /** A chosen time that is not one of the options counts as the default. */
 export const minutes = (after) => (AFTER_OPTIONS.includes(after) ? after : DEFAULT_AFTER);
 
-/** How long to wait after this many wrong PINs in a row: none for the first five, then 30 s doubling up to 15 min. */
-export function penalty(failures) {
-  if (failures < FREE_TRIES) return 0;
-  return Math.min(30_000 * 2 ** (failures - FREE_TRIES), 15 * 60_000);
-}
-
 /** The authenticator data of a WebAuthn answer says the user was verified (Face ID, Touch ID, passcode): flag UV, bit 2 of byte 32. */
 export function userVerified(authenticatorData) {
   const bytes = new Uint8Array(authenticatorData ?? []);
@@ -94,12 +90,18 @@ export function writeLock(storage, cfg) {
   }
 }
 
-/** One wrong PIN: counted, and the next try waits as long as `penalty` says. */
+/** One wrong PIN: kept with the others of the last ten minutes; older ones no longer count. */
 export function failed(cfg, now) {
-  const failures = (cfg.failures ?? 0) + 1;
-  return { ...cfg, failures, until: now + penalty(failures) };
+  const misses = [...(Array.isArray(cfg.misses) ? cfg.misses : []).filter((at) => Number.isFinite(at) && at <= now && now - at < LOCKOUT_WINDOW), now];
+  return { ...cfg, misses, failures: misses.length, until: 0 };
 }
 
-export const cleared = (cfg) => ({ ...cfg, failures: 0, until: 0 });
+/** The third wrong PIN within ten minutes: the phone is to be unpaired, and pairing again is the way back. */
+export const lockedOut = (cfg) => (Array.isArray(cfg?.misses) ? cfg.misses.length : 0) >= LOCKOUT_TRIES;
+
+/** Tries left before the phone is unpaired. */
+export const triesLeft = (cfg) => Math.max(0, LOCKOUT_TRIES - (Array.isArray(cfg?.misses) ? cfg.misses.length : 0));
+
+export const cleared = (cfg) => ({ ...cfg, failures: 0, until: 0, misses: [] });
 
 export { toBase64, fromBase64 };

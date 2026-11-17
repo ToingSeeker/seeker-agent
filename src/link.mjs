@@ -11,7 +11,7 @@
 //                       send { event }    an event for the phone, as the daemon would send it
 //                       ask { approval }  put this to the phone        unask { id }  no longer needed
 //                       notify { payload, kind }
-//   daemon → terminal   message { text, images }   stop   answer { id, answer }
+//   daemon → terminal   message { text, images, locked }   stop   answer { id, answer }   (locked: the phone's app lock is on)
 //                       handoff { name, items }   that conversation was open on the phone; its copy there is closed
 //                       handoff { name, busy }    it is still at work on the phone and stays there
 import crypto from 'node:crypto';
@@ -170,7 +170,7 @@ export class TerminalLink {
       for (const { approval } of this.pending.values()) writeLine(socket, { t: 'ask', approval });
     });
     readLines(socket, (message) => {
-      if (message.t === 'message') this.onMessage({ text: typeof message.text === 'string' ? message.text : '', images: Array.isArray(message.images) ? message.images : [] });
+      if (message.t === 'message') this.onMessage({ text: typeof message.text === 'string' ? message.text : '', images: Array.isArray(message.images) ? message.images : [], locked: message.locked === true });
       else if (message.t === 'stop') this.onStop();
       else if (message.t === 'answer') this.#answered(message.id, message.answer);
       else if (message.t === 'handoff') {
