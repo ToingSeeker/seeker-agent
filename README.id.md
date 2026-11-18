@@ -56,7 +56,9 @@ atas, keluaran baru tidak menggeser tampilan, dan baris di bawah kotak pesan men
 Mengirim pesan, atau pertanyaan dari SEEKER, membawamu kembali ke bagian akhir. Untuk memilih teks dengan mouse,
 tahan Shift (Option di Terminal dan iTerm2) sambil menyeret. Saat SEEKER ditutup, percakapannya dicetak ke
 terminal, dan scrollback terminal menyimpannya.
-Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya.
+Robot di header berkedip dan melirik. Di percakapan, jawaban SEEKER diberi robot itu beserta namanya, dan pesanmu diberi
+orang piksel dengan label YOU, wajah yang sama dengan di aplikasi ponsel, dan bergerak seperti di sana. `/config` → `animation` untuk
+mematikannya.
 
 `seeker doctor` memeriksa apa yang dibutuhkan SEEKER di mesin ini — Node, git, paket yang terpasang, siapa yang
 bisa membaca file pengaturan, apakah penyedia yang dipilih menjawab atau punya key, relay, dan daemon remote —
@@ -743,7 +745,7 @@ rantainya.
 | `src/theme.mjs` | satu palet untuk terminal dan aplikasi HP (amber merek, biru tool bekerja, ungu berpikir, hijau selesai, merah gagal); ditulis sebagai warna 24-bit, 256 atau 16 sesuai terminal, tanpa warna jika `NO_COLOR` diisi |
 | `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau dan gambar utuh untuk HP, gambar Quick Look di kartu file |
 | `src/transfer.mjs` | file utuh antara HP dan Mac: potongan terenkripsi lewat relay, folder kiriman, dan file yang ditawarkan jawaban untuk didownload beserta isi kartunya (durasi video, waktu terakhir diubah) |
-| `src/mascot.mjs` | robot dan tulisan SEEKER di header, digambar sebagai piksel, beserta animasi robotnya |
+| `src/mascot.mjs` | robot dan tulisan SEEKER di header, serta robot dan orang di tiap pesan, digambar sebagai piksel, beserta animasinya |
 | `src/screen.mjs` | tata letak layar penuh di layar alternatif: header menempel di atas, kotak input di bawah, percakapan digulir di dalam SEEKER |
 | `src/text.mjs` | ukur dan bungkus teks berwarna (ANSI, karakter lebar) |
 | `src/input.mjs` | editor input (raw key press, riwayat, paste) |

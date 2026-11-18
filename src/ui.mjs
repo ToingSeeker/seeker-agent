@@ -6,7 +6,7 @@ import os from 'node:os';
 import { MdStream } from './markdown.mjs';
 import { VERSION } from './config.mjs';
 import { ANSI, padEnd, truncate, truncateStart, visibleLength } from './text.mjs';
-import { RESTING, ROBOT_WIDTH, pose, robotRows, wordmarkRows } from './mascot.mjs';
+import { AVATAR_ROWS, AVATAR_WIDTH, RESTING, ROBOT_WIDTH, avatarPose, avatarRows, pose, robotRows, wordmarkRows } from './mascot.mjs';
 import { colorDepth, terminalPalette } from './theme.mjs';
 
 export { padEnd, truncate, truncateStart, visibleLength };
@@ -39,6 +39,7 @@ export class UI {
     this.showThinking = showThinking;
     this.animation = animation;
     this.mascot = RESTING;
+    this.faces = { seeker: avatarPose('seeker', 0), you: avatarPose('you', 0) };
     this.mascotTimer = null;
     this.activity = print ? process.stderr : process.stdout;
     // How many colours this terminal shows decides how the palette is written: 24-bit, 256, sixteen, or none.
@@ -57,6 +58,27 @@ export class UI {
   /** From here on everything is drawn through the full-screen layout instead of written straight out. */
   attach(screen) {
     this.screen = screen;
+    // The small faces by each message are drawn at every repaint, as they are at that moment.
+    screen.avatar = (code) => {
+      const kind = code < AVATAR_ROWS ? 'seeker' : 'you';
+      return avatarRows(kind, this.faces[kind], this.depth)[code % AVATAR_ROWS];
+    };
+  }
+
+  /**
+   * The rows of a face, as on the phone: the robot by SEEKER's answers, the person by the user's messages.
+   * On the full screen they are placeholders the screen draws in, so they move; elsewhere there are none.
+   */
+  #face(kind) {
+    if (!this.screen || !this.colors) return null;
+    const base = 0xe000 + (kind === 'seeker' ? 0 : AVATAR_ROWS);
+    const pad = ' '.repeat(AVATAR_WIDTH - 1);
+    return Array.from({ length: AVATAR_ROWS }, (_, i) => String.fromCharCode(base + i) + pad);
+  }
+
+  /** A face with its name beside it, level with the face's eyes. */
+  #signed(face, name) {
+    face.forEach((row, i) => this.line(i === 1 ? `${row}  ${name}` : row));
   }
 
   cols() {
@@ -128,8 +150,10 @@ export class UI {
     let tick = 0;
     this.mascotTimer = setInterval(() => {
       const next = pose(++tick, Boolean(this.timer));
-      if (JSON.stringify(next) === JSON.stringify(this.mascot)) return;
+      const faces = { seeker: avatarPose('seeker', tick), you: avatarPose('you', tick) };
+      if (JSON.stringify([next, faces]) === JSON.stringify([this.mascot, this.faces])) return;
       this.mascot = next;
+      this.faces = faces;
       this.screen.render();
     }, MASCOT_TICK);
     // The animation alone must never keep the process alive.
@@ -140,6 +164,7 @@ export class UI {
     if (this.mascotTimer) clearInterval(this.mascotTimer);
     this.mascotTimer = null;
     this.mascot = RESTING;
+    this.faces = { seeker: avatarPose('seeker', 0), you: avatarPose('you', 0) };
   }
 
   /** The rows pinned to the top of the screen. */
@@ -224,6 +249,13 @@ export class UI {
     const [first, ...rest] = text.split('\n');
     this.ensureNewline();
     this.line();
+    const face = this.#face('you');
+    if (face) {
+      this.#signed(face, this.c.userBold('YOU'));
+      for (const row of [first, ...rest]) this.line(this.c.bold(row));
+      this.line();
+      return;
+    }
     // The prompt mark is the brand colour; what was typed stays the terminal's own text colour.
     this.line(`${this.c.accent('›')} ${this.c.bold(first)}`);
     for (const row of rest) this.line(`  ${this.c.bold(row)}`);
@@ -236,9 +268,15 @@ export class UI {
     this.tool = null;
   }
 
-  /** Prints the "✧ SEEKER" mark once per turn; `inline` leaves the cursor after it for the answer to follow. */
+  /** Marks SEEKER's turn once: its small face and name on the full screen, "✧ SEEKER" elsewhere, where `inline` leaves the cursor after it for the answer to follow. */
   #mark(inline) {
     this.ensureNewline();
+    const face = this.#face('seeker');
+    if (face) {
+      this.#signed(face, this.c.accentBold('SEEKER'));
+      this.marked = true;
+      return;
+    }
     this.write(`${this.c.accent('✧')} ${this.c.accentBold('SEEKER')}${inline ? ` ${this.c.dim('│')} ` : '\n'}`);
     this.marked = true;
   }

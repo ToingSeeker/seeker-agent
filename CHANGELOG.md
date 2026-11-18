@@ -4,6 +4,11 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **The terminal conversation marks who speaks with the phone app's faces.** SEEKER's answers start with the
+  pixel robot (the one in the header) and SEEKER; your messages with the pixel person and YOU, in cyan. They move
+  as on the phone: the robot blinks and glances, the person blinks and nods, unless `/config` → `animation` is off. Only on the full screen: print mode (`-p`) and pipes keep the
+  plain `✧ SEEKER` and `›` marks.
+
 - **Claude Code can still ask for approval after a command it left running in the background.** When Claude
   Code (as the engine) started something in the background, such as a CI watch or a long build, and finished its
   answer, it was woken again when that ended, but by then its input had been closed. Every step that needed

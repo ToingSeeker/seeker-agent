@@ -13,6 +13,12 @@ const COLORS = {
   w: TOKENS.textPrimary, // eyes
   o: TOKENS.textSecondary, // grey: antenna, feet
   y: TOKENS.execution, // blue: antenna lit up while the model works, chest light
+  // The person next to the user's messages
+  h: TOKENS.personHair,
+  s: TOKENS.personSkin,
+  e: TOKENS.bg, // eyes
+  m: TOKENS.personMouth,
+  u: TOKENS.user, // a cyan top
 };
 /** `color` is how many colours the terminal shows (see theme.mjs); true means 256, false none. */
 const depthOf = (color) => (color === true ? 8 : Number(color) || 0);
@@ -71,7 +77,7 @@ function face({ eyes, look, cursor }, depth) {
 function paint(grid, depth) {
   const rows = [];
   const color = depth > 0;
-  const code = (p) => (color ? (COLORS[p] ?? null) : p === '.' || p === 'k' ? null : 1);
+  const code = (p) => (color ? (COLORS[p] ?? null) : p === '.' || p === 'k' || p === 'e' ? null : 1);
   const fg = (hex) => sgr(hex, depth);
   for (let y = 0; y < grid.length; y += 2) {
     let row = '';
@@ -111,4 +117,35 @@ export function wordmarkRows(word = 'SEEKER') {
   const grid = [0, 1, 2, 3, 4].map((y) => [...[...word].map((ch) => GLYPHS[ch][y]).join('.')]);
   grid.unshift(new Array(grid[0].length).fill('.'));
   return paint(grid, 0);
+}
+
+// ── The faces next to each message, as on the phone ───────────────────────
+//
+// The same two the phone app draws (remote-server/public/app.js), on the same 11×8 pixel grid: the robot of
+// the header by SEEKER's answers, and the person by the user's messages (brown hair, a cyan top). Each moves
+// on the phone's beat: the robot's 64 ticks of 150 ms, the person's 7.8 s (52 ticks) with its blinks and a nod.
+
+export const AVATAR_WIDTH = ROBOT_WIDTH;
+export const AVATAR_ROWS = 4;
+const PERSON_HEAD = ['...hhhhh...', '..hhhhhhh..', '..hsssssh..', '..ssesess..', '..sssssss..', '...ssmss...'];
+const PERSON_NECK = '....sss....';
+const PERSON_TOP = '..uuuuuuu..';
+const PERSON_LOOP = 52;
+const PERSON_BLINKS = new Set([19, 45, 47]);
+const PERSON_NOD = new Set([32, 33]);
+
+/** What a face is doing at `tick`: the robot as in the header (its antenna stays dark), the person's eyes and nod. */
+export function avatarPose(kind, tick) {
+  if (kind === 'seeker') return pose(tick);
+  const t = ((tick % PERSON_LOOP) + PERSON_LOOP) % PERSON_LOOP;
+  return { eyes: PERSON_BLINKS.has(t) ? 'closed' : 'open', nod: PERSON_NOD.has(t) };
+}
+
+/** A face as AVATAR_ROWS rows of AVATAR_WIDTH columns. `kind` is 'seeker' or 'you'. */
+export function avatarRows(kind, state = avatarPose(kind, 0), color = true) {
+  if (kind === 'seeker') return robotRows({ ...state, antenna: false }, color);
+  const head = state.eyes === 'open' ? PERSON_HEAD : PERSON_HEAD.map((row) => row.replaceAll('e', 's'));
+  // Nodding, the head comes down a pixel over the neck.
+  const grid = state.nod ? ['...........', ...head, PERSON_TOP] : [...head, PERSON_NECK, PERSON_TOP];
+  return paint(grid.map((row) => [...row]), depthOf(color));
 }

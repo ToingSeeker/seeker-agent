@@ -44,7 +44,9 @@ Inside a session: `/init`, `/model`, `/key`, `/resume`, `/paste`, `/config`, `/s
 Type `/` for the list of commands and skills: ↑↓ move through it, Tab completes the highlighted one, Enter runs it,
 Esc closes the list. Typing narrows it (`/rev` also finds `/code-review`). Alt+Enter starts a new line; with no list
 open, ↑↓ walk through earlier messages.
-The robot in the header blinks and looks around; `/config` → `animation` turns that off.
+The robot in the header blinks and looks around. In the conversation, SEEKER's answers carry that robot and its name,
+and your messages a pixel person and YOU, the same faces as in the phone app, and they move as there. `/config` → `animation`
+turns that off.
 
 SEEKER fills the terminal window like an app: the header stays at the top and the message box at the bottom
 while the conversation scrolls between them. Scroll with the mouse wheel or PageUp and PageDown; while you are
@@ -758,7 +760,7 @@ plain Node.
 | `src/theme.mjs` | the one palette for the terminal and the phone app (amber brand, blue tool at work, purple thinking, green done, red failed); written as 24-bit, 256 or 16 colours depending on the terminal, none with `NO_COLOR` |
 | `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone, the Quick Look picture on a file card |
 | `src/transfer.mjs` | whole files between the phone and the Mac: encrypted pieces through the relay, the inbox, the files an answer offers for download and what their cards show (a video's length, when it changed) |
-| `src/mascot.mjs` | the robot and the wordmark in the header, drawn as pixels, and the robot's animation |
+| `src/mascot.mjs` | the robot and the wordmark in the header, and the robot and person by each message, drawn as pixels, with their animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout on the alternate screen (header pinned on top, input box at the bottom, the conversation scrolled inside SEEKER) and the input editor |
 
 What changed from version to version is in [CHANGELOG.md](CHANGELOG.md).
