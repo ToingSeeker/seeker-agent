@@ -199,3 +199,27 @@ test('a picture under a message the user sent opens when tapped', () => {
   assert.match(app, /from\.user && shown\.tagName === 'IMG' \? \(\) => showPreviewOnly\(i\)/);
   assert.match(app, /function showPreviewOnly\(image\) \{[\s\S]{0,400}Only a small preview of this picture was kept/);
 });
+
+test('the phone app navigates with a floating glass dock, and its lists are separate capsules', () => {
+  const css = read('style.css');
+  const app = read('app.js');
+  // The dock floats off the bottom edge, above the home indicator, and is a capsule.
+  const dock = css.match(/^#nav \{[^}]*\}/m)?.[0] ?? '';
+  assert.match(dock, /position: absolute;/);
+  assert.match(dock, /bottom: calc\(12px \+ env\(safe-area-inset-bottom, 0px\)\);/);
+  assert.match(dock, /border-radius: var\(--sk-radius-pill\);/);
+  assert.ok(!/border-top/.test(dock), 'no rule across the screen');
+  // Every screen under it leaves room, so the last item scrolls clear; with the keyboard up the dock steps aside.
+  assert.match(css, /#view:is\(\.screen-home, \.screen-sessions, \.screen-approvals, \.screen-settings\) \{\s*padding-bottom: var\(--sk-dock-room\);/);
+  assert.match(css, /\.keyboard #nav \{\s*display: none;/);
+  // The current screen is said, not only coloured; the badge on Approvals is said in words too.
+  assert.ok(app.includes("'aria-current': state.view.name === id ? 'page' : null"));
+  assert.ok(app.includes('waiting`)'));
+  // Sessions are cards of their own, not rows parted by hairlines; the selected one is amber glass.
+  assert.match(css, /\.s-list \{\s*display: grid;/);
+  assert.ok(!/\.s-row \+ \.s-row/.test(css), 'no hairline between session cards');
+  assert.match(css, /\.s-row\.selected \{[^}]*var\(--sk-amber-glass\)/);
+  // Blur only where something floats, with a solid fallback when it is unavailable or unwanted.
+  assert.match(css, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)/);
+  assert.match(css, /@media \(prefers-reduced-transparency: reduce\)/);
+});

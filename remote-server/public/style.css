@@ -7,6 +7,7 @@
   /* Core backgrounds */
   --sk-bg: #0B0D10;
   --sk-bg-secondary: #101216;
+  --sk-bg-raised: #13161A;
   --sk-surface: #15171B;
   --sk-surface-hover: #1C1F24;
   --sk-surface-elevated: #22252B;
@@ -15,9 +16,9 @@
   --sk-border-subtle: #22252A;
   --sk-border-strong: #40444C;
   /* Typography */
-  --sk-text-primary: #F2F3F5;
-  --sk-text-secondary: #A1A5AE;
-  --sk-text-muted: #717680;
+  --sk-text-primary: #F5F5F6;
+  --sk-text-secondary: #A5A7AE;
+  --sk-text-muted: #858993;
   /* Brand */
   --sk-primary: #FF8A00;
   --sk-primary-hover: #FF9F2E;
@@ -61,17 +62,41 @@
   /* No font files are shipped (the page may load nothing from elsewhere): these are used where installed. */
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --sans: Inter, Geist, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
-  --nav-h: 62px;
+  /* The floating dock: the height of one of its buttons. The dock itself adds its padding and edge. */
+  --nav-h: 54px;
   /* The home indicator needs only the lowest part of the safe area; the rest is ours to use. */
   --safe-b: max(0px, env(safe-area-inset-bottom) - 16px);
-  /* Glass: the pills and circles every button is drawn as (the layer at the end of this file). */
-  --sk-glass-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.035));
-  --sk-glass-fill-press: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.07));
-  --sk-glass-edge: rgba(255, 255, 255, 0.11);
-  --sk-glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  --sk-glass-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
-  --sk-glass-float: rgba(28, 31, 36, 0.62);
-  --sk-glass-blur: blur(22px) saturate(170%);
+  /* ── Graphite Amber Pill Glass (the layer at the end of this file) ──
+     Amber here is what is SELECTED (a tab, a filter, the session opened last). A state keeps its own
+     colour: blue at work, green done, grey idle, amber waiting for approval, red failed. */
+  --sk-amber: #FF9D0A;
+  --sk-amber-bright: #FFB638;
+  --sk-amber-glass: linear-gradient(145deg, rgba(255, 157, 10, 0.24), rgba(255, 157, 10, 0.07) 52%, rgba(255, 182, 56, 0.12)), rgba(38, 26, 10, 0.72);
+  --sk-amber-edge: rgba(255, 157, 10, 0.62);
+  --sk-amber-glow: inset 0 1px 0 rgba(255, 214, 150, 0.32), inset 0 -1px 0 rgba(255, 157, 10, 0.08), 0 8px 26px rgba(255, 140, 0, 0.16);
+  /* The material: a graphite fill, a faint white sheen from the top left, a hairline edge, a highlight
+     along the top and a soft shadow. A plain surface gets this without blur; only what floats over
+     moving content (the dock, the sheet, the brand bar, round buttons over the timeline) blurs. */
+  --sk-glass-fill: rgba(255, 255, 255, 0.045);
+  --sk-glass-sheen: linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025) 48%, rgba(255, 255, 255, 0.04));
+  --sk-glass: var(--sk-glass-sheen), rgba(20, 22, 26, 0.68);
+  --sk-glass-solid: var(--sk-glass-sheen), var(--sk-bg-raised);
+  --sk-glass-press: linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05) 48%, rgba(255, 255, 255, 0.07)), rgba(26, 28, 33, 0.8);
+  --sk-glass-border: rgba(255, 255, 255, 0.13);
+  --sk-glass-highlight: rgba(255, 255, 255, 0.28);
+  --sk-glass-depth: inset 0 1px 0 rgba(255, 255, 255, 0.18), inset 0 -1px 0 rgba(255, 255, 255, 0.025), 0 8px 24px rgba(0, 0, 0, 0.18);
+  --sk-glass-hi: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --sk-glass-float: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 48%, rgba(255, 255, 255, 0.04)), rgba(18, 20, 24, 0.62);
+  --sk-glass-float-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(255, 255, 255, 0.03), 0 14px 40px rgba(0, 0, 0, 0.5);
+  --sk-glass-blur: blur(20px) saturate(160%);
+  /* Rounding by what a thing is: a pill, a session capsule, a panel. */
+  --sk-radius-pill: 999px;
+  --sk-radius-capsule: clamp(30px, 9vw, 42px);
+  --sk-radius-panel: 24px;
+  --sk-radius-block: 20px;
+  /* The dock's height and the gap under it: content scrolls clear of both. */
+  --sk-dock-room: calc(var(--nav-h) + 14px + 12px + env(safe-area-inset-bottom, 0px) + 16px);
+  --sk-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: dark;
 }
 
@@ -845,56 +870,54 @@ button.row:active {
   font-size: 12.5px;
   color: var(--sk-warning);
 }
+/* A list of sessions (and of approvals, and of workspaces) is a stack of separate glass capsules. */
 .s-list {
-  border: 1px solid var(--sk-border);
-  border-radius: var(--sk-radius-lg);
-  background: var(--sk-surface);
-  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 .s-row {
   position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 14px;
   width: 100%;
-  min-height: 80px;
-  padding: 13px 10px 13px 14px;
-  transition: background var(--sk-motion-fast);
-}
-.s-row + .s-row {
-  border-top: 1px solid var(--sk-border-subtle);
-}
-.s-row:active {
-  background: var(--sk-surface-hover);
+  min-height: 92px;
+  padding: 14px 16px 14px 14px;
+  border: 1px solid var(--sk-glass-border);
+  border-radius: var(--sk-radius-capsule);
+  background: var(--sk-glass);
+  box-shadow: var(--sk-glass-depth);
+  text-align: left;
 }
 @media (hover: hover) {
-  .s-row:hover,
+  .s-row:not(.selected):hover,
   .icon-btn:hover,
   .filters button:not(.on):hover {
-    background: var(--sk-surface-hover);
+    background: var(--sk-glass-press);
   }
 }
-/* The session opened last: amber, because it is the selected one — not because of what it is doing. */
+/* The session opened last: amber glass, because it is the selected one — not because of what it is
+   doing. Its state badge keeps the state's own colour (blue while it executes). */
 .s-row.selected {
-  background: color-mix(in srgb, var(--sk-primary) 8%, var(--sk-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sk-primary) 50%, transparent);
-}
-.s-row.selected:first-child {
-  border-radius: calc(var(--sk-radius-lg) - 1px) calc(var(--sk-radius-lg) - 1px) 0 0;
-}
-.s-row.selected:last-child {
-  border-radius: 0 0 calc(var(--sk-radius-lg) - 1px) calc(var(--sk-radius-lg) - 1px);
-}
-.s-row.selected:only-child {
-  border-radius: calc(var(--sk-radius-lg) - 1px);
+  border-color: var(--sk-amber-edge);
+  background: var(--sk-amber-glass);
+  box-shadow: var(--sk-amber-glow);
 }
 .s-row:focus-visible {
-  outline-offset: -2px;
-  border-radius: var(--sk-radius-md);
+  outline-offset: 3px;
 }
-.s-row .ico {
-  margin-top: 1px;
-  color: var(--sk-primary);
+/* The folder (or the kind of request) sits in a small round piece of glass. */
+.s-row > .ico {
+  box-sizing: content-box;
+  width: 22px;
+  height: 22px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 60%), rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 4px 12px rgba(0, 0, 0, 0.22);
+  color: var(--sk-amber);
 }
 .s-row .chev {
   align-self: center;
@@ -914,8 +937,9 @@ button.row:active {
 .s-row .name {
   flex: 1;
   min-width: 0;
-  font-weight: 650;
-  font-size: 15.5px;
+  font-weight: 700;
+  font-size: 16.5px;
+  letter-spacing: -0.005em;
   color: var(--sk-text-primary);
 }
 .s-row .task {
@@ -938,11 +962,12 @@ button.row:active {
   gap: 6px;
   flex: none;
   max-width: 55%;
-  padding: 2px 9px 2px 8px;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  font: 550 12px/1.5 var(--sans);
+  padding: 3px 11px 3px 9px;
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  border-radius: var(--sk-radius-pill);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent), color-mix(in srgb, currentColor 12%, rgba(12, 14, 17, 0.6));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font: 600 12px/1.5 var(--sans);
   letter-spacing: 0;
   white-space: nowrap;
   overflow: hidden;
@@ -983,8 +1008,9 @@ button.row:active {
   pointer-events: none;
 }
 .s-row.skeleton .ico {
-  border-radius: 6px;
+  border-radius: 50%;
   background: var(--sk-surface-elevated);
+  color: transparent;
 }
 .s-row.skeleton .grow {
   gap: 9px;
@@ -3540,41 +3566,94 @@ pre {
   transition: width var(--sk-motion-fast);
 }
 
-/* ── bottom navigation ── */
+/* ── bottom navigation: a floating dock ──
+   One capsule of glass held off the screen's edges, four pill buttons of equal width inside it:
+   the icon over its word. What scrolls passes beneath it (the screens leave room under their last
+   item, see #view below), and it blurs what is behind it. */
 #nav {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 15;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  height: calc(var(--nav-h) + var(--safe-b));
-  padding-bottom: var(--safe-b);
-  border-top: 1px solid var(--sk-border-subtle);
-  background: var(--sk-bg);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 7px;
+  border: 1px solid var(--sk-glass-border);
+  border-radius: var(--sk-radius-pill);
 }
 #nav button {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  font-size: 11.5px;
+  gap: 3px;
+  min-width: 0;
+  min-height: var(--nav-h);
+  padding: 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--sk-radius-pill);
+  font: 550 11px/1.15 var(--sans);
   color: var(--sk-text-secondary);
-  transition: color var(--sk-motion-fast);
+  white-space: nowrap;
+}
+#nav .label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #nav .ico {
   position: relative;
-  color: inherit;
+  width: 21px;
+  height: 21px;
+  color: var(--sk-text-primary);
+  opacity: 0.86;
 }
-#nav button.active {
-  color: var(--sk-primary);
+#nav button.active,
+#nav button.active .ico {
+  color: var(--sk-amber);
+  opacity: 1;
 }
 #nav .count {
   position: absolute;
-  top: -7px;
-  right: -12px;
+  top: -6px;
+  right: -11px;
+  border: 2px solid var(--sk-bg-raised);
+  min-width: 21px;
+  height: 21px;
+  line-height: 17px;
 }
-/* While a search field has the keyboard, the app is only as tall as what is visible, which would
-   lift the bar onto the keys and take space from the list. It comes back as the keyboard closes. */
+/* While a field has the on-screen keyboard, the app is only as tall as what is visible, which would
+   lift the dock onto the keys and take space from the list. It comes back as the keyboard closes.
+   Only a keyboard that takes room does this (app.js measures it), never focus alone. */
 .keyboard #nav {
   display: none;
+}
+/* The screens under the dock leave room for it, so the last item scrolls clear of it. */
+#view:is(.screen-home, .screen-sessions, .screen-approvals, .screen-settings) {
+  padding-bottom: var(--sk-dock-room);
+}
+.keyboard #view:is(.screen-home, .screen-sessions, .screen-approvals, .screen-settings) {
+  padding-bottom: 24px;
+}
+@media (max-width: 350px) {
+  #nav {
+    left: 12px;
+    right: 12px;
+    gap: 4px;
+    padding: 6px;
+  }
+  #nav button {
+    font-size: 10.5px;
+  }
+  #nav .ico {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 /* ── the file preview sheet: one look for a picture, a PDF, a video and the rest ── */
@@ -4490,21 +4569,273 @@ body.veiled #sheet {
   }
 }
 
-/* ── pills and glass: one look for every button ──
-   Buttons with words are pills, buttons with only an icon are circles. Each is a sheet of glass:
-   a faint light fill, a hairline edge, a highlight along the top and a soft shadow. Only what floats
-   over moving content (the bars, the sheet, the round buttons over the timeline) blurs what is behind
-   it; a button on a plain surface gets the same look without the blur, which costs the phone a lot. */
-/* Pills */
+
+/* ══ Graphite Amber Pill Glass ══
+   One material for every screen, set here once by what a thing IS rather than which page it is on:
+     surface   panels, groups, cards and lists of rows                     (glass, no blur)
+     capsule   one session, approval or workspace in a list                (see .s-row above)
+     pill      buttons with words, filters, fields, badges                 (fully round)
+     circle    buttons with only an icon                                   (round glass)
+     float     what lies over moving content: dock, sheet, brand bar, fabs (glass WITH blur)
+     selected  the tab, filter or session that is chosen                   (amber glass)
+   Blur is costly on a phone, so only the floating layer has it; everything in a long list is drawn
+   from gradients, a hairline and an inset highlight. Content (code, diffs, previews) is never glassed over. */
+
+/* The page: graphite, with a very dim amber light so the glass has something to show. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(70% 38% at 50% 34%, rgba(255, 140, 0, 0.075), transparent 70%),
+    radial-gradient(90% 30% at 50% 104%, rgba(255, 157, 10, 0.1), transparent 70%),
+    radial-gradient(60% 30% at 0% 0%, rgba(255, 255, 255, 0.025), transparent 70%);
+}
+
+/* ── surface ── */
+.card,
+.group,
+.panel-box,
+.empty,
+.ck-list,
+.queue-panel,
+.suggest,
+.s-list.local,
+.metric,
+.mode,
+.fgroup:not(.single),
+.frow,
+.tu-day {
+  border: 1px solid var(--sk-glass-border);
+  border-radius: var(--sk-radius-panel);
+  background: var(--sk-glass);
+  box-shadow: var(--sk-glass-depth);
+}
+.frow,
+.mode,
+.queue-panel,
+.suggest {
+  border-radius: var(--sk-radius-block);
+}
+.empty {
+  border-style: solid;
+  padding: 28px 20px;
+}
+/* A surface inside a surface is lighter: no second shadow, a fainter edge. */
+:is(.panel-box, .group, .card, #sheet .panel) :is(.tu-metric, .tu-day) {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.tu-metric {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--sk-radius-block);
+  background: var(--sk-glass);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.row + .row,
+.st-row + .st-row,
+.ck-row + .ck-row,
+.ck-row.one + .ck-row.one,
+.queue-panel li,
+.suggest button + button,
+.w-row + .w-row,
+.fold ~ *,
+.stat + .stat {
+  border-color: rgba(255, 255, 255, 0.07);
+}
+.panel-box.tap:active,
+button.card:active,
+.commands button:active {
+  background: var(--sk-glass-press);
+}
+@media (hover: hover) {
+  .panel-box.tap:hover,
+  button.card:hover,
+  .commands button:hover,
+  .w-row:hover {
+    background: var(--sk-glass-press);
+  }
+}
+
+/* A workspace in the explorer is a capsule like a session. */
+.s-list:not(.local) > .w-row {
+  min-height: 76px;
+  padding: 12px 16px 12px 14px;
+  border: 1px solid var(--sk-glass-border);
+  border-radius: var(--sk-radius-capsule);
+  background: var(--sk-glass);
+  box-shadow: var(--sk-glass-depth);
+}
+.s-list:not(.local) > .w-row + .w-row {
+  border-top: 1px solid var(--sk-glass-border);
+}
+.s-list:not(.local) > .w-row > .ico:first-child {
+  box-sizing: content-box;
+  width: 20px;
+  height: 20px;
+  padding: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  color: var(--sk-amber);
+}
+.s-list.local {
+  overflow: hidden;
+  display: block;
+}
+
+/* Code, logs, diffs and commands stay on a calm solid block, so long text reads as it is. */
+pre,
+.diff,
+.box,
+.fpath {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--sk-radius-block);
+  background: var(--sk-bg-raised);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.fpath {
+  border-radius: 14px;
+}
+.fthumb {
+  border-radius: 14px;
+}
+.banner {
+  border-radius: var(--sk-radius-block);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ── pill ── */
 .btn,
 .ctl,
 .sw-action,
+.sw-chip,
+.field,
+.filters button,
+.tool-filters button,
+.st-options button,
+.commands button,
 .tabs,
 .tabs button,
-.tabs.home-tabs button {
-  border-radius: 999px;
+.tabs.home-tabs button,
+.tu-range,
+.tu-range button,
+#toast {
+  border-radius: var(--sk-radius-pill);
 }
-/* Circles */
+.btn:where(:not(.primary):not(.quiet)),
+.ctl,
+.sw-action,
+.sw-chip,
+.field,
+.filters button,
+.tool-filters button,
+.st-options button,
+.commands button,
+.tabs.home-tabs button,
+.tabs:where(:not(.home-tabs)),
+.tu-range {
+  border: 1px solid var(--sk-glass-border);
+  background: var(--sk-glass);
+  box-shadow: var(--sk-glass-hi), 0 4px 14px rgba(0, 0, 0, 0.16);
+}
+.tabs:not(.home-tabs) button {
+  border-color: transparent;
+}
+.field {
+  min-height: 48px;
+  padding: 10px 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.field:focus {
+  border-color: var(--sk-amber-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 3px rgba(255, 157, 10, 0.14);
+}
+.field::placeholder {
+  color: var(--sk-text-muted);
+}
+.search-box .field {
+  padding-left: 42px;
+}
+.search-box > .ico {
+  left: 15px;
+}
+.s-list.local .search-box > .ico {
+  left: 23px;
+}
+.filters {
+  gap: 10px;
+  padding-top: 4px;
+  padding-bottom: 6px;
+}
+.filters button {
+  min-height: 44px;
+  padding: 0 8px 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--sk-text-primary);
+}
+.filters .n {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: var(--sk-radius-pill);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  font: 650 12px/1 var(--mono);
+  color: var(--sk-text-primary);
+}
+.tool-filters button {
+  min-height: 36px;
+  padding: 0 14px;
+}
+.st-options button {
+  min-height: 36px;
+  padding: 0 14px;
+}
+.commands button {
+  min-height: 48px;
+}
+.sw-action {
+  min-height: 48px;
+  padding: 0 14px 0 18px;
+}
+.sw-action .n {
+  border-radius: var(--sk-radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+}
+.sw-chip {
+  min-height: 36px;
+}
+/* The toggle: a glass track, amber when on. */
+.switch {
+  border: 1px solid var(--sk-glass-border);
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.switch i {
+  top: 2px;
+  left: 2px;
+  background: linear-gradient(180deg, var(--sk-text-primary), var(--sk-text-secondary));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.switch.on {
+  border-color: var(--sk-amber-edge);
+  background: linear-gradient(180deg, var(--sk-amber-bright), var(--sk-amber));
+}
+/* The count on a corner (the switcher, Approvals). */
+.count {
+  background: linear-gradient(180deg, var(--sk-amber-bright), var(--sk-amber));
+  box-shadow: 0 2px 8px rgba(255, 140, 0, 0.35);
+}
+
+/* ── circle ── */
 .icon-btn,
 .fpv-icon,
 .switch-btn,
@@ -4515,88 +4846,314 @@ body.veiled #sheet {
 .zoom-close {
   border-radius: 50%;
 }
-
-/* Glass on a plain surface */
-.btn:where(:not(.primary):not(.quiet)),
-.ctl,
-.sw-action,
 .icon-btn,
 .fpv-icon,
-.pin-key:where(:not(.aux)),
-.tabs:where(:not(.home-tabs)),
-.tabs.home-tabs button,
 .topbar .back,
-.topbar .more {
-  border: 1px solid var(--sk-glass-edge);
-  background: var(--sk-glass-fill);
-  box-shadow: var(--sk-glass-hi), var(--sk-glass-shadow);
+.topbar .more,
+.pin-key:where(:not(.aux)) {
+  border: 1px solid var(--sk-glass-border);
+  background: var(--sk-glass);
+  box-shadow: var(--sk-glass-depth);
 }
-.tabs:not(.home-tabs) {
-  box-shadow: var(--sk-glass-hi);
+.icon-btn {
+  width: 48px;
+  height: 48px;
+  padding: 13px;
+  color: var(--sk-text-primary);
 }
-/* Coloured kinds keep their colour, now as tinted glass. */
-.btn.approve,
-.ctl.approve,
-.ctl.resume,
-.icon-btn.primary,
+.page-head {
+  gap: 10px;
+}
+/* Beside a search field the round buttons stay at 44px, so the field keeps room for its hint. */
+.toolbar .icon-btn {
+  width: 44px;
+  height: 44px;
+  padding: 11px;
+}
+.switch-btn {
+  color: var(--sk-amber);
+}
+.switch-btn .count {
+  border-color: var(--sk-bg);
+}
+
+/* ── selected: amber glass ── */
+.filters button.on,
+.tool-filters button.active,
+.st-options button.on,
+.tabs.home-tabs button.active,
+.tabs:not(.home-tabs) button.active,
+.tu-range button.on,
 .icon-btn.on,
+.mode.on,
 .sw-action.all,
-.tabs.home-tabs button.active {
-  border-color: rgba(255, 138, 0, 0.45);
-  background: linear-gradient(180deg, rgba(255, 138, 0, 0.22), rgba(255, 138, 0, 0.09));
+#nav button.active {
+  border-color: var(--sk-amber-edge);
+  background: var(--sk-amber-glass);
+  box-shadow: var(--sk-amber-glow);
 }
-.btn.unpair {
-  border-color: rgba(241, 109, 118, 0.38);
+.filters button.on {
+  font-weight: 600;
+  color: var(--sk-text-primary);
 }
-/* The selected tab is a raised piece of glass in its track, the amber kept for its words. */
-.tabs:not(.home-tabs) button {
-  border-color: transparent;
+/* A choice inside a track or a row that scrolls sideways: the glow stays close, so nothing clips it. */
+.filters button.on,
+.tabs:not(.home-tabs) button.active,
+.tool-filters button.active,
+.st-options button.on,
+.tu-range button.on {
+  box-shadow: inset 0 1px 0 rgba(255, 214, 150, 0.32), 0 3px 10px rgba(255, 140, 0, 0.12);
 }
-.tabs:not(.home-tabs) button.active {
-  border-color: rgba(255, 138, 0, 0.35);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
-  box-shadow: var(--sk-glass-hi), 0 2px 8px rgba(0, 0, 0, 0.3);
+.filters button.on .n {
+  background: rgba(255, 157, 10, 0.2);
+  color: var(--sk-amber-bright);
+}
+.tabs:not(.home-tabs) button.active,
+.tool-filters button.active,
+.st-options button.on,
+.tu-range button.on,
+.icon-btn.on,
+.sw-action.all {
+  color: var(--sk-amber-bright);
+}
+.tool-filters button.active .n,
+.tabs.home-tabs button.active .tab-icon {
+  color: var(--sk-amber);
 }
 .tabs.seg button.active::before {
   display: none;
 }
-/* The amber buttons: the same glass, lit from above. */
+.mode.on .radio {
+  border-color: var(--sk-amber);
+  background: radial-gradient(circle, var(--sk-amber) 0 45%, transparent 50%);
+}
+
+/* What is waiting for the user: amber, its own meaning (not "selected"). */
+.icon-btn.primary,
+.ctl.approve,
+.ctl.resume {
+  border-color: rgba(255, 157, 10, 0.5);
+  background: linear-gradient(145deg, rgba(255, 157, 10, 0.2), rgba(255, 157, 10, 0.06)), rgba(20, 22, 26, 0.68);
+  color: var(--sk-amber);
+  box-shadow: var(--sk-glass-hi), 0 4px 14px rgba(0, 0, 0, 0.16);
+}
+/* Approve and Reject, told apart by more than position: green glass and red glass. */
+.btn.approve {
+  border-color: color-mix(in srgb, var(--sk-success) 55%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sk-success) 26%, transparent), color-mix(in srgb, var(--sk-success) 8%, transparent)), rgba(20, 22, 26, 0.7);
+  color: var(--sk-success);
+  box-shadow: var(--sk-glass-hi), 0 6px 18px color-mix(in srgb, var(--sk-success) 14%, transparent);
+}
+.btn.reject {
+  border-color: color-mix(in srgb, var(--sk-danger) 45%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--sk-danger) 16%, transparent), color-mix(in srgb, var(--sk-danger) 5%, transparent)), rgba(20, 22, 26, 0.7);
+  color: var(--sk-danger);
+}
+.btn.unpair {
+  border-color: rgba(241, 109, 118, 0.38);
+}
+/* The amber buttons that act (Send, the main button of a sheet): solid amber, lit from above. */
 .btn.primary,
 .send {
-  border: 1px solid rgba(255, 190, 110, 0.55);
-  background: linear-gradient(180deg, var(--sk-primary-hover), var(--sk-primary) 55%, color-mix(in srgb, var(--sk-primary) 92%, black));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 18px rgba(255, 138, 0, 0.28);
+  border: 1px solid rgba(255, 200, 120, 0.6);
+  background: linear-gradient(180deg, var(--sk-amber-bright), var(--sk-amber) 55%, color-mix(in srgb, var(--sk-amber) 88%, black));
+  color: var(--sk-on-primary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 6px 18px rgba(255, 140, 0, 0.26);
 }
 .stop-btn {
-  border: 1px solid var(--sk-glass-edge);
-  background: var(--sk-glass-fill-press);
+  border: 1px solid var(--sk-glass-border);
+  background: var(--sk-glass-press);
   box-shadow: var(--sk-glass-hi);
 }
 
-/* Glass over moving content: it blurs what scrolls beneath. */
+/* ── float: glass that blurs what moves beneath it ── */
+#nav,
+#sheet .panel,
 .fab,
-.zoom-close {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+.zoom-close,
+#toast {
+  border-color: var(--sk-glass-border);
   background: var(--sk-glass-float);
-  box-shadow: var(--sk-glass-hi), 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--sk-glass-float-shadow);
   -webkit-backdrop-filter: var(--sk-glass-blur);
   backdrop-filter: var(--sk-glass-blur);
+}
+#nav button:not(.active) {
+  background: var(--sk-glass-sheen), rgba(255, 255, 255, 0.02);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+/* The brand bar stays on top of what scrolls; it blurs it rather than painting a solid band. */
+.brand {
+  background: rgba(11, 13, 16, 0.74);
+  -webkit-backdrop-filter: var(--sk-glass-blur);
+  backdrop-filter: var(--sk-glass-blur);
+}
+#sheet {
+  background: rgba(4, 5, 7, 0.55);
 }
 #sheet .panel {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(21, 23, 27, 0.86);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  -webkit-backdrop-filter: var(--sk-glass-blur);
-  backdrop-filter: var(--sk-glass-blur);
+  border-radius: 28px 28px 0 0;
+  background: rgba(17, 19, 23, 0.88);
 }
-#nav {
+/* On a tablet or desktop the sheet is a dialog, rounded on all four sides. */
+@media (min-width: 640px) {
+  #sheet .panel {
+    border-radius: 28px;
+  }
+}
+#sheet .grip {
+  width: 40px;
+  height: 5px;
+  border-radius: var(--sk-radius-pill);
+  background: rgba(255, 255, 255, 0.22);
+}
+/* The sheet's sticky title and foot carry the sheet's own colour, so they read as one piece with it. */
+#sheet h3,
+.fpv-head {
+  background: rgba(17, 19, 23, 0.88);
+}
+.fpv-head {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+.fpv-tile {
+  border-radius: 16px;
+}
+.ck-foot {
+  background: rgba(17, 19, 23, 0.94);
+}
+/* The switcher lists sessions as capsules too; in a sheet they sit a little tighter. */
+.sw-list {
+  background: none;
+  gap: 10px;
+}
+.sw-list .s-row {
+  min-height: 72px;
+  padding: 10px 14px 10px 12px;
+  border-radius: clamp(26px, 8vw, 34px);
+}
+.sw-list .s-row > .ico {
+  padding: 9px;
+}
+.row-btn {
   border-top-color: rgba(255, 255, 255, 0.07);
-  background: rgba(11, 13, 16, 0.78);
-  -webkit-backdrop-filter: var(--sk-glass-blur);
-  backdrop-filter: var(--sk-glass-blur);
+}
+#toast {
+  padding: 11px 18px;
+  bottom: calc(var(--sk-dock-room) + 8px);
 }
 
-/* Pressed: a little lighter and a little smaller. */
+/* The session screen: its head and the message box are glass on the page, not bars across it. */
+.session-top {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: transparent;
+}
+#composer {
+  border-top: 0;
+  background: linear-gradient(180deg, transparent, rgba(11, 13, 16, 0.6) 40%);
+}
+.composer-box {
+  border: 1px solid var(--sk-glass-border);
+  border-radius: 26px;
+  background: var(--sk-glass);
+  box-shadow: var(--sk-glass-depth);
+}
+/* Several lines: a steady radius, so the corners do not swell as the text grows. */
+.composer-box.open {
+  border-radius: 22px;
+  border-color: var(--sk-amber-edge);
+  box-shadow: var(--sk-glass-hi), 0 0 0 3px rgba(255, 157, 10, 0.1), 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+.tool-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+.run-status,
+.controls {
+  padding: 0 2px;
+}
+
+/* A long name keeps its line: the state badge moves under it instead of squeezing it to a letter. */
+.s-row .top {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+.s-row .name {
+  flex: 1 1 auto;
+}
+/* An empty message box keeps its hint on one line. */
+.composer-box textarea:placeholder-shown {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 360px) {
+  .s-row {
+    gap: 10px;
+    padding: 12px 12px 12px 10px;
+  }
+  .s-row > .ico,
+  .s-list:not(.local) > .w-row > .ico:first-child {
+    width: 20px;
+    height: 20px;
+    padding: 9px;
+  }
+  .commands {
+    gap: 6px;
+  }
+  .commands button {
+    gap: 6px;
+    font-size: 12.5px;
+  }
+  .stat {
+    padding: 0 8px;
+  }
+  .stat > span:last-child {
+    font-size: 12px;
+  }
+}
+
+/* ── where the glass is not available, or not wanted ── */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  #nav,
+  .fab,
+  .zoom-close,
+  #toast {
+    background: var(--sk-glass-solid);
+  }
+  #sheet .panel {
+    background: var(--sk-bg-raised);
+  }
+  .brand {
+    background: var(--sk-bg);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  #nav,
+  .fab,
+  .zoom-close,
+  #toast,
+  #sheet .panel,
+  .brand {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  #nav,
+  .fab,
+  .zoom-close,
+  #toast {
+    background: var(--sk-glass-solid);
+  }
+  #sheet .panel {
+    background: var(--sk-bg-raised);
+  }
+  .brand {
+    background: var(--sk-bg);
+  }
+  body::before {
+    display: none;
+  }
+}
+
+/* ── touch: a short, calm press ── */
 .btn,
 .ctl,
 .sw-action,
@@ -4609,75 +5166,40 @@ body.veiled #sheet {
 .stop-btn,
 .send,
 .fact,
+.s-row,
+.panel-box,
+.commands button,
+.filters button,
+.tool-filters button,
+.st-options button,
 .topbar .back,
 .topbar .more,
-.tabs button {
-  transition: transform var(--sk-motion-fast), background var(--sk-motion-fast), border-color var(--sk-motion-fast), opacity var(--sk-motion-fast);
+.tabs button,
+#nav button,
+.w-row,
+.frow,
+.mode {
+  transition: transform 180ms var(--sk-ease), background 180ms ease, border-color 180ms ease, color 180ms ease, opacity 180ms ease, box-shadow 200ms ease;
 }
-.btn:not(:disabled):active,
-.ctl:not(:disabled):active,
-.sw-action:not(:disabled):active,
-.icon-btn:not(:disabled):active,
-.fpv-icon:not(:disabled):active,
-.switch-btn:active,
-.tool-btn:active,
-.fab:active,
-.pin-key:not(:disabled):active,
-.stop-btn:not(:disabled):active,
-.send:active,
-.fact:active,
-.topbar .back:active,
-.topbar .more:active {
-  transform: scale(0.96);
+:is(.btn, .ctl, .sw-action, .icon-btn, .fpv-icon, .pin-key, .stop-btn, .commands button, .filters button, .tool-filters button, .st-options button, .mode):not(:disabled):active,
+:is(.switch-btn, .tool-btn, .fab, .send, .fact, .s-row, .panel-box.tap, .topbar .back, .topbar .more, #nav button, .w-row):active {
+  transform: scale(0.98);
 }
-.btn:not(.primary):not(.quiet):not(:disabled):active,
-.ctl:not(:disabled):active,
-.sw-action:not(:disabled):active,
-.icon-btn:not(:disabled):active,
-.fpv-icon:not(:disabled):active,
-.pin-key:not(.aux):not(:disabled):active,
-.topbar .back:active,
-.topbar .more:active {
-  background: var(--sk-glass-fill-press);
+:is(.btn:not(.primary):not(.quiet):not(.approve):not(.reject), .ctl, .sw-action, .icon-btn:not(.on), .fpv-icon, .pin-key:not(.aux), .topbar .back, .topbar .more, #nav button:not(.active)):not(:disabled):active,
+.s-row:not(.selected):active {
+  background: var(--sk-glass-press);
 }
-.btn.primary:not(:disabled):active {
-  background: linear-gradient(180deg, var(--sk-primary), color-mix(in srgb, var(--sk-primary) 90%, black));
+.btn.primary:not(:disabled):active,
+.send:active {
+  background: linear-gradient(180deg, var(--sk-amber), color-mix(in srgb, var(--sk-amber) 86%, black));
 }
-
-/* Where the phone is asked for less transparency, solid surfaces again. */
-@media (prefers-reduced-transparency: reduce) {
-  .fab,
-  .zoom-close {
-    background: var(--sk-surface-elevated);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  #sheet .panel {
-    background: var(--sk-surface);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-  #nav {
-    background: var(--sk-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+/* Focus is a ring off the shape, in amber, on every glass control. */
+:is(.s-row, .w-row, .panel-box.tap, #nav button, .filters button, .icon-btn, .btn, .ctl):focus-visible {
+  outline: 2px solid var(--sk-amber);
+  outline-offset: 3px;
 }
 @media (prefers-reduced-motion: reduce) {
-  .btn:active,
-  .ctl:active,
-  .sw-action:active,
-  .icon-btn:active,
-  .fpv-icon:active,
-  .switch-btn:active,
-  .tool-btn:active,
-  .fab:active,
-  .pin-key:active,
-  .stop-btn:active,
-  .send:active,
-  .fact:active,
-  .topbar .back:active,
-  .topbar .more:active {
+  :is(.btn, .ctl, .sw-action, .icon-btn, .fpv-icon, .switch-btn, .tool-btn, .fab, .pin-key, .stop-btn, .send, .fact, .s-row, .panel-box, .commands button, .filters button, .tool-filters button, .st-options button, .topbar .back, .topbar .more, #nav button, .w-row, .frow, .mode):active {
     transform: none;
   }
 }

@@ -3175,7 +3175,7 @@ function draw() {
   nav.hidden = !paired || name === 'session' || name === 'review';
   nav.replaceChildren(
     ...NAV.map(([id, label, icon]) =>
-      h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => go({ name: id }) }, h('span', { class: 'ico' }, h('span', { icon }), id === 'approvals' && state.approvals.length > 0 && h('span', { class: 'count' }, state.approvals.length)), label),
+      h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => go({ name: id }) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, h('span', { icon }), id === 'approvals' && state.approvals.length > 0 && h('span', { class: 'count' }, state.approvals.length)), h('span', { class: 'label' }, label), id === 'approvals' && state.approvals.length > 0 && h('span', { class: 'sr-only' }, `, ${state.approvals.length} waiting`)),
     ),
   );
   drawSheet();
