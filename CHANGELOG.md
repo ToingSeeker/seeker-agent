@@ -4,6 +4,9 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **The README says how to select text in SEEKER's full screen.** It named Shift, or Option in Terminal; macOS
+  Terminal needs Fn held while dragging (Option is iTerm2's), or View → Allow Mouse Reporting (⌘R) turned off.
+
 - **Code is shown in colour.** The lines of a change waiting for approval and the code blocks in answers are
   coloured by language, as Claude Code shows them: keywords red, strings green, function names cyan, numbers and
   constants purple, types amber, comments grey. The language comes from the file's name, or from a code block's
