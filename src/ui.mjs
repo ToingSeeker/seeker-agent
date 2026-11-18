@@ -3,6 +3,7 @@
 // In print mode (-p) activity goes to stderr so stdout carries only the answer.
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
+import { highlightLine, highlighter, languageOf } from './highlight.mjs';
 import { MdStream } from './markdown.mjs';
 import { VERSION } from './config.mjs';
 import { ANSI, padEnd, truncate, truncateStart, visibleLength } from './text.mjs';
@@ -336,7 +337,7 @@ export class UI {
   }
 
   /** What a write is about to do: removed lines in red, added in green. */
-  diff({ removed = [], added = [], more = 0, overwrites = null, times = 1, hunk = null }) {
+  diff({ removed = [], added = [], more = 0, overwrites = null, times = 1, hunk = null, path = null }) {
     this.toolOpen();
     const width = this.cols() - 12;
     if (hunk?.rows.length) {
@@ -344,15 +345,30 @@ export class UI {
       const { c } = this;
       const digits = Math.max(3, ...hunk.rows.map((r) => String(r.n ?? '').length));
       const room = Math.max(10, width - digits - 3);
+      // The code in colour, by the file's language; the old and the new text each carry their own open comments.
+      const lang = languageOf(path ?? this.tool?.summary);
+      const paint = lang ? highlighter(this.depth) : null;
+      let before = {};
+      let after = {};
+      const code = (row, text) => {
+        if (!paint) return text;
+        const state = row.kind === '-' ? before : after;
+        const coloured = highlightLine(text, lang, paint, state);
+        if (row.kind === ' ') Object.assign(before, state);
+        return coloured;
+      };
       this.line(`${this.#stem()}${c.green(`+${hunk.added}`)} ${c.red(`−${hunk.removed}`)}`);
       for (const row of hunk.rows) {
         if (row.gap) {
           this.line(`${this.#stem()}${c.dim('...')}`);
+          before = {};
+          after = {};
           continue;
         }
         const text = truncate(row.text.replace(/\t/g, '  '), room);
-        const body = `${String(row.n).padStart(digits)} ${row.kind} ${text}`;
-        if (row.kind === ' ') this.line(`${this.#stem()}${c.dim(String(row.n).padStart(digits))}   ${text}`);
+        const coloured = code(row, text);
+        const body = `${String(row.n).padStart(digits)} ${row.kind} ${coloured}`;
+        if (row.kind === ' ') this.line(`${this.#stem()}${c.dim(String(row.n).padStart(digits))}   ${coloured}`);
         else this.line(`${this.#stem()}${(row.kind === '+' ? c.added : c.removed)(body + ' '.repeat(Math.max(0, room - visibleLength(text))))}`);
       }
       if (hunk.hidden) this.line(`${this.#stem()}${c.dim(`… +${hunk.hidden} changed lines`)}`);

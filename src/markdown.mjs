@@ -1,6 +1,8 @@
 // Streaming markdown → ANSI. Tokens are printed as they arrive, so this is a
 // character-level state machine; only the first few characters of each line are
-// held back, to tell a heading / bullet / code fence apart from plain text.
+// held back, to tell a heading / bullet / code fence apart from plain text. Inside a code block a line is
+// shown once it is whole, coloured by the block's language.
+import { highlightLine, highlighter, languageOf } from './highlight.mjs';
 import { sgr, terminalCodes } from './theme.mjs';
 
 const RESET = '\x1b[0m';
@@ -22,6 +24,10 @@ export class MdStream {
     this.enabled = depth > 0;
     this.heading = `\x1b[${terminalCodes(depth).accentBold}m`;
     this.codeOn = `\x1b[${depth >= 8 ? sgr(CODE_TINT, depth) : '36'}m`;
+    this.paint = highlighter(depth);
+    this.fenceLang = null;
+    this.fenceState = {};
+    this.fenceLine = '';
     this.out = '';
     this.atLineStart = true;
     this.hold = '';
@@ -41,6 +47,7 @@ export class MdStream {
   flush() {
     if (!this.enabled) return;
     if (this.hold) this.#startLine(this.hold, false);
+    if (this.fenceLine) this.#codeLine(false);
     if (this.star) this.out += '*';
     if (this.styled || this.bold || this.inCode || this.inFence) this.out += RESET;
     this.star = this.bold = this.inCode = this.styled = false;
@@ -62,10 +69,8 @@ export class MdStream {
       return;
     }
     if (this.inFence) {
-      if (ch === '\n') {
-        this.out += `${RESET}\n`;
-        this.atLineStart = true;
-      } else this.out += ch;
+      if (ch === '\n') this.#codeLine(true);
+      else this.fenceLine += ch;
       return;
     }
     if (ch === '\n') return this.#endLine();
@@ -80,17 +85,16 @@ export class MdStream {
 
     if (text.startsWith('```')) {
       this.inFence = !this.inFence;
+      this.fenceLang = this.inFence ? languageOf(text.slice(3).trim().split(/\s/)[0]) : null;
+      this.fenceState = {};
       const label = this.inFence ? `┌─ ${text.slice(3).trim()}`.trimEnd() : '└─';
       this.out += `${DIM}${indent}${label}${RESET}\n`;
       this.atLineStart = true;
       return;
     }
     if (this.inFence) {
-      this.out += this.codeOn + held;
-      if (newlineNow) {
-        this.out += `${RESET}\n`;
-        this.atLineStart = true;
-      }
+      this.fenceLine = held;
+      if (newlineNow) this.#codeLine(true);
       return;
     }
 
@@ -104,6 +108,17 @@ export class MdStream {
     }
     for (const ch of rest) this.#inline(ch);
     if (newlineNow) this.#endLine();
+  }
+
+  /** A whole line of a code block: in colour when its language is known, otherwise in the code tint. */
+  #codeLine(newline) {
+    const line = this.fenceLine;
+    this.fenceLine = '';
+    this.out += this.fenceLang && this.paint ? highlightLine(line, this.fenceLang, this.paint, this.fenceState) : this.codeOn + line + RESET;
+    if (newline) {
+      this.out += `${RESET}\n`;
+      this.atLineStart = true;
+    }
   }
 
   #endLine() {

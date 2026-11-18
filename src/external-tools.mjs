@@ -75,6 +75,7 @@ export function describeExternal(name, input = {}, cwd = '') {
   if (about.diff && ['Edit', 'MultiEdit', 'Write'].includes(name)) {
     const hunk = hunkOf(name, input, cwd);
     if (hunk) about.diff.hunk = hunk;
+    about.diff.path = input.file_path ?? null;
   }
   return about;
 }

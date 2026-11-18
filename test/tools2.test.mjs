@@ -418,8 +418,9 @@ test('previews: overwriting a file and replacing every occurrence are stated, no
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-preview-'));
   fs.writeFileSync(path.join(cwd, 'old.txt'), 'a\nb\nc\nx = 1\nx = 1\n');
   const write = TOOL_BY_NAME.get('write_file');
-  const { hunk, ...created } = write.preview({ path: 'new.txt', content: 'one\ntwo' }, { cwd });
+  const { hunk, path: file, ...created } = write.preview({ path: 'new.txt', content: 'one\ntwo' }, { cwd });
   assert.deepEqual(created, { added: ['one', 'two'], more: 0, line: 1, counts: { added: 2, removed: 0 }, overwrites: null });
+  assert.equal(file, path.join(cwd, 'new.txt'), 'the file, so the lines can be coloured by its language');
   assert.equal(hunk.rows.length, 2, 'the terminal also gets the lines with their numbers');
   const over = write.preview({ path: 'old.txt', content: 'gone' }, { cwd });
   assert.deepEqual([over.overwrites, over.counts], [6, { added: 1, removed: 6 }], 'the existing lines count as removed');

@@ -430,7 +430,7 @@ export const TOOLS = [
       } catch {
         // No such file yet: this creates it.
       }
-      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: replaced ?? 0 }, overwrites: replaced, hunk: hunkRows(old, lines) };
+      return { added: lines.slice(0, 12), more: Math.max(0, lines.length - 12), line: 1, counts: { added: lines.length, removed: replaced ?? 0 }, overwrites: replaced, hunk: hunkRows(old, lines), path: file };
     },
     async run(args, { cwd }) {
       const file = resolvePath(pathArg(args), cwd);
@@ -484,6 +484,7 @@ export const TOOLS = [
       const hunk = hunkRows(was.slice(head, start - 1 + removed.length + 3), will.slice(head, start - 1 + added.length + 3), { first: head + 1 });
       return {
         hunk,
+        path: file,
         removed: removed.slice(0, 12),
         added: added.slice(0, 12),
         more: Math.max(0, removed.length - 12) + Math.max(0, added.length - 12),
