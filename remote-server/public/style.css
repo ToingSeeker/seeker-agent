@@ -94,8 +94,11 @@
   --sk-radius-capsule: clamp(30px, 9vw, 42px);
   --sk-radius-panel: 24px;
   --sk-radius-block: 20px;
+  /* The gap under the dock. On a phone with a home indicator it sits just above the indicator, taking
+     only the part of the safe area the indicator needs; elsewhere it keeps 12px off the edge. */
+  --sk-dock-gap: max(12px, calc(env(safe-area-inset-bottom, 0px) - 10px));
   /* The dock's height and the gap under it: content scrolls clear of both. */
-  --sk-dock-room: calc(var(--nav-h) + 14px + 12px + env(safe-area-inset-bottom, 0px) + 16px);
+  --sk-dock-room: calc(var(--nav-h) + 14px + var(--sk-dock-gap) + 16px);
   --sk-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   color-scheme: dark;
 }
@@ -3574,7 +3577,7 @@ pre {
   position: absolute;
   left: 16px;
   right: 16px;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  bottom: var(--sk-dock-gap);
   z-index: 15;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
