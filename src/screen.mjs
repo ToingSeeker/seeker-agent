@@ -7,6 +7,7 @@
 // rows never end up in the middle of it. When SEEKER closes, the conversation is printed to the
 // normal screen, where the terminal's scrollback keeps it. Only rows that differ from what is
 // already on screen are repainted.
+import { AVATAR_WIDTH } from './mascot.mjs';
 import { activeSgr, clipAnsi, layout, padEnd, truncate, visibleLength, wrapAnsi } from './text.mjs';
 
 const MAX_INPUT_ROWS = 8;
@@ -19,7 +20,7 @@ const MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 const NON_SGR = /\x1b\[[0-9;?]*[A-LN-Za-ln-z]|\x1b\][^\x07]*\x07|\x1b[^[\]]/g;
 // A small face that moves (see avatarMark in ui.mjs): a private-use character that names it, then spaces
 // that keep its width, so wrapping and widths are right before it is drawn in at each repaint.
-const AVATAR = /[\uE000-\uE007] {10}/g;
+const AVATAR = new RegExp(`[\\uE000-\\uE00F] {${AVATAR_WIDTH - 1}}`, 'g');
 
 export class Screen {
   /**
@@ -95,7 +96,7 @@ export class Screen {
 
   /** A row with its faces drawn in. */
   #faces(row) {
-    if (!/[\uE000-\uE007]/.test(row)) return row;
+    if (!/[\uE000-\uE00F]/.test(row)) return row;
     return row.replace(AVATAR, (cell) => this.avatar?.(cell.charCodeAt(0) - 0xe000) ?? ' '.repeat(cell.length));
   }
 

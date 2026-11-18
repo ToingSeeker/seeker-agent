@@ -44,8 +44,8 @@ Inside a session: `/init`, `/model`, `/key`, `/resume`, `/paste`, `/config`, `/s
 Type `/` for the list of commands and skills: ↑↓ move through it, Tab completes the highlighted one, Enter runs it,
 Esc closes the list. Typing narrows it (`/rev` also finds `/code-review`). Alt+Enter starts a new line; with no list
 open, ↑↓ walk through earlier messages.
-The robot in the header blinks and looks around. In the conversation, SEEKER's answers carry that robot and its name,
-and your messages a pixel person and YOU, the same faces as in the phone app, and they move as there. `/config` → `animation`
+The robot in the header blinks and looks around. In the conversation, a small face on one row marks who speaks, as in the
+phone app: the robot's `>_<` screen and SEEKER, or a person's face and YOU; both blink. `/config` → `animation`
 turns that off.
 
 SEEKER fills the terminal window like an app: the header stays at the top and the message box at the bottom

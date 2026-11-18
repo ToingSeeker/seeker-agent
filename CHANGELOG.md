@@ -14,9 +14,9 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
   Swift), Ruby, PHP, SQL, CSS, HTML and XML, JSON, YAML and TOML are known. In a code block a line now appears once
   it is whole.
 
-- **The terminal conversation marks who speaks with the phone app's faces.** SEEKER's answers start with the
-  pixel robot (the one in the header) and SEEKER; your messages with the pixel person and YOU, in cyan. They move
-  as on the phone: the robot blinks and glances, the person blinks and nods, unless `/config` → `animation` is off.
+- **The terminal conversation marks who speaks with the phone app's faces, made small.** One row by each message:
+  the robot's `>_<` screen in its amber frame and SEEKER, or the person's face (eyes and a smile, framed by brown
+  hair) and YOU, in cyan. They blink on the phone's beat, unless `/config` → `animation` is off.
   Only on the full screen: print mode (`-p`) and pipes keep the plain `✧ SEEKER` and `›` marks.
 
 - **Claude Code can still ask for approval after a command it left running in the background.** When Claude
