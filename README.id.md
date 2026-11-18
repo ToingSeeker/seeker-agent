@@ -742,6 +742,7 @@ rantainya.
 | `src/ollama.mjs`, `src/http.mjs` | client streaming Ollama dan HTTP dasar |
 | `src/skills.mjs` | skill: bawaan di `skills/` repo ini (kalah oleh skill milikmu yang bernama sama; matikan dengan `/config bundledSkills off`), `~/.seeker/skills/<nama>/SKILL.md`, `.seeker/skills/<nama>/SKILL.md`, dan skill plugin `~/.seeker/plugins/<plugin>/skills/…` yang dipanggil sebagai `/plugin:nama` |
 | `src/ui.mjs`, `src/markdown.mjs` | tampilan: header, panel, pohon langkah tool, status bar |
+| `src/highlight.mjs` | kode berwarna (keyword, string, pemanggilan fungsi, angka, tipe, komentar) di diff dan blok kode, menurut bahasa file atau tag bloknya |
 | `src/theme.mjs` | satu palet untuk terminal dan aplikasi HP (amber merek, biru tool bekerja, ungu berpikir, hijau selesai, merah gagal); ditulis sebagai warna 24-bit, 256 atau 16 sesuai terminal, tanpa warna jika `NO_COLOR` diisi |
 | `src/images.mjs` | gambar dalam percakapan: mencari file yang disebut di pesan, memuatnya, clipboard, pratinjau dan gambar utuh untuk HP, gambar Quick Look di kartu file |
 | `src/transfer.mjs` | file utuh antara HP dan Mac: potongan terenkripsi lewat relay, folder kiriman, dan file yang ditawarkan jawaban untuk didownload beserta isi kartunya (durasi video, waktu terakhir diubah) |

@@ -4,10 +4,17 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Code is shown in colour.** The lines of a change waiting for approval and the code blocks in answers are
+  coloured by language, as Claude Code shows them: keywords red, strings green, function names cyan, numbers and
+  constants purple, types amber, comments grey. The language comes from the file's name, or from a code block's
+  tag (```` ```js ````); JavaScript and TypeScript, Python, shell, Go, Rust, the C family (C, C++, C#, Java, Kotlin,
+  Swift), Ruby, PHP, SQL, CSS, HTML and XML, JSON, YAML and TOML are known. In a code block a line now appears once
+  it is whole.
+
 - **The terminal conversation marks who speaks with the phone app's faces.** SEEKER's answers start with the
   pixel robot (the one in the header) and SEEKER; your messages with the pixel person and YOU, in cyan. They move
-  as on the phone: the robot blinks and glances, the person blinks and nods, unless `/config` → `animation` is off. Only on the full screen: print mode (`-p`) and pipes keep the
-  plain `✧ SEEKER` and `›` marks.
+  as on the phone: the robot blinks and glances, the person blinks and nods, unless `/config` → `animation` is off.
+  Only on the full screen: print mode (`-p`) and pipes keep the plain `✧ SEEKER` and `›` marks.
 
 - **Claude Code can still ask for approval after a command it left running in the background.** When Claude
   Code (as the engine) started something in the background, such as a CI watch or a long build, and finished its
