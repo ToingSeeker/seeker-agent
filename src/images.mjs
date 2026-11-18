@@ -46,6 +46,27 @@ export function loadImage(file) {
   return { name, mime, data: buf.toString('base64'), bytes: buf.length };
 }
 
+// A name no person chose: a UUID (what iOS gives a pasted or shared picture), a long run of hex,
+// or a timestamp. The same test is in remote-server/public/files.js, for what the phone shows.
+const MADE_UP = /^(?:.*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*|[0-9a-f-]{16,}|\d{10,}|\d{8}[_-]\d{6}|image|blob|file|photo)$/i;
+const PLAIN_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'application/pdf': 'pdf', 'application/zip': 'zip' };
+const IMAGE_EXT = /^(png|jpe?g|gif|webp|heic)$/i;
+const VIDEO_EXT = /^(mp4|m4v|mov|webm)$/i;
+
+/**
+ * A file's name as a person would say it: one made up by the phone (`4BD7DFEC-…-837E1F902F06.png`)
+ * becomes `image.png`, `video.mp4` or `file.pdf`; a name someone chose is left as it is.
+ */
+export function plainName(name, mime = '') {
+  const text = String(name ?? '').trim();
+  const ext = path.extname(text);
+  if (text && !MADE_UP.test(ext ? text.slice(0, -ext.length) : text)) return text;
+  const type = String(mime ?? '');
+  const end = PLAIN_EXT[type] ?? ext.slice(1).toLowerCase().replace(/^jpeg$/, 'jpg');
+  const base = /^image\//.test(type) || IMAGE_EXT.test(end) ? 'image' : /^video\//.test(type) || VIDEO_EXT.test(end) ? 'video' : 'file';
+  return end ? `${base}.${end}` : base;
+}
+
 const base64Bytes = (text) => Math.floor((text.length * 3) / 4);
 const MAX_THUMB_CHARS = 40_000;
 
@@ -69,7 +90,7 @@ export function receivedImages(list, max = 4) {
     // The small preview shown in the transcript is optional: one that does not check out is just left out.
     const small = typeof entry.thumb === 'string' && entry.thumb.length <= MAX_THUMB_CHARS && /^[A-Za-z0-9+/]+={0,2}$/.test(entry.thumb) ? entry.thumb : '';
     const smallMime = small ? imageType(Buffer.from(small.slice(0, 24), 'base64')) : null;
-    return { name: label, mime, data, thumb: smallMime ? { mime: smallMime, data: small } : null };
+    return { name: plainName(label, mime), mime, data, thumb: smallMime ? { mime: smallMime, data: small } : null };
   });
 }
 

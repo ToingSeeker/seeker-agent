@@ -12,7 +12,7 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, 
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
-import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
+import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCKOUT_TRIES, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, readLock, sameId, triesLeft, userVerified, writeLock } from './lock.js';
 
@@ -1430,7 +1430,8 @@ async function prepare(file) {
     if (made.length <= IMAGE_CHARS) data = made;
   }
   if (!data) throw new Error('too large even when made smaller');
-  return { name: file.name || 'image', data, thumb: shrink(img, 240, 0.6) };
+  // Made smaller, it is a JPEG whatever it was; the name says what is really sent.
+  return { name: plainName(file.name, data === original ? file.type : 'image/jpeg'), data, thumb: shrink(img, 240, 0.6) };
 }
 
 /**
@@ -1444,10 +1445,11 @@ async function addImages(files, { whole = false } = {}) {
       toast(`At most ${MAX_ATTACHMENTS} attachments per message.`);
       break;
     }
+    const named = plainName(file.name, file.type);
     if (whole || !file.type.startsWith('image/')) {
-      if (!file.size) toast(`${file.name || 'That file'} is empty.`);
-      else if (file.size > MAX_FILE_BYTES) toast(`${file.name || 'That file'} is ${fileSize(file.size)}; at most ${fileSize(MAX_FILE_BYTES)} can be sent.`);
-      else attachments.push({ kind: 'file', file, name: file.name || 'file', bytes: file.size, video: file.type.startsWith('video/') });
+      if (!file.size) toast(`${named} is empty.`);
+      else if (file.size > MAX_FILE_BYTES) toast(`${named} is ${fileSize(file.size)}; at most ${fileSize(MAX_FILE_BYTES)} can be sent.`);
+      else attachments.push({ kind: 'file', file, name: named, bytes: file.size, video: file.type.startsWith('video/') });
       showAttachments();
       continue;
     }
@@ -1460,7 +1462,7 @@ async function addImages(files, { whole = false } = {}) {
       originals.set(picture, file);
       attachments.push(picture);
     } catch (err) {
-      toast(`${file.name || 'That file'}: ${err.message}.`);
+      toast(`${named}: ${err.message}.`);
     }
     showAttachments();
   }
@@ -1590,7 +1592,8 @@ const runningDots = () => h('span', { class: 'dots', 'aria-hidden': 'true' }, h(
  * shown only as an image of a type the Mac recognised; anything else is just named.
  */
 function pictures(images, size = '', from = null) {
-  const shots = (Array.isArray(images) ? images : []).map((i, index) => {
+  const shots = (Array.isArray(images) ? images : []).map((sent, index) => {
+    const i = { ...sent, name: plainName(sent.name, sent.mime) };
     const shown = i.thumb && /^image\/(png|jpeg|gif|webp)$/.test(i.mime) ? h('img', { src: `data:${i.mime};base64,${i.thumb}`, alt: i.name, title: i.name }) : h('span', { class: 'file' }, i.name);
     // A picture that is a file on the Mac opens whole, ready to save, when tapped. One sent before the
     // Mac kept them opens as the small preview it has, and says so.
@@ -1715,7 +1718,7 @@ async function pictureArrived(event) {
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
     const picture = await unseal((await res.json()).c);
     if (!/^image\/(png|jpeg|gif|webp)$/.test(picture.mime)) throw new Error('That is not a picture.');
-    const file = new File([fromBase64(picture.data)], picture.name, { type: picture.mime });
+    const file = new File([fromBase64(picture.data)], plainName(picture.name, picture.mime), { type: picture.mime });
     wait.record.total = file.size;
     wait.record.got = file.size;
     wait.resolve({ file, smaller: !!event.smaller });
@@ -1760,7 +1763,7 @@ async function downloadArrived(event) {
       refreshFile(null);
     }
     if (got !== event.bytes) throw new Error('it did not arrive whole');
-    wait.resolve({ file: new File(parts, event.name, { type: event.mime }), smaller: false });
+    wait.resolve({ file: new File(parts, plainName(event.name, event.mime), { type: event.mime }), smaller: false });
   } catch (err) {
     wait.reject(err);
   }
@@ -1836,7 +1839,8 @@ function fileThumb(f) {
 }
 
 /** One file: its picture, name, kind · size, folder, and its button. A tap anywhere else opens it. */
-function fileRow(f, src, dir = 'down') {
+function fileRow(given, src, dir = 'down') {
+  const f = { ...given, name: plainName(given.name, given.mime) };
   const { stem, ext } = splitName(f.name);
   const facts = [typeName(f.mime, f.name), Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size].filter(Boolean).join(' · ');
   const folder = folderOf(f.file);
@@ -1893,7 +1897,7 @@ function placeOnMac(file) {
 
 /** A file the phone cannot fetch back or show: what is known of it. */
 function fileFacts(f) {
-  sheet(f.name, h('div', { class: 'muted viewer-note' }, [Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size, 'saved on your Mac'].filter(Boolean).join(' · ')), f.file && placeOnMac(f.file), h('div', { class: 'viewer-wait muted' }, 'This kind of file cannot be shown on the phone.'));
+  sheet(plainName(f.name, f.mime), h('div', { class: 'muted viewer-note' }, [Number.isFinite(f.bytes) ? fileSize(f.bytes) : f.size, 'saved on your Mac'].filter(Boolean).join(' · ')), f.file && placeOnMac(f.file), h('div', { class: 'viewer-wait muted' }, 'This kind of file cannot be shown on the phone.'));
 }
 
 // ── the file preview: one sheet for a picture, a PDF, a video, a sound, a text or a zip ──
@@ -1908,7 +1912,7 @@ const PDF_COUNT_BYTES = 10_000_000; // a PDF up to this size is read for its pag
  * shown. `f` is what the card knew of it (name, mime, bytes, thumb, duration, modified).
  */
 async function openFile(src, f = {}) {
-  const meta = { ...f, name: f.name ?? src.name, file: src.where };
+  const meta = { ...f, name: plainName(f.name ?? src.name, f.mime ?? src.mime), file: src.where };
   const id = transferId(); // this preview, so a later one is never mistaken for it
   let shown = null; // { file, saved, reason, smaller } once there is a file to show
   let failure = null;
@@ -2163,11 +2167,12 @@ function previewWaiting(a) {
   const remove = h('button', { type: 'button', class: 'btn', onclick: () => ((attachments = attachments.filter((x) => x !== a)), showAttachments(), closeSheet()) }, 'Remove');
   const keepIt = h('button', { type: 'button', class: 'btn primary', onclick: closeSheet }, 'Keep');
   if (!file) return sheet(a.name, h('img', { class: 'viewer', src: `data:image/jpeg;base64,${a.data}`, alt: a.name }), h('div', { class: 'actions even' }, remove, keepIt));
-  const meta = { name: file.name, type: file.type, bytes: file.size };
+  // Named as it will be sent (`image.png`, not the phone's made-up name).
+  const meta = { name: a.name, type: file.type, bytes: file.size };
   const close = h('button', { type: 'button', class: 'fpv-icon', 'aria-label': 'Close', onclick: closeSheet }, h('span', { class: 'ico', icon: 'cross' }));
-  const { stem, ext } = splitName(file.name);
-  const head = h('div', { class: 'fpv-head' }, h('span', { class: `fpv-tile t-${fileKind(file.name).tone}`, icon: 'upload' }), h('div', { class: 'fpv-title' }, h('h3', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), h('span', { class: 'fpv-facts' }, factLine([typeName(file.type, file.name), fileSize(file.size)])), h('span', { class: 'fpv-status muted' }, 'Not sent yet')), close);
-  sheet({ label: file.name, head }, h('div', { class: 'fpv-stage' }, previewMedia(file, meta)), h('div', { class: 'actions even fpv-actions' }, remove, keepIt));
+  const { stem, ext } = splitName(a.name);
+  const head = h('div', { class: 'fpv-head' }, h('span', { class: `fpv-tile t-${fileKind(a.name).tone}`, icon: 'upload' }), h('div', { class: 'fpv-title' }, h('h3', { class: 'fname' }, h('span', { class: 'stem' }, stem), ext && h('span', { class: 'ext' }, ext)), h('span', { class: 'fpv-facts' }, factLine([typeName(file.type, a.name), fileSize(file.size)])), h('span', { class: 'fpv-status muted' }, 'Not sent yet')), close);
+  sheet({ label: a.name, head }, h('div', { class: 'fpv-stage' }, previewMedia(file, meta)), h('div', { class: 'actions even fpv-actions' }, remove, keepIt));
   $('sheet').querySelector('.panel').classList.add('fpv');
 }
 
@@ -2727,7 +2732,8 @@ async function keptSheet() {
       ? h(
           'div',
           { class: 'fgroup single' },
-          list.map((e) => {
+          list.map((kept) => {
+            const e = { ...kept, name: plainName(kept.name, kept.type) };
             const src = { kind: 'download', name: e.name, where: e.path, bytes: e.bytes, mime: e.type };
             const f = { name: e.name, file: e.path, bytes: e.bytes, mime: e.type };
             const remove = h('button', { type: 'button', class: 'fact gone', 'aria-label': `Remove ${e.name} from this phone`, onclick: () => forget(e.path).then(() => (keptPaths?.delete(e.path), changed(), keptSheet())) }, h('span', { class: 'ico', icon: 'cross' }));
