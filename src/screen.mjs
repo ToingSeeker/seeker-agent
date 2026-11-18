@@ -17,6 +17,9 @@ const MOUSE_ON = '\x1b[?1000h\x1b[?1006h';
 const MOUSE_OFF = '\x1b[?1000l\x1b[?1006l';
 // Anything but colour codes would move the cursor and break the layout.
 const NON_SGR = /\x1b\[[0-9;?]*[A-LN-Za-ln-z]|\x1b\][^\x07]*\x07|\x1b[^[\]]/g;
+// A small face that moves (see avatarMark in ui.mjs): a private-use character that names it, then spaces
+// that keep its width, so wrapping and widths are right before it is drawn in at each repaint.
+const AVATAR = /[\uE000-\uE007] {10}/g;
 
 export class Screen {
   /**
@@ -35,6 +38,8 @@ export class Screen {
     this.live = []; // temporary rows under the conversation (spinner, menus)
     this.painted = [];
     this.started = false;
+    // Draws a small face from its private-use character; set by the UI.
+    this.avatar = null;
     this.footer = {
       input: null, // { text, cursor, placeholder } while the user can type
       idle: '',
@@ -77,7 +82,7 @@ export class Screen {
     this.live = [];
     this.footer.input = null;
     const width = this.width;
-    const transcript = [...this.header(width), ...this.#all()].map((row) => `${clipAnsi(row, width)}\x1b[0m\n`).join('');
+    const transcript = [...this.header(width), ...this.#all().map((row) => this.#faces(row))].map((row) => `${clipAnsi(row, width)}\x1b[0m\n`).join('');
     this.out.write(`${MOUSE_OFF}\x1b[0m\x1b[?1049l${transcript}\x1b[?25h`);
     this.started = false;
   }
@@ -86,6 +91,12 @@ export class Screen {
   #all() {
     const partial = visibleLength(this.partial) ? wrapAnsi(this.partial, this.width) : [];
     return [...this.rows, ...partial, ...this.live];
+  }
+
+  /** A row with its faces drawn in. */
+  #faces(row) {
+    if (!/[\uE000-\uE007]/.test(row)) return row;
+    return row.replace(AVATAR, (cell) => this.avatar?.(cell.charCodeAt(0) - 0xe000) ?? ' '.repeat(cell.length));
   }
 
   /** Moves the view `lines` rows back (positive) or forward (negative). At the newest rows it follows again. */
@@ -194,7 +205,7 @@ export class Screen {
     const bottom = Math.max(0, all.length - body);
     if (this.top !== null && this.top >= bottom) this.top = null;
     const first = this.top ?? bottom;
-    const visible = all.slice(first, first + body);
+    const visible = all.slice(first, first + body).map((row) => this.#faces(row));
     const rows = [...footer.rows];
     // Scrolled back, the hint row says so, and how to come back.
     if (this.top !== null) {

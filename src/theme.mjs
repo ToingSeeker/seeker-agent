@@ -31,6 +31,11 @@ export const TOKENS = {
   reasoning: '#9C6BEB',
   danger: '#F16D76',
   warning: '#FFB547',
+  // The person who types, as the phone draws them next to their messages.
+  user: '#22D3EE',
+  personHair: '#7A5238',
+  personSkin: '#F1C49B',
+  personMouth: '#B8705A',
 };
 
 /** `surfaceElevated` → `--sk-surface-elevated`. */
@@ -78,7 +83,7 @@ export function sgr(hex, depth, background = false) {
 const DIFF = { added: '#12351f', removed: '#40171b' };
 
 // With only sixteen colours, "nearest" would give purple and blue the same code; each meaning keeps its own.
-const SIXTEEN = { accent: '33', blue: '34', purple: '35', green: '32', red: '31', yellow: '93' };
+const SIXTEEN = { accent: '33', user: '36', blue: '34', purple: '35', green: '32', red: '31', yellow: '93' };
 
 /**
  * The styles the terminal interface draws with, as SGR parameter strings.
@@ -92,6 +97,7 @@ export function terminalCodes(depth) {
     bold: '1',
     accent,
     accentBold: `1;${accent}`,
+    userBold: `1;${fg('user', 'user')}`,
     blue: fg('blue', 'execution'),
     purple: fg('purple', 'reasoning'),
     green: fg('green', 'success'),

@@ -227,3 +227,64 @@ test('header: rows never exceed the window, wide or narrow', async () => {
     if (width >= 64) assert.ok(rows.join('\n').includes('READY'), `badge shown at width ${width}`);
   }
 });
+
+test('the conversation marks who speaks with the faces of the phone app, and they move', async () => {
+  const { UI } = await import('../src/ui.mjs');
+  const { terminalPalette } = await import('../src/theme.mjs');
+  const { AVATAR_ROWS, AVATAR_WIDTH, avatarPose, avatarRows } = await import('../src/mascot.mjs');
+  const { visibleLength } = await import('../src/text.mjs');
+  for (const kind of ['seeker', 'you']) {
+    for (let tick = 0; tick < 64; tick++) {
+      for (const color of [24, 8, 4, 0]) {
+        const rows = avatarRows(kind, avatarPose(kind, tick), color);
+        assert.equal(rows.length, AVATAR_ROWS);
+        for (const row of rows) assert.equal(visibleLength(row), AVATAR_WIDTH, `${kind} ${tick} ${color}`);
+      }
+    }
+  }
+  // Each on the phone's beat: the person blinks and nods, the robot blinks a moment later.
+  const person = (tick) => avatarRows('you', avatarPose('you', tick)).join('\n');
+  const robot = (tick) => avatarRows('seeker', avatarPose('seeker', tick)).join('\n');
+  assert.notEqual(person(19), person(0), 'a blink');
+  assert.notEqual(person(32), person(0), 'a nod');
+  assert.equal(person(52), person(0), 'and again');
+  assert.equal(robot(19), robot(0));
+  assert.notEqual(robot(18), robot(0));
+
+  const { out, screen } = makeScreen(40, 24);
+  const ui = new UI();
+  [ui.depth, ui.colors, ui.c] = [24, true, terminalPalette(24)];
+  ui.attach(screen);
+  ui.userEcho('fix it');
+  ui.turnStart();
+  ui.answerStart();
+  ui.line('Done.');
+  const shown = out.lines();
+  const you = shown.findIndex((l) => l.endsWith(' YOU'));
+  const seeker = shown.findIndex((l) => l.endsWith(' SEEKER'));
+  assert.ok(you > 0 && seeker > you);
+  assert.equal(shown[you + AVATAR_ROWS - 1], 'fix it', 'what was typed follows, as typed');
+  assert.match(shown[seeker], /^▐█ +>_< +█▌ +SEEKER$/, 'the name is level with the eyes');
+  assert.equal(shown[seeker + AVATAR_ROWS - 1], 'Done.');
+  assert.ok(!/[-]/.test(shown.join('\n')), 'the placeholders are never shown');
+
+  // A blink is drawn where the face already is.
+  ui.faces = { seeker: avatarPose('seeker', 18), you: avatarPose('you', 0) };
+  screen.render();
+  assert.match(out.lines()[seeker], /^▐█ +-_- +█▌/);
+
+  // When SEEKER closes, the conversation left in the terminal has the faces drawn in.
+  const before = out.scrollback.length;
+  screen.close();
+  assert.ok(!/[-]/.test([...out.scrollback.slice(before), ...out.lines()].join('\n')));
+
+  // Outside the full screen (print mode, a pipe) the marks are the plain ones.
+  let written = '';
+  const plain = new UI();
+  plain.activity = { write: (s) => (written += s), isTTY: false };
+  plain.userEcho('hello');
+  plain.turnStart();
+  plain.toolStart('Running', 'Ran', 'ls');
+  assert.match(written, /› hello/);
+  assert.match(written, /✧ SEEKER/);
+});
