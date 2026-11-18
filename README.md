@@ -51,9 +51,11 @@ turns that off.
 SEEKER fills the terminal window like an app: the header stays at the top and the message box at the bottom
 while the conversation scrolls between them. Scroll with the mouse wheel or PageUp and PageDown; while you are
 reading further up, new output does not move the view, and the bar under the message box says how much is
-below. Sending a message, or a question from SEEKER, brings you back to the end. To select text with the
-mouse, hold Shift (Option in Terminal and iTerm2) while you drag. When SEEKER quits, the conversation is
-printed to the terminal, where its own scrollback keeps it.
+below. Sending a message, or a question from SEEKER, brings you back to the end. SEEKER takes the mouse for the
+wheel, so a plain drag does not select text: hold Fn while you drag in macOS Terminal, or Option in iTerm2 (Shift in
+most Linux terminals), then copy as usual. In Terminal, View → Allow Mouse Reporting (⌘R) also gives the mouse back
+until you turn it on again; the wheel then no longer scrolls the conversation. Only what is on screen can be
+selected. When SEEKER quits, the conversation is printed to the terminal, where its own scrollback keeps it.
 
 ## Images
 

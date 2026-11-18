@@ -53,12 +53,15 @@ untuk baris baru; saat daftar tertutup, ↑↓ menelusuri pesan sebelumnya.
 SEEKER mengisi jendela terminal seperti sebuah aplikasi: header tetap di atas dan kotak pesan di bawah, sementara
 percakapan bergulir di antaranya. Gulir dengan roda mouse atau PageUp dan PageDown; selama kamu membaca di bagian
 atas, keluaran baru tidak menggeser tampilan, dan baris di bawah kotak pesan menyebutkan berapa yang ada di bawah.
-Mengirim pesan, atau pertanyaan dari SEEKER, membawamu kembali ke bagian akhir. Untuk memilih teks dengan mouse,
-tahan Shift (Option di Terminal dan iTerm2) sambil menyeret. Saat SEEKER ditutup, percakapannya dicetak ke
-terminal, dan scrollback terminal menyimpannya.
-Robot di header berkedip dan melirik. Di percakapan, jawaban SEEKER diberi robot itu beserta namanya, dan pesanmu diberi
-orang piksel dengan label YOU, wajah yang sama dengan di aplikasi ponsel, dan bergerak seperti di sana. `/config` → `animation` untuk
-mematikannya.
+Mengirim pesan, atau pertanyaan dari SEEKER, membawamu kembali ke bagian akhir. SEEKER memakai mouse untuk roda
+gulir, jadi menyeret biasa tidak memblok teks: tahan Fn sambil menyeret di Terminal macOS, atau Option di iTerm2
+(Shift di kebanyakan terminal Linux), lalu salin seperti biasa. Di Terminal, View → Allow Mouse Reporting (⌘R) juga
+mengembalikan mouse sampai kamu menyalakannya lagi; selama itu roda mouse tidak menggulir percakapan. Hanya yang
+tampak di layar yang bisa diblok. Saat SEEKER ditutup, percakapannya dicetak ke terminal, dan scrollback terminal
+menyimpannya.
+Robot di header berkedip dan melirik. Di percakapan, jawaban SEEKER diberi robot itu beserta namanya, dan pesanmu
+diberi orang piksel dengan label YOU, wajah yang sama dengan di aplikasi ponsel, dan bergerak seperti di sana.
+`/config` → `animation` untuk mematikannya.
 
 `seeker doctor` memeriksa apa yang dibutuhkan SEEKER di mesin ini — Node, git, paket yang terpasang, siapa yang
 bisa membaca file pengaturan, apakah penyedia yang dipilih menjawab atau punya key, relay, dan daemon remote —
