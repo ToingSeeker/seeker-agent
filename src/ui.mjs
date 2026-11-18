@@ -77,9 +77,9 @@ export class UI {
     return Array.from({ length: AVATAR_ROWS }, (_, i) => String.fromCharCode(base + i) + pad);
   }
 
-  /** A face with its name beside it, level with the face's eyes. */
+  /** A face with its name beside its lower row. */
   #signed(face, name) {
-    face.forEach((row, i) => this.line(i === 1 ? `${row}  ${name}` : row));
+    face.forEach((row, i) => this.line(i === face.length - 1 ? `${row} ${name}` : row));
   }
 
   cols() {

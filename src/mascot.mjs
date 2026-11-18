@@ -121,31 +121,37 @@ export function wordmarkRows(word = 'SEEKER') {
 
 // ── The faces next to each message, as on the phone ───────────────────────
 //
-// The same two the phone app draws (remote-server/public/app.js), on the same 11×8 pixel grid: the robot of
-// the header by SEEKER's answers, and the person by the user's messages (brown hair, a cyan top). Each moves
-// on the phone's beat: the robot's 64 ticks of 150 ms, the person's 7.8 s (52 ticks) with its blinks and a nod.
+// The phone app's two faces (remote-server/public/app.js), as small as a face can be: one row of five columns
+// by every message. The robot's >_< screen in its amber frame by SEEKER's answers; the person's face (skin, eyes,
+// a smile) framed by brown hair by the user's messages. They blink on the phone's beat: the robot's 64 ticks of
+// 150 ms, its cursor too, and the person's 7.8 s (52 ticks).
 
-export const AVATAR_WIDTH = ROBOT_WIDTH;
-export const AVATAR_ROWS = 4;
-const PERSON_HEAD = ['...hhhhh...', '..hhhhhhh..', '..hsssssh..', '..ssesess..', '..sssssss..', '...ssmss...'];
-const PERSON_NECK = '....sss....';
-const PERSON_TOP = '..uuuuuuu..';
+export const AVATAR_WIDTH = 5;
+export const AVATAR_ROWS = 1;
 const PERSON_LOOP = 52;
 const PERSON_BLINKS = new Set([19, 45, 47]);
-const PERSON_NOD = new Set([32, 33]);
 
-/** What a face is doing at `tick`: the robot as in the header (its antenna stays dark), the person's eyes and nod. */
+/** What a face is doing at `tick`: the robot's eyes and cursor, the person's eyes. */
 export function avatarPose(kind, tick) {
-  if (kind === 'seeker') return pose(tick);
+  if (kind === 'seeker') {
+    const { eyes, cursor } = pose(tick);
+    return { eyes, cursor };
+  }
   const t = ((tick % PERSON_LOOP) + PERSON_LOOP) % PERSON_LOOP;
-  return { eyes: PERSON_BLINKS.has(t) ? 'closed' : 'open', nod: PERSON_NOD.has(t) };
+  return { eyes: PERSON_BLINKS.has(t) ? 'closed' : 'open' };
 }
 
 /** A face as AVATAR_ROWS rows of AVATAR_WIDTH columns. `kind` is 'seeker' or 'you'. */
 export function avatarRows(kind, state = avatarPose(kind, 0), color = true) {
-  if (kind === 'seeker') return robotRows({ ...state, antenna: false }, color);
-  const head = state.eyes === 'open' ? PERSON_HEAD : PERSON_HEAD.map((row) => row.replaceAll('e', 's'));
-  // Nodding, the head comes down a pixel over the neck.
-  const grid = state.nod ? ['...........', ...head, PERSON_TOP] : [...head, PERSON_NECK, PERSON_TOP];
-  return paint(grid.map((row) => [...row]), depthOf(color));
+  const depth = depthOf(color);
+  const robot = kind === 'seeker';
+  const [left, right] = state.eyes === 'open' ? (robot ? ['>', '<'] : ['•', '•']) : ['-', '-'];
+  const mid = robot ? (state.cursor ? '_' : ' ') : '‿';
+  if (!depth) return [`▐${left}${mid}${right}▌`];
+  const on = (code, text) => `\x1b[${code}m${text}\x1b[0m`;
+  const fg = (key) => sgr(COLORS[key], depth);
+  const frame = robot ? fg('c') : fg('h');
+  const face = robot ? `1;${fg('w')};${sgr(COLORS.k, depth, true)}` : `1;${fg('e')};${sgr(COLORS.s, depth, true)}`;
+  const middle = robot ? `1;${fg('c')};${sgr(COLORS.k, depth, true)}` : `${sgr(COLORS.m, depth)};${sgr(COLORS.s, depth, true)}`;
+  return [on(frame, '▐') + on(face, left) + on(middle, mid) + on(face, right) + on(frame, '▌')];
 }

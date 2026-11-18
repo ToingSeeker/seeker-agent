@@ -242,11 +242,10 @@ test('the conversation marks who speaks with the faces of the phone app, and the
       }
     }
   }
-  // Each on the phone's beat: the person blinks and nods, the robot blinks a moment later.
+  // Each on the phone's beat: the person blinks, the robot a moment later.
   const person = (tick) => avatarRows('you', avatarPose('you', tick)).join('\n');
   const robot = (tick) => avatarRows('seeker', avatarPose('seeker', tick)).join('\n');
   assert.notEqual(person(19), person(0), 'a blink');
-  assert.notEqual(person(32), person(0), 'a nod');
   assert.equal(person(52), person(0), 'and again');
   assert.equal(robot(19), robot(0));
   assert.notEqual(robot(18), robot(0));
@@ -263,15 +262,15 @@ test('the conversation marks who speaks with the faces of the phone app, and the
   const you = shown.findIndex((l) => l.endsWith(' YOU'));
   const seeker = shown.findIndex((l) => l.endsWith(' SEEKER'));
   assert.ok(you > 0 && seeker > you);
-  assert.equal(shown[you + AVATAR_ROWS - 1], 'fix it', 'what was typed follows, as typed');
-  assert.match(shown[seeker], /^▐█ +>_< +█▌ +SEEKER$/, 'the name is level with the eyes');
-  assert.equal(shown[seeker + AVATAR_ROWS - 1], 'Done.');
+  assert.equal(shown[you + AVATAR_ROWS], 'fix it', 'what was typed follows, as typed');
+  assert.equal(shown[seeker], '▐>_<▌ SEEKER', 'small: the face and its name on one row');
+  assert.equal(shown[seeker + AVATAR_ROWS], 'Done.');
   assert.ok(!/[-]/.test(shown.join('\n')), 'the placeholders are never shown');
 
   // A blink is drawn where the face already is.
   ui.faces = { seeker: avatarPose('seeker', 18), you: avatarPose('you', 0) };
   screen.render();
-  assert.match(out.lines()[seeker], /^▐█ +-_- +█▌/);
+  assert.equal(out.lines()[seeker], '▐-_-▌ SEEKER');
 
   // When SEEKER closes, the conversation left in the terminal has the faces drawn in.
   const before = out.scrollback.length;
