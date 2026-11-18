@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import { Session } from '../src/session.mjs';
 import { RemoteDaemon, Workspace, deriveKeys, newProjectFolder, seal, unseal } from '../src/remote.mjs';
 import { TerminalLink, teeUi, terminalId } from '../src/link.mjs';
-import { CHUNK_BYTES, savePicture, sealChunk, unsealChunk } from '../src/transfer.mjs';
+import { CHUNK_BYTES, announcedFiles, savePicture, sealChunk, unsealChunk } from '../src/transfer.mjs';
 import { USAGE_FILE } from '../src/usage.mjs';
 import { createVapidKeys, encryptPayload, sendPush, vapidHeader } from '../src/webpush.mjs';
 
@@ -1620,4 +1620,19 @@ test('a picture from the phone is kept under its own name, with the extension it
   assert.deepEqual([first, second, odd].map((f) => path.relative(dir, f)), ['IMG_3762.jpg', 'IMG_3762 (2).jpg', 'x.png'], 'never outside the folder, never over another file');
   assert.equal((fs.statSync(first).mode & 0o777).toString(8), '600');
   assert.equal(fs.readFileSync(first, 'utf8'), 'picture');
+});
+
+test('a file the phone named with a made-up id is kept as image, video or file, never under the id', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-pictures-'));
+  const data = Buffer.from('picture').toString('base64');
+  const pasted = savePicture(dir, { name: '4BD7DFEC-C21C-43DC-89B7-837E1F902F06.png', mime: 'image/jpeg', data });
+  const again = savePicture(dir, { name: 'A1B2C3D4-0000-1111-2222-333344445555.png', mime: 'image/jpeg', data });
+  assert.deepEqual([pasted, again].map((f) => path.relative(dir, f)), ['image.jpg', 'image (2).jpg']);
+  const files = announcedFiles([
+    { id: 'aaaaaaaa1', name: '4BD7DFEC-C21C-43DC-89B7-837E1F902F06.MOV', bytes: 10 },
+    { id: 'aaaaaaaa2', name: '1731900000000.pdf', bytes: 10 },
+    { id: 'aaaaaaaa3', name: 'd41d8cd98f00b204e9800998ecf8427e.zip', bytes: 10 },
+    { id: 'aaaaaaaa4', name: 'Proposal final.pdf', bytes: 10 },
+  ]);
+  assert.deepEqual(files.map((f) => f.name), ['video.mov', 'file.pdf', 'file.zip', 'Proposal final.pdf']);
 });

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
 import { PHONE_FILES as MAC_MARKER } from '../src/commands.mjs';
-import { PHONE_FILES, cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, playTime, previewKind, splitName, splitSent, typeName, zipDirectory } from '../remote-server/public/files.js';
+import { PHONE_FILES, cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName, zipDirectory } from '../remote-server/public/files.js';
 
 const read = (file) => fs.readFileSync(new URL(`../remote-server/public/${file}`, import.meta.url), 'utf8');
 
@@ -194,4 +194,20 @@ test('files: the relay lets the app frame a PDF it made itself, and nothing else
   const inner = app.slice(app.indexOf('function previewInner('), app.indexOf('\n}\n', app.indexOf('function previewInner(')));
   assert.match(inner, /if \(magic !== '%PDF-'\) return broken/, 'framed only when its bytes say PDF, not its name');
   assert.ok(inner.indexOf("magic !== '%PDF-'") < inner.indexOf("h('iframe'"));
+});
+
+test('files: a name the phone made up is shown as image, video or file; one a person chose stays', () => {
+  const uuid = '4BD7DFEC-C21C-43DC-89B7-837E1F902F06';
+  assert.equal(plainName(`${uuid}.png`, 'image/png'), 'image.png');
+  assert.equal(plainName(`${uuid}.png`, 'image/jpeg'), 'image.jpg', 'the extension follows what is really sent');
+  assert.equal(plainName(`${uuid}.mp4`, ''), 'video.mp4');
+  assert.equal(plainName(`${uuid}.MOV`, 'video/quicktime'), 'video.mov');
+  assert.equal(plainName('1731900000000.pdf', 'application/pdf'), 'file.pdf');
+  assert.equal(plainName('d41d8cd98f00b204e9800998ecf8427e.zip', ''), 'file.zip');
+  assert.equal(plainName('20261118_115300.jpg', 'image/jpeg'), 'image.jpg');
+  for (const kept of ['IMG_3792.jpg', 'Proposal final.pdf', '2026-11-18.pdf', 'clip.mp4']) assert.equal(plainName(kept, ''), kept);
+  // Every place the phone shows or saves a name goes through it: attaching, the timeline, cards, previews, files kept here.
+  const app = read('app.js');
+  for (const used of ["name: plainName(file.name, data === original ? file.type : 'image/jpeg')", 'const named = plainName(file.name, file.type);', 'name: plainName(sent.name, sent.mime)', 'name: plainName(given.name, given.mime)', 'plainName(f.name ?? src.name, f.mime ?? src.mime)', 'name: plainName(kept.name, kept.type)', 'new File(parts, plainName(event.name, event.mime)'])
+    assert.ok(app.includes(used), used);
 });

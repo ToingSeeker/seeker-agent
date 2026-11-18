@@ -28,6 +28,26 @@ export function splitName(name) {
   return { stem: text.slice(0, dot), ext: text.slice(dot) };
 }
 
+// A name no person chose: a UUID (what iOS gives a pasted or shared picture), a long run of hex,
+// or a timestamp. The same test is in src/transfer.mjs, for what reaches the Mac.
+const MADE_UP = /^(?:.*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}.*|[0-9a-f-]{16,}|\d{10,}|\d{8}[_-]\d{6}|image|blob|file|photo)$/i;
+const PLAIN_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'application/pdf': 'pdf', 'application/zip': 'zip' };
+
+/**
+ * A file's name as a person would say it: one made up by the phone (`4BD7DFEC-…-837E1F902F06.png`)
+ * becomes `image.png`, `video.mp4` or `file.pdf`; a name someone chose is left as it is.
+ */
+export function plainName(name, type = '') {
+  const text = String(name ?? '').trim();
+  const { stem, ext } = splitName(text);
+  if (text && !MADE_UP.test(stem)) return text;
+  const t = String(type ?? '');
+  const end = (PLAIN_EXT[t] ?? ext.slice(1).toLowerCase().replace(/^jpeg$/, 'jpg')) || '';
+  const kind = /^image\//.test(t) ? 'image' : /^video\//.test(t) ? 'video' : fileKind(text).tone;
+  const base = kind === 'image' || kind === 'video' ? kind : 'file';
+  return end ? `${base}.${end}` : base;
+}
+
 const KINDS = [
   ['zip', 'ZIP', /\.(zip|tar|gz|tgz|rar|7z)$/i],
   ['pdf', 'PDF', /\.pdf$/i],

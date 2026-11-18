@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { kilobytes } from './images.mjs';
+import { kilobytes, plainName } from './images.mjs';
 
 export const CHUNK_BYTES = 2 * 1024 * 1024; // sealed and base64-encoded it stays under the relay's 4 MiB per request
 export const MAX_TRANSFER_BYTES = 300 * 1024 * 1024; // the phone holds a download in memory
@@ -61,7 +61,8 @@ export function announcedFiles(list) {
   if (!Array.isArray(list) || list.length > MAX_FILES_PER_MESSAGE) throw new Error(`A message can carry at most ${MAX_FILES_PER_MESSAGE} files.`);
   const ids = new Set();
   return list.map((entry, i) => {
-    const name = cleanName(entry?.name, `file-${i + 1}`);
+    const said = cleanName(entry?.name, `file-${i + 1}`);
+    const name = plainName(said, TRANSFER_TYPES[path.extname(said).toLowerCase()]);
     const bytes = Number(entry?.bytes);
     if (typeof entry?.id !== 'string' || !FILE_ID.test(entry.id) || ids.has(entry.id)) throw new Error(`${name} could not be sent.`);
     ids.add(entry.id);
@@ -94,7 +95,7 @@ const PICTURE_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.
 export function savePicture(dir, image) {
   fs.mkdirSync(dir, { recursive: true });
   const ext = PICTURE_EXT[image.mime] ?? '';
-  const name = cleanName(image.name, 'photo');
+  const name = plainName(cleanName(image.name, 'photo'), image.mime);
   const stem = path.extname(name) ? name.slice(0, -path.extname(name).length) : name;
   const target = freePath(dir, `${stem || 'photo'}${ext}`);
   fs.writeFileSync(target, Buffer.from(image.data, 'base64'), { mode: 0o600, flag: 'wx' });
