@@ -206,7 +206,10 @@ test('the phone app navigates with a floating glass dock, and its lists are sepa
   // The dock floats off the bottom edge, above the home indicator, and is a capsule.
   const dock = css.match(/^#nav \{[^}]*\}/m)?.[0] ?? '';
   assert.match(dock, /position: absolute;/);
-  assert.match(dock, /bottom: calc\(12px \+ env\(safe-area-inset-bottom, 0px\)\);/);
+  assert.match(dock, /bottom: var\(--sk-dock-gap\);/);
+  // Just above the home indicator (not a full safe area higher), and never closer than 12px to the edge.
+  assert.match(css, /--sk-dock-gap: max\(12px, calc\(env\(safe-area-inset-bottom, 0px\) - 10px\)\);/);
+  assert.match(css, /--sk-dock-room: calc\(var\(--nav-h\) \+ 14px \+ var\(--sk-dock-gap\) \+ 16px\);/);
   assert.match(dock, /border-radius: var\(--sk-radius-pill\);/);
   assert.ok(!/border-top/.test(dock), 'no rule across the screen');
   // Every screen under it leaves room, so the last item scrolls clear; with the keyboard up the dock steps aside.
