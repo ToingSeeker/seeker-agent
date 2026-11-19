@@ -489,6 +489,41 @@ hook may print `{"action":"block","message":"…"}` (or exit with code 2) to sto
 `{"context":"…"}` to add to it. A hook that fails does not stop the work unless it has `"fail_closed": true`.
 No hook runs until you have approved that exact command in `/hooks`.
 
+## Mods
+
+Hooks change what SEEKER does from outside; a mod changes SEEKER itself. It is a folder of your own in
+`~/.seeker/mods/` whose `mod.mjs` (JavaScript, with any files of its own beside it) can add:
+
+- **a slash command**, listed with the others as you type `/`;
+- **a segment in the row under the status bar** (the git branch, a deploy's state, a price);
+- **a panel**: a few rows above the input box that stay there and update;
+- **a toast**: a short line in the conversation;
+- **handlers on the same events as hooks**, run inside SEEKER: a `pre_tool_call` handler can stop a call or change
+  its arguments, a `pre_llm_call` handler can hold a message back or add to it.
+
+```js
+// ~/.seeker/mods/guard/mod.mjs
+export default function (seeker) {
+  seeker.command('hello', 'Say hello', (arg) => seeker.toast(`Hello ${arg || 'there'}`)); // return text to send it as a message
+  seeker.status(() => seeker.colors.accent(`● ${seeker.model}`));
+  let ticks = 0;
+  seeker.every(5000, () => ticks++); // redraws after each tick
+  seeker.panel(() => [`  guard · ${ticks} ticks`]);
+  seeker.on('pre_tool_call', ({ tool, args }) => {
+    if (tool === 'bash' && /git\s+push\b.*--force/.test(args.command ?? '')) return { block: 'No force pushes.' };
+  });
+}
+```
+
+`/mods new <name>` writes one to start from. A mod runs with your full user rights, so none runs until you approve
+it in `/mods`, and the approval is for every file in its folder as they were then, `node_modules` included: if
+any of them changes, it stops until you approve it again. A symlink in a mod's folder (or a symlinked folder) is
+refused, since what it points to could change without the folder changing. `/mods` also turns one off or reloads it; `/mods reload` reloads them all. A mod cannot
+take one of SEEKER's own command names, a mod that throws is skipped with a warning, and its command runs from the
+phone only if it was added with `{ phone: true }`. Mods run in the interactive terminal, not in `-p` or
+`seeker remote`. What a status segment or panel returns is drawn on every redraw, so work it out in `every` and
+return what it found.
+
 ## Editing video
 
 The bundled `video-editing` skill (`/video-editing`, or just ask: "cut this to the first 20 seconds and make it
@@ -669,7 +704,7 @@ running, the terminal works exactly as before.
   `/loop`, `/help` and any `/<skill>` run as they would typed in the terminal (in a project opened from the
   phone too). Settings (`/yolo`, `/think`, `/config`) change only projects opened from the phone, and are saved
   like the Settings tab; a terminal session's own settings are changed in that terminal. What needs a picker or
-  must not come from a lost phone stays in the terminal: `/hooks`, `/mcp`, `/rollback`, `/key`, `/paste`,
+  must not come from a lost phone stays in the terminal: `/hooks`, `/mods`, `/mcp`, `/rollback`, `/key`, `/paste`,
   `/exit`; and in a terminal session, `/resume`.
 - **Continuing a saved conversation** — in a project opened from the phone, `/resume` (also in the `/` menu and
   on the home screen) lists that folder's saved conversations, newest first; tap one to continue it, with its
@@ -751,6 +786,7 @@ plain Node.
 | `src/autonomy.mjs` | `/goal`, `/loop` and `/heartbeat` |
 | `src/cron.mjs`, `src/cron-runner.mjs` | scheduled jobs: schedules, the job store, running a due job |
 | `src/hooks.mjs` | the user's shell hooks and their approval |
+| `src/mods.mjs` | the user's mods: loading, approval, their commands, status row, panels and handlers |
 | `src/gateway.mjs`, `src/platforms/` | `seeker gateway`: Telegram, Discord and Slack |
 | `src/acp.mjs` | `seeker acp`: the Agent Client Protocol for editors |
 | `src/api-server.mjs` | `seeker serve`: the OpenAI-compatible API |

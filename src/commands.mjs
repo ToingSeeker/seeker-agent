@@ -6,7 +6,7 @@ import { serverFingerprint } from './mcp.mjs';
 import { configMenu, pickList, pickMany } from './menu.mjs';
 import { apiKey, createProvider, keyPool, needsKey, providerDefs } from './providers.mjs';
 import { renderSkill, skillChoices } from './skills.mjs';
-import { contextSize, kilo } from './ui.mjs';
+import { contextSize, kilo, tildify } from './ui.mjs';
 
 const INIT_PROMPT = `Explore this project (list the root, read the README and the main manifest/config files, look at the folder structure) and then write a SEEKER.md file in the working directory. It should give a future coding session what it needs: what the project is, the tech stack, how to install / run / test / build it (exact commands), the folder layout, and conventions or gotchas visible in the code. Keep it under 80 lines and include only what you verified.`;
 
@@ -21,6 +21,7 @@ export const COMMANDS = [
   ['/heartbeat', 'Re-enter this session when idle: /heartbeat every 10m <instruction>'],
   ['/cron', 'Scheduled jobs: list them, pause, resume or remove one'],
   ['/hooks', 'Your shell hooks: see them and approve one to let it run'],
+  ['/mods', 'Mods: code of your own that adds commands, a status row, panels and hooks (/mods new <name> · reload)'],
   ['/memory', 'Show what SEEKER remembers across sessions'],
   ['/curator', 'Skills SEEKER wrote itself: usage, tidy up now, pin one'],
   ['/paste', 'Send the image on the clipboard (a screenshot), with an optional message'],
@@ -57,12 +58,13 @@ const OVERRIDABLE = new Set(['review']);
 /** What a message says before the list of files sent with it from the phone (see remote.mjs). */
 export const PHONE_FILES = '[Sent from the phone, saved on this Mac:]';
 
-/** Commands and skills whose name starts with what has been typed so far. */
-export function matchCommands(text, skills) {
+/** Commands, mods' commands and skills whose name starts with what has been typed so far. */
+export function matchCommands(text, skills, modCommands = []) {
   if (!/^\/\S*$/.test(text)) return [];
   // A skill of the user's own named like a command that gives way to one (see OVERRIDABLE) is listed in its place.
   const replaced = new Set(skills.filter((s) => OVERRIDABLE.has(s.name) && s.source !== 'bundled').map((s) => `/${s.name}`));
-  const all = [...COMMANDS.filter(([name]) => !replaced.has(name)), ...skills.map((s) => [`/${s.name}`, s.description])];
+  const fromMods = new Set(modCommands.map(([name]) => name));
+  const all = [...COMMANDS.filter(([name]) => !replaced.has(name)), ...modCommands, ...skills.filter((s) => !fromMods.has(`/${s.name}`)).map((s) => [`/${s.name}`, s.description])];
   const typed = text.toLowerCase();
   // The name itself first, then names that begin with what is typed, then names that contain it.
   const rank = ([name]) => (name === typed ? 0 : name.startsWith(typed) ? 1 : typed.length > 2 && name.includes(typed.slice(1)) ? 2 : 3);
@@ -740,7 +742,17 @@ export async function runCommand(input, ctx) {
     case 'restart':
       return ui.notice('  /restart restarts `seeker remote` and is sent from the phone app. To restart it here, press Ctrl+C where it runs and start it again.');
 
+    case 'mods':
+      return modsCommand(arg, ctx);
+
     default: {
+      // A command a mod added comes before a skill of the same name.
+      const fromMod = ctx.mods?.command(name);
+      if (fromMod) {
+        if (ctx.fromPhone && !fromMod.phone) return ui.warn(`  /${name.toLowerCase()} comes from the ${fromMod.mod} mod and works only in the terminal on your Mac.`);
+        const prompt = await ctx.mods.runCommand(fromMod, arg, { phone: Boolean(ctx.fromPhone) });
+        return prompt ? { prompt, label: input.trim() } : undefined;
+      }
       const skill = agent.skills.find((s) => s.name === name.toLowerCase());
       if (skill) import('./skill-manage.mjs').then((m) => m.recordUse(skill.name), () => {});
       // A skill with a list to choose from, called with nothing after it: the list is offered to tick,
@@ -766,6 +778,67 @@ export async function runCommand(input, ctx) {
       ui.warn(`  Unknown command: /${name} — type /help`);
     }
   }
+}
+
+/** /mods: the mods in ~/.seeker/mods, approving, turning off and reloading them; /mods new <name> starts one. */
+async function modsCommand(arg, ctx) {
+  const { ui, term, mods } = ctx;
+  const { c } = ui;
+  if (!mods) return ui.warn('  Mods run in an interactive terminal session.');
+  const lib = await import('./mods.mjs');
+  const [sub = '', ...more] = arg.split(/\s+/).filter(Boolean);
+  const where = tildify(lib.MODS_DIR());
+
+  if (sub === 'new') {
+    const name = more[0];
+    if (!name) return ui.notice('  /mods new <name> writes a mod to start from.');
+    const file = lib.createMod(name);
+    ui.notice(`  Wrote ${tildify(file)}: a status segment (the git branch), /${name}, and a hook that refuses force pushes.`);
+    return ui.notice('  Read it, change it, then approve it in /mods to let it run.');
+  }
+  if (sub === 'reload') {
+    mods.unloadAll();
+    const report = await mods.loadAll();
+    ui.notice(`  Mods reloaded: ${report.loaded.length ? report.loaded.join(', ') : 'none running'}.`);
+    if (report.waiting.length) ui.notice(`  Waiting for approval in /mods: ${report.waiting.join(', ')}.`);
+    for (const f of report.failed) ui.warn(`  ⚠ mod ${f.name} did not start: ${f.error}`);
+    return;
+  }
+
+  const all = mods.list();
+  if (!all.length) {
+    ui.line(`  ${c.dim(`No mods yet. A mod is a folder in ${where}/ with a mod.mjs (JavaScript) that adds`)}`);
+    ui.line(`  ${c.dim('commands, a status segment, panels above the input box, toasts and hooks on tool calls.')}`);
+    return ui.line(`  ${c.dim('/mods new <name> writes one to start from.')}`);
+  }
+  if (!term) {
+    for (const m of all) ui.notice(`  ${m.name.padEnd(16)} ${m.state}${m.error ? ` — ${m.error}` : ''}`);
+    return;
+  }
+  const hint = (m) => ({ on: 'on', new: 'NOT approved — does not run', changed: 'changed since approved — does not run', error: `failed: ${m.error}` })[m.state];
+  const at = await pickList({ term, ui, title: `Mods in ${where} — Enter for more`, items: all.map((m) => ({ label: m.name, hint: hint(m) })) });
+  if (at === -1) return;
+  const mod = all[at];
+  const approved = mod.state === 'on' || mod.state === 'error';
+  const actions = approved ? [['reload', 'Reload it'], ['off', 'Turn it off (takes the approval back)']] : [['approve', 'Approve it and turn it on']];
+  const choice = await pickList({ term, ui, title: `${mod.name} — ${tildify(mod.main)}`, items: [{ label: 'Cancel' }, ...actions.map(([, label]) => ({ label }))] });
+  const action = actions[choice - 1]?.[0];
+  if (!action) return;
+  if (action === 'off') {
+    mods.unload(mod.name);
+    lib.revokeMod(mod);
+    return ui.notice(`  ${mod.name} is off, and stays off until you approve it again.`);
+  }
+  if (action === 'approve') {
+    ui.line(`  ${c.yellow('A mod runs inside SEEKER with your full user rights: it can read and change files, run programs and use the network.')}`);
+    ui.line(`  ${c.yellow(`Approve it only if you wrote it or have read it: ${tildify(mod.dir)}`)}`);
+    const yes = await pickList({ term, ui, title: `Let ${mod.name} run?`, items: [{ label: 'No' }, { label: 'Yes, approve it as its files are now' }] });
+    if (yes !== 1) return ui.notice('  Left unapproved.');
+    lib.approveMod(mod);
+  }
+  const error = await mods.load(mod);
+  if (error) return ui.warn(`  ⚠ ${mod.name} did not start: ${error}`);
+  ui.notice(`  ${mod.name} is on.`);
 }
 
 // ── Typed on the phone ──────────────────────────────────────────────────────
@@ -807,7 +880,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'undo', 'rollback', 'memory', 'curator', 'restart']);
+export const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'mods', 'undo', 'rollback', 'memory', 'curator', 'restart']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).
@@ -821,7 +894,7 @@ export async function runPhoneCommand(input, ctx) {
   const name = word.toLowerCase();
   const arg = rest.join(' ');
 
-  if (!BUILT_IN.has(name) || PHONE_SAFE.has(name)) return runCommand(input, { ...ctx, term: null });
+  if (!BUILT_IN.has(name) || PHONE_SAFE.has(name)) return runCommand(input, { ...ctx, term: null, fromPhone: true });
   if (name === 'help' || name === '?') {
     for (const [cmd, text] of PHONE_COMMANDS) ui.notice(`  ${cmd.padEnd(11)} ${text}`);
     return ui.notice('  /<skill> runs a skill, e.g. /code-review. /init, /model, /new, /stop and /image are in the app’s / menu.');

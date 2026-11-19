@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { Agent } from './agent.mjs';
-import { isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
+import { BUILT_IN, COMMANDS, isSlashCommand, matchCommands, resolveModel, runCommand, runPhoneCommand } from './commands.mjs';
 import { Picker } from './picker.mjs';
 import { OUTPUT_FORMATS, attachJson } from './json-output.mjs';
 import { RemoteDaemon, Workspace, processGone, remoteCredentials, stayAwake } from './remote.mjs';
@@ -558,6 +558,7 @@ export async function main(argv) {
     port.close();
     session.save(agent.messages, agent.model);
     agent.shellHooks?.run('on_session_end').catch(() => {});
+    mods.unloadAll();
     stopAllProcesses();
     hub.closeAll();
     ui.stopSpinner();
@@ -602,15 +603,34 @@ export async function main(argv) {
   agent.hooks.cronRun = async (id) => (await import('./cron-runner.mjs')).runNow(id, { config, info: agent.info });
 
   // The user's shell hooks, if any are configured.
+  let shellHooks = null;
   if (Object.keys(config.hooks ?? {}).length) {
     const { Hooks } = await import('./hooks.mjs');
-    agent.shellHooks = new Hooks({ config, cwd, sessionId: session.file, warn: (text) => ui.warn(`  ⚠ ${text}`) });
-    // When SEEKER stops to ask, a hook of the user's may want to say so (a sound, a notification).
-    permissions.onAsk = (tool, args, warning) => agent.shellHooks.run('on_approval_request', { toolName: tool.name, extra: { summary: String(TOOL_BY_NAME.get(tool.name)?.summary?.(args) ?? args?.command ?? args?.url ?? '').slice(0, 500), warning: warning ?? null } }).catch(() => {});
-    const waiting = agent.shellHooks.unapproved.length;
+    shellHooks = new Hooks({ config, cwd, sessionId: session.file, warn: (text) => ui.warn(`  ⚠ ${text}`) });
+    const waiting = shellHooks.unapproved.length;
     if (waiting) ui.notice(`  ${waiting} shell hook${waiting > 1 ? 's are' : ' is'} configured but not approved yet, so ${waiting > 1 ? 'they do' : 'it does'} not run. Review with /hooks.`);
-    agent.shellHooks.run('on_session_start').catch(() => {});
   }
+  // The user's mods (mods.mjs): approved ones load now; one approved later in /mods joins at once.
+  const { Mods, chainHooks } = await import('./mods.mjs');
+  const mods = new Mods({
+    ui,
+    cwd,
+    info: () => ({ model: agent.model, provider: agent.provider.id }),
+    refresh: () => screen.render(),
+    height: () => screen.height,
+    reserved: new Set([...BUILT_IN, ...COMMANDS.map(([name]) => name.slice(1))]),
+  });
+  screen.setFooter({ panel: (width) => mods.panelRows(width), band: (width) => mods.bandRows(width) });
+  {
+    const report = await mods.loadAll();
+    if (report.loaded.length) ui.notice(`  Mods on: ${report.loaded.join(', ')}`);
+    if (report.waiting.length) ui.notice(`  ${report.waiting.length} mod${report.waiting.length > 1 ? 's are' : ' is'} not approved yet, so ${report.waiting.length > 1 ? 'they do' : 'it does'} not run (${report.waiting.join(', ')}). Review with /mods.`);
+    for (const f of report.failed) ui.warn(`  ⚠ mod ${f.name} did not start: ${f.error}`);
+  }
+  agent.shellHooks = chainHooks(shellHooks, mods);
+  // When SEEKER stops to ask, a hook or mod of the user's may want to say so (a sound, a notification).
+  permissions.onAsk = (tool, args, warning) => agent.shellHooks.run('on_approval_request', { toolName: tool.name, extra: { summary: String(TOOL_BY_NAME.get(tool.name)?.summary?.(args) ?? args?.command ?? args?.url ?? '').slice(0, 500), warning: warning ?? null } }).catch(() => {});
+  agent.shellHooks.run('on_session_start').catch(() => {});
 
   // Servers start in the background so the prompt is usable at once.
   if (!agent.provider.ownTools) hub.connectAll().then(reportServers);
@@ -696,7 +716,7 @@ export async function main(argv) {
     if (!due) return;
     ui.userEcho(due.label);
     if (due.prompt.startsWith('/')) {
-      const result = await runCommand(due.prompt, { agent, ui, term, config, permissions, session, hub, autonomy: getAutonomy }).catch((err) => ui.error(`  ${err.message}`));
+      const result = await runCommand(due.prompt, { agent, ui, term, config, permissions, session, hub, mods, autonomy: getAutonomy }).catch((err) => ui.error(`  ${err.message}`));
       if (result?.prompt) await turn(result.prompt);
     } else await turn(due.prompt);
     if (due.kind === 'loop') for (const line of await autonomy.completeLoopTick({ interrupted: agent.interrupted, response: due.prompt.startsWith('/') ? '' : lastReply() })) ui.notice(`  ${line}`);
@@ -705,7 +725,7 @@ export async function main(argv) {
   };
 
   // The commands that match what is typed, in a list the arrow keys move through.
-  const picker = new Picker((text) => matchCommands(text, agent.skills));
+  const picker = new Picker((text) => matchCommands(text, agent.skills, mods.commands()));
   const suggest = ({ rows, selected, index, total, above, below }) => {
     if (!total) return [];
     const wide = Math.min(28, Math.max(12, ...rows.map(([name]) => name.length)));
@@ -719,7 +739,7 @@ export async function main(argv) {
     return lines;
   };
   const complete = (text) => {
-    const [first] = matchCommands(text, agent.skills);
+    const [first] = matchCommands(text, agent.skills, mods.commands());
     return first && first[0] !== text ? `${first[0]} ` : null;
   };
 
@@ -742,7 +762,7 @@ export async function main(argv) {
         let result;
         try {
           // agent.ui reaches both screens, so the phone sees what the command printed.
-          result = await runPhoneCommand(input.text, { agent, ui: agent.ui, term: null, config, permissions, session, hub, autonomy: getAutonomy, terminal: true, choose: (list) => mirror.ui.choose(list) });
+          result = await runPhoneCommand(input.text, { agent, ui: agent.ui, term: null, config, permissions, session, hub, mods, autonomy: getAutonomy, terminal: true, choose: (list) => mirror.ui.choose(list) });
         } catch (err) {
           agent.ui.warn(`  ${err.message}`);
           continue;
@@ -776,7 +796,7 @@ export async function main(argv) {
     if (text.startsWith('/') && !startsWithFile(text, cwd)) {
       let result;
       try {
-        result = await runCommand(text, { agent, ui, term, config, permissions, session, hub, autonomy: getAutonomy });
+        result = await runCommand(text, { agent, ui, term, config, permissions, session, hub, mods, autonomy: getAutonomy });
       } catch (err) {
         ui.error(`  ${err.message}`);
         continue;
