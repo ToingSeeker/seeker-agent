@@ -4987,9 +4987,11 @@ pre,
   -webkit-backdrop-filter: var(--sk-glass-blur);
   backdrop-filter: var(--sk-glass-blur);
 }
+/* Inside the dock only the open screen has a pill (amber glass); the others are an icon and a word. */
 #nav button:not(.active) {
-  background: var(--sk-glass-sheen), rgba(255, 255, 255, 0.02);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.18);
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
 }
 /* The brand bar stays on top of what scrolls; it blurs it rather than painting a solid band. */
 .brand {
