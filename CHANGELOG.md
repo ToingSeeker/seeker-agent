@@ -4,6 +4,14 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Mods: SEEKER can be changed with JavaScript of your own.** A folder in `~/.seeker/mods/` with a `mod.mjs` can add a slash
+  command, a segment in a new row under the status bar, a panel above the input box, toasts, and handlers on the
+  events shell hooks see (a `pre_tool_call` handler can stop a call or change its arguments). None runs until it is
+  approved in `/mods`, the approval is for every file in its folder as they were (`node_modules` included), a
+  changed mod waits for a new one, and a mod with a symlink in it is refused.
+  `/mods new <name>` writes one to start from: the git branch in the status row, a command, and a hook that refuses
+  force pushes.
+
 - **The README says how to select text in SEEKER's full screen.** It named Shift, or Option in Terminal; macOS
   Terminal needs Fn held while dragging (Option is iTerm2's), or View → Allow Mouse Reporting (⌘R) turned off.
 

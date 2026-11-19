@@ -314,7 +314,7 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
   `/help` dan `/<skill>` apa pun jalan seperti diketik di terminal (juga di proyek yang dibuka dari HP).
   Setelan (`/yolo`, `/think`, `/config`) hanya mengubah proyek yang dibuka dari HP dan disimpan seperti tab
   Settings; setelan sesi terminal diubah di terminal itu. Yang butuh daftar pilihan, atau tidak boleh datang
-  dari HP yang hilang, tetap di terminal: `/hooks`, `/mcp`, `/rollback`, `/key`, `/paste`, `/exit`; dan di
+  dari HP yang hilang, tetap di terminal: `/hooks`, `/mods`, `/mcp`, `/rollback`, `/key`, `/paste`, `/exit`; dan di
   terminal session, `/resume`.
 - **Melanjutkan percakapan tersimpan** — di proyek yang dibuka dari HP, `/resume` (juga ada di menu `/` dan di
   layar Home) menampilkan percakapan tersimpan folder itu, yang terbaru di atas; ketuk salah satu untuk
@@ -678,6 +678,41 @@ panggilan, atau `{"action":"modify","args":{…}}` untuk mengubah argumennya; ho
 atau mencetak `{"context":"…"}` untuk menambahinya. Hook yang gagal tidak menghentikan pekerjaan kecuali diberi
 `"fail_closed": true`. Tidak ada hook yang berjalan sebelum kamu menyetujui perintah persis itu di `/hooks`.
 
+## Mods
+
+Hooks mengubah apa yang dikerjakan SEEKER dari luar; mod mengubah SEEKER itu sendiri. Mod adalah folder milikmu
+di `~/.seeker/mods/` yang `mod.mjs`-nya (JavaScript, boleh ditemani file lain di sebelahnya) bisa menambahkan:
+
+- **slash command**, ikut muncul bersama yang lain saat kamu mengetik `/`;
+- **segmen di baris bawah status bar** (branch git, status deploy, harga);
+- **panel**: beberapa baris di atas kotak input yang tetap tampil dan ter-update;
+- **toast**: satu baris singkat di percakapan;
+- **handler pada event yang sama dengan hooks**, berjalan di dalam SEEKER: handler `pre_tool_call` bisa
+  menghentikan panggilan atau mengubah argumennya, handler `pre_llm_call` bisa menahan pesan atau menambahinya.
+
+```js
+// ~/.seeker/mods/guard/mod.mjs
+export default function (seeker) {
+  seeker.command('hello', 'Say hello', (arg) => seeker.toast(`Hello ${arg || 'there'}`)); // kembalikan teks untuk mengirimnya sebagai pesan
+  seeker.status(() => seeker.colors.accent(`● ${seeker.model}`));
+  let ticks = 0;
+  seeker.every(5000, () => ticks++); // layar digambar ulang setiap tick
+  seeker.panel(() => [`  guard · ${ticks} ticks`]);
+  seeker.on('pre_tool_call', ({ tool, args }) => {
+    if (tool === 'bash' && /git\s+push\b.*--force/.test(args.command ?? '')) return { block: 'No force pushes.' };
+  });
+}
+```
+
+`/mods new <nama>` menulis mod untuk titik awal. Mod berjalan dengan hak penuh user-mu, jadi tidak ada mod yang
+berjalan sebelum kamu menyetujuinya di `/mods`, dan persetujuan itu untuk semua file di foldernya persis seperti
+saat itu, termasuk `node_modules`: kalau satu saja berubah, mod berhenti sampai kamu menyetujuinya lagi. Symlink di
+folder mod (atau folder mod yang berupa symlink) ditolak, karena tujuannya bisa berubah tanpa foldernya berubah. Di `/mods` kamu juga bisa mematikan atau
+memuat ulang satu mod; `/mods reload` memuat ulang semuanya. Mod tidak bisa memakai nama perintah bawaan SEEKER, mod
+yang error dilewati dengan peringatan, dan perintahnya bisa dijalankan dari HP hanya kalau ditambahkan dengan
+`{ phone: true }`. Mod berjalan di terminal interaktif, tidak di `-p` atau `seeker remote`. Isi segmen status dan
+panel dihitung setiap kali layar digambar ulang, jadi kerjakan perhitungannya di `every` lalu kembalikan hasilnya.
+
 ## Mengedit video
 
 Skill bawaan `video-editing` (`/video-editing`, atau cukup minta: "potong jadi 20 detik pertama dan jadikan 9:16")
@@ -737,6 +772,7 @@ rantainya.
 | `src/autonomy.mjs` | `/goal`, `/loop`, dan `/heartbeat` |
 | `src/cron.mjs`, `src/cron-runner.mjs` | tugas terjadwal: jadwal, penyimpanan job, menjalankan job yang jatuh tempo |
 | `src/hooks.mjs` | hooks shell milik pengguna dan persetujuannya |
+| `src/mods.mjs` | mod milik pengguna: pemuatan, persetujuan, perintah, baris status, panel, dan handler-nya |
 | `src/gateway.mjs`, `src/platforms/` | `seeker gateway`: Telegram, Discord, dan Slack |
 | `src/acp.mjs` | `seeker acp`: Agent Client Protocol untuk editor |
 | `src/api-server.mjs` | `seeker serve`: API yang kompatibel dengan OpenAI |

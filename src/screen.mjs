@@ -48,6 +48,9 @@ export class Screen {
       exitArmed: false,
       hints: () => '',
       status: () => '',
+      // Rows of the user's mods: panels above the input box, a band under the status bar.
+      panel: () => [],
+      band: () => [],
     };
     this.onResize = () => {
       this.painted = [];
@@ -160,7 +163,8 @@ export class Screen {
     const edge = footer.input ? c.accent : c.dim;
     const border = (l, r) => edge(`${l}${'─'.repeat(width - 2)}${r}`);
     const row = (mark, body) => `${edge('│')} ${mark} ${padEnd(body, inner)} ${edge('│')}`;
-    const rows = ['', border('╭', '╮')];
+    const panel = footer.panel(width);
+    const rows = ['', ...panel, border('╭', '╮')];
     let cursor = null;
 
     if (footer.input) {
@@ -175,7 +179,7 @@ export class Screen {
         rows.push(row(first + i === 0 ? c.accent('›') : ' ', body));
       });
       const before = l.rows[l.cursorRow].slice(0, l.cursorCol);
-      cursor = { row: 2 + l.cursorRow - first, col: 4 + visibleLength(before) };
+      cursor = { row: 2 + panel.length + l.cursorRow - first, col: 4 + visibleLength(before) };
     } else {
       rows.push(row(c.dim('›'), c.dim(truncate(footer.idle, inner))));
     }
@@ -186,6 +190,7 @@ export class Screen {
     rows.push(footer.hints(width, footer.exitArmed));
     rows.push(c.dim('─'.repeat(width)));
     rows.push(footer.status(width));
+    rows.push(...footer.band(width));
     return { rows, cursor, hintsAt };
   }
 
