@@ -504,59 +504,6 @@ span.live {
   border-color: var(--sk-primary);
 }
 
-/* Home: Control Center and Projects as two separate buttons, each with its icon. */
-.tabs.home-tabs {
-  gap: 10px;
-  padding: 0;
-  border: 0;
-  background: none;
-}
-.tabs.home-tabs button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 0 12px;
-  border-radius: var(--sk-radius-md);
-  border-color: var(--sk-border);
-  background: var(--sk-surface);
-  font: 600 15px/1 var(--sans);
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-.tabs.home-tabs button.active {
-  color: var(--sk-text-primary);
-  background: rgba(255, 138, 0, 0.16);
-  border-color: rgba(255, 138, 0, 0.45);
-}
-.tabs.home-tabs .tab-icon {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex: none;
-  color: var(--sk-text-muted);
-}
-.tabs.home-tabs button.active .tab-icon {
-  color: var(--sk-primary);
-}
-.tabs.home-tabs .tab-icon svg {
-  width: 100%;
-  height: 100%;
-}
-/* On a narrow phone the label keeps one line: less padding, a smaller icon and type. */
-@media (max-width: 360px) {
-  .tabs.home-tabs button {
-    gap: 7px;
-    padding: 0 8px;
-    font-size: 14px;
-  }
-  .tabs.home-tabs .tab-icon {
-    width: 19px;
-    height: 19px;
-  }
-}
-
 /* ── cards and grouped rows ── */
 .card {
   display: flex;
@@ -4726,7 +4673,6 @@ pre,
 .commands button,
 .tabs,
 .tabs button,
-.tabs.home-tabs button,
 .tu-range,
 .tu-range button,
 #toast {
@@ -4741,7 +4687,6 @@ pre,
 .tool-filters button,
 .st-options button,
 .commands button,
-.tabs.home-tabs button,
 .tabs:where(:not(.home-tabs)),
 .tu-range {
   border: 1px solid var(--sk-glass-border);
@@ -4892,12 +4837,12 @@ pre,
 .filters button.on,
 .tool-filters button.active,
 .st-options button.on,
-.tabs.home-tabs button.active,
 .tabs:not(.home-tabs) button.active,
 .tu-range button.on,
 .icon-btn.on,
 .mode.on,
 .sw-action.all,
+.projects-btn.on,
 #nav button.active {
   border-color: var(--sk-amber-edge);
   background: var(--sk-amber-glass);
@@ -4927,8 +4872,7 @@ pre,
 .sw-action.all {
   color: var(--sk-amber-bright);
 }
-.tool-filters button.active .n,
-.tabs.home-tabs button.active .tab-icon {
+.tool-filters button.active .n {
   color: var(--sk-amber);
 }
 .tabs.seg button.active::before {
