@@ -24,7 +24,7 @@ lewat `/model` bisa juga memakai server lokal lain atau model cloud. Node murni,
 <details>
 <summary>Aplikasi di HP (<code>seeker remote</code>)</summary>
 
-![Aplikasi di HP: Home, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
+![Aplikasi di HP: Home dengan kartu Live Agent dan karakter tiap project, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
 
 </details>
 
@@ -174,7 +174,7 @@ dari titik perubahannya. Tinjauan setelah menjawab hanya membaca bagian terbaru 
 
 ## Remote control dari HP
 
-![Aplikasi di HP: Home, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
+![Aplikasi di HP: Home dengan kartu Live Agent dan karakter tiap project, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
 
 `seeker remote` menjalankan agent di Mac dan menghubungkannya ke relay (`remote-server/`, di-deploy ke Railway).
 HP membuka aplikasi web di alamat relay itu.

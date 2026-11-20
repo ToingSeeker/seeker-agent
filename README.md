@@ -25,7 +25,7 @@ Plain Node, no build step.
 <details>
 <summary>The phone app (<code>seeker remote</code>)</summary>
 
-![The phone app: Home, the list of sessions, and a session waiting for approval](docs/remote.png)
+![The phone app: Home with the Live Agent card and each project's character, the list of sessions, and a session waiting for approval](docs/remote.png)
 
 </details>
 
@@ -564,7 +564,7 @@ the chain.
 
 ## Remote control from a phone
 
-![The phone app: Home, the list of sessions, and a session waiting for approval](docs/remote.png)
+![The phone app: Home with the Live Agent card and each project's character, the list of sessions, and a session waiting for approval](docs/remote.png)
 
 `seeker remote` runs the agent on your computer and connects it to a relay (`remote-server/`, a
 dependency-free Node server you deploy yourself, for example on Railway). The phone opens the web app
