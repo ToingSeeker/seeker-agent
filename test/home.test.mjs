@@ -1,7 +1,7 @@
 // The phone's Home: what the Control Center says, and what the Workspace Explorer lists.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { activity, connection, current, localFolders, preview, summary, workspaces } from '../remote-server/public/home.js';
+import { activity, connection, crew, current, localFolders, preview, summary, workspaces } from '../remote-server/public/home.js';
 
 const NOW = Date.UTC(2026, 10, 15, 12);
 const MIN = 60_000;
@@ -100,4 +100,25 @@ test('explorer: a folder that is already open is not offered again', () => {
   assert.deepEqual(localFolders(folders, list, 'HEL'), { total: 2, rows: [{ path: '~/helix', name: 'helix' }] }, 'the count stays the whole list while searching');
   assert.deepEqual(localFolders(['~/seeker'], list), { total: 0, rows: [] });
   assert.deepEqual(localFolders([], []), { total: 0, rows: [] });
+});
+
+test('home: the crew is every session under way, the one waiting for the user first', () => {
+  const a = ws('a', 'alpha', { status: 'working', lastAt: NOW - 2 * MIN });
+  const b = ws('b', 'beta', { status: 'working', lastAt: NOW - MIN });
+  const c = ws('c', 'gamma', { status: 'approval', lastAt: NOW - 10 * MIN });
+  const d = ws('d', 'delta', { outcome: 'completed', lastAt: NOW }, [said('done', NOW)]);
+  assert.deepEqual(crew([a, b, c, d]).map((w) => w.meta.id), ['c', 'b', 'a'], 'approval, then the newest running; finished ones are not crew');
+  assert.deepEqual(crew([d]), []);
+});
+
+test('home: a session picked from the crew stays in front until another asks for an approval', () => {
+  const a = ws('a', 'alpha', { status: 'working', lastAt: NOW - 2 * MIN });
+  const b = ws('b', 'beta', { status: 'working', lastAt: NOW - MIN });
+  const c = ws('c', 'gamma', { status: 'approval', lastAt: NOW - 10 * MIN });
+  const d = ws('d', 'delta', { outcome: 'completed', lastAt: NOW }, [said('done', NOW)]);
+  assert.equal(current([a, b], { pinned: 'a' }).ws.meta.id, 'a', 'the pick wins over the newest');
+  assert.equal(current([a, b, c], { pinned: 'a' }).ws.meta.id, 'c', 'an approval comes first');
+  assert.equal(current([a, b, c], { pinned: 'c' }).ws.meta.id, 'c');
+  assert.equal(current([a, b, d], { pinned: 'd' }).ws.meta.id, 'b', 'a finished session cannot be pinned in front of running ones');
+  assert.equal(current([a, b], { pinned: 'gone' }).ws.meta.id, 'b');
 });

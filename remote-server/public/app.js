@@ -8,7 +8,7 @@
 // Nothing on these screens is made up here: statuses, counts and timings come
 // from the Mac's events, and a value the Mac has not reported is shown as "—".
 
-import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, summary, workspaces as explorerRows } from './home.js';
+import { SOURCES, WORKSPACE_SORTS, activity, connection, crew, current, localFolders, summary, workspaces as explorerRows } from './home.js';
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
@@ -168,6 +168,7 @@ const state = {
   folders: [],
   view: { name: 'home' },
   homeTab: 'control',
+  crewPin: null, // the live session picked from the crew on Home, kept up front while it runs
   sessionTab: 'activity', // activity | tools | metrics
   toolFilter: 'all', // the Tools tab: all | failed | edits | commands | reads
   error: '',
@@ -1153,11 +1154,40 @@ function choose(title, options, selected, pick) {
   sheet(title, ...options.map(([id, label]) => h('button', { class: `row-btn pick${selected === id ? ' on' : ''}`, 'aria-pressed': String(selected === id), onclick: () => (closeSheet(), pick(id), render(true)) }, label, selected === id && h('span', { class: 'tick', icon: 'check' }))));
 }
 
+// The crew: every session under way, one chip each, under the agent in front. A tap on a chip puts that
+// agent in front (until another asks for an approval); past CREW_SHOWN the rest are in the switcher.
+const CREW_SHOWN = 5;
+const CREW_TONE = { thinking: 'execution', coding: 'execution', executing: 'execution', awaiting_approval: 'primary', success: 'success', error: 'danger' };
+function crewRow(team, front) {
+  let shown = team.slice(0, CREW_SHOWN);
+  const lead = team.find((c) => c.ws.meta.id === front);
+  if (team.length > CREW_SHOWN && lead && !shown.includes(lead)) shown = [...shown.slice(0, CREW_SHOWN - 1), lead];
+  const rest = team.length - shown.length;
+  const chip = ({ ws, mood }) => {
+    const on = ws.meta.id === front;
+    const word = mood === 'awaiting_approval' ? 'Approval' : MOODS[mood];
+    return h(
+      'button',
+      { class: `crew-chip t-${CREW_TONE[mood] ?? 'muted'}${on ? ' on' : ''}`, type: 'button', 'data-ws': ws.meta.id, 'aria-pressed': String(on), 'aria-label': `${ws.meta.name}, ${MOODS[mood].toLowerCase()}`, onclick: () => ((state.crewPin = ws.meta.id), render(true)) },
+      bot(mood, 'sm', { label: false, who: whoFor(ws.meta) }),
+      h('span', { class: 'cn' }, ws.meta.name),
+      h('span', { class: 'cm' }, word),
+      mood === 'awaiting_approval' && h('i', { class: 'pip', 'aria-hidden': 'true' }, '!'),
+    );
+  };
+  return h(
+    'div',
+    { class: `crew${team.length > 3 ? ' scroll' : ''}`, role: 'group', 'aria-label': 'Live agents' },
+    shown.map(chip),
+    rest > 0 && h('button', { class: 'crew-chip more', type: 'button', 'aria-label': `${rest} more live agents. Open the switcher`, onclick: openSwitcher }, h('span', { class: 'plus' }, `+${rest}`), h('span', { class: 'cn' }, 'All'), h('span', { class: 'cm' }, 'sessions')),
+  );
+}
+
 const panel = (title, side, ...content) => h('section', { class: 'panel-box' }, h('div', { class: 'cap' }, h('span', {}, title), side), ...content);
 
 // ── home: the control center ──
 function controlCenter(model) {
-  const { now, link, stats } = model;
+  const { now, link, stats, team } = model;
   const up = link.key === 'online';
   const list = [...state.workspaces.values()];
   const pick = (title, then) => {
@@ -1192,7 +1222,7 @@ function controlCenter(model) {
       'section',
       { class: 'panel-box hero', 'aria-label': `Live agent: ${meta.name}, ${MOODS[model.mood].toLowerCase()}` },
       // The mood under the name says the state; a second label here would say it in other words.
-      h('div', { class: 'cap' }, h('span', {}, now.live ? 'LIVE AGENT' : 'LAST AGENT'), who && h('span', { class: 'char-tag', style: `--sk-char:${CHARACTERS[who.id].accent}` }, characterLabel(who))),
+      h('div', { class: 'cap' }, h('span', {}, team.length > 1 ? ['LIVE AGENTS', h('b', { class: 'count' }, team.length)] : now.live ? 'LIVE AGENT' : 'LAST AGENT'), who && h('span', { class: 'char-tag', style: `--sk-char:${CHARACTERS[who.id].accent}` }, characterLabel(who))),
       h(
         'div',
         { class: 'hero-main' },
@@ -1206,6 +1236,7 @@ function controlCenter(model) {
         ),
       ),
       now.text && h('span', { class: `said ${STATUSES[now.status].tone}` }, mark ? h('span', { class: 'mark', icon: mark }) : now.live && h('i', { class: 'beat' }), h('span', { class: 'text' }, now.text)),
+      team.length > 1 && crewRow(team, meta.id),
       h('div', { class: 'hero-facts' }, h('span', {}, h('i', { class: `state ${link.tone}` }), link.label), h('span', {}, `${active} active`), last && h('span', {}, `Last active ${last.toLowerCase()}`)),
     );
   }
@@ -1454,13 +1485,16 @@ function homeNow() {
     const local = localFolders(state.folders, list, state.explorer.localQuery);
     return { link, rows, local, signature: JSON.stringify([base, state.explorer, list.length, rows.map((r) => [r, since(r.at)]), local]) };
   }
-  const front = current(list);
+  const front = current(list, { pinned: state.crewPin });
   const now = front && { ...front, status: statusOf(front.ws), text: summary(front.ws) };
+  const up = link.key === 'online';
+  const team = crew(list).map((ws) => ({ ws, mood: moodOf(ws, { up }) }));
+  if (state.crewPin && !team.some((c) => c.ws.meta.id === state.crewPin)) state.crewPin = null; // its run ended: the next one starts unpinned
   const stats = activity(list);
   const meta = now?.ws.meta;
   const mood = now ? moodFor('hero', now.ws) : moodOf(null, { up: link.key === 'online' });
   const last = meta && since(meta.lastAt);
-  return { link, now, stats, mood, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, meta.model, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
+  return { link, now, stats, mood, team, signature: JSON.stringify([base, state.latency?.ms, team.map((c) => [c.ws.meta.id, c.ws.meta.name, c.ws.meta.model, c.mood]), list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, meta.model, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
 }
 
 function home(model) {

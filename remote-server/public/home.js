@@ -30,13 +30,23 @@ export function preview(text, max = 220) {
  * The session Home puts up front. One that is working (an approval first) is "current"; otherwise the
  * one used last is "recent". A session that has finished is never shown as current.
  */
-export function current(workspaces) {
-  const busy = workspaces.filter((w) => w.meta.status === 'approval' || w.meta.status === 'working');
-  const rank = (w) => (w.meta.status === 'approval' ? 1 : 0);
-  const pick = (list) => [...list].sort((a, b) => rank(b) - rank(a) || when(b) - when(a) || (a.meta.id < b.meta.id ? -1 : 1))[0];
-  if (busy.length) return { ws: pick(busy), live: true };
+export function current(workspaces, { pinned = null } = {}) {
+  const busy = crew(workspaces);
+  // A session the user picked from the crew stays up front while it runs, unless another one asks for
+  // an approval: what waits for the user always comes first.
+  const held = pinned && busy.find((w) => w.meta.id === pinned);
+  if (held && (held.meta.status === 'approval' || busy[0].meta.status !== 'approval')) return { ws: held, live: true };
+  if (busy.length) return { ws: busy[0], live: true };
   const used = workspaces.filter((w) => w.meta.outcome || w.items?.length);
-  return used.length ? { ws: pick(used), live: false } : null;
+  return used.length ? { ws: [...used].sort(byNeed)[0], live: false } : null;
+}
+
+const rank = (w) => (w.meta.status === 'approval' ? 1 : 0);
+const byNeed = (a, b) => rank(b) - rank(a) || when(b) - when(a) || (a.meta.id < b.meta.id ? -1 : 1);
+
+/** Every session under way (working or waiting for an approval), the one that most needs the user first. */
+export function crew(workspaces) {
+  return workspaces.filter((w) => w.meta.status === 'approval' || w.meta.status === 'working').sort(byNeed);
 }
 
 /** What to say under the project's name: what it is doing now, or how the last task ended. */

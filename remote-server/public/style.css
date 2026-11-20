@@ -5721,3 +5721,129 @@ button.hero-bot:focus-visible {
 .sw-row .bot {
   margin-right: 2px;
 }
+
+/* ── Home: the crew of live agents under the one in front ── */
+.hero .cap .count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--sk-primary);
+  color: var(--sk-on-primary);
+  font: 800 11px/1 var(--sans);
+  letter-spacing: 0;
+}
+.crew {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.crew.scroll {
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  margin: 0 -4px;
+  padding: 0 4px 2px;
+  -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, #000 88%, transparent);
+}
+.crew.scroll::-webkit-scrollbar {
+  display: none;
+}
+.crew-chip {
+  position: relative;
+  flex: 1 0 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 4px;
+  border: 1px solid var(--sk-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--sk-text);
+  font: inherit;
+  cursor: pointer;
+  scroll-snap-align: start;
+  transition: transform 0.15s ease, background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.crew.scroll .crew-chip {
+  flex: 0 0 74px;
+}
+.crew-chip:active {
+  transform: scale(0.95);
+}
+.crew-chip:focus-visible {
+  outline: 2px solid var(--sk-amber-bright);
+  outline-offset: 2px;
+}
+.crew-chip.on {
+  border-color: var(--sk-border-strong);
+  background: rgba(255, 255, 255, 0.07);
+}
+.crew-chip.on::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 30%;
+  right: 30%;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--sk-primary);
+}
+.crew-chip .bot.sm {
+  width: 40px;
+  height: 40px;
+}
+.crew-chip .cn {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 12px/1.3 var(--sans);
+}
+.crew-chip .cm {
+  font: 600 10.5px/1.2 var(--sans);
+  color: var(--sk-text-muted);
+}
+.crew-chip.t-execution .cm {
+  color: var(--sk-cyan);
+}
+.crew-chip.t-primary .cm {
+  color: var(--sk-amber-bright);
+}
+.crew-chip.t-success .cm {
+  color: var(--sk-success);
+}
+.crew-chip.t-danger .cm {
+  color: var(--sk-danger);
+}
+.crew-chip .pip {
+  position: absolute;
+  top: 5px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sk-amber);
+  color: var(--sk-on-primary);
+  font: 800 11px/1 var(--sans);
+  font-style: normal;
+}
+.crew-chip.more .plus {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1.5px dashed var(--sk-border-strong);
+  border-radius: 50%;
+  font: 700 14px var(--sans);
+  color: var(--sk-text-secondary);
+}
