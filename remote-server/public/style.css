@@ -5801,3 +5801,65 @@ button.hero-bot:focus-visible {
   font: 700 14px var(--sans);
   color: var(--sk-text-secondary);
 }
+
+.bot .mascot-portrait {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+#sheet .mascot-heading {
+  margin: 20px 0 8px;
+  font-size: 14px;
+}
+
+.mascot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
+  gap: 8px;
+}
+
+.mascot-grid .row-btn.pick {
+  position: relative;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 4px 10px;
+  border: 1px solid var(--sk-border-strong);
+  border-radius: 12px;
+  background: var(--sk-surface);
+  text-align: center;
+}
+
+.mascot-grid .row-btn.pick.on {
+  border-color: var(--sk-primary);
+}
+
+.mascot-grid .bot {
+  width: min(76px, 100%);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.mascot-grid .bot .ring {
+  display: none;
+}
+
+.mascot-grid .tick {
+  position: absolute;
+  inset: 6px 6px auto auto;
+}
+
+.mascot-label {
+  display: block;
+  font-size: 13px;
+}
+
+.mascot-label small {
+  display: block;
+  color: var(--sk-text-muted);
+  font-size: 11px;
+}

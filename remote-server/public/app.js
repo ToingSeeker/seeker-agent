@@ -115,7 +115,9 @@ function bot(mood, size = 'md', { label = true, who = null } = {}) {
   const fx = (cls, n, text = null) => h('span', { class: cls, 'aria-hidden': 'true' }, text ?? Array.from({ length: n }, () => h('i')));
   const name = who ? CHARACTERS[who.id].name : 'Seeker';
   const body = h('span', { class: 'body', icon: who ? null : 'logo' });
-  if (who) body.innerHTML = drawCharacter(who, { face: FACES[mood] }); // fixed drawings; nothing from the Mac
+  const portrait = who && CHARACTERS[who.id].portrait;
+  if (portrait) body.append(h('img', { class: 'mascot-portrait', src: portrait, alt: '', decoding: 'async' }));
+  else if (who) body.innerHTML = drawCharacter(who, { face: FACES[mood] }); // fixed drawings; nothing from the Mac
   return h(
     'span',
     { class: `bot ${size} m-${mood}${who ? ' char' : ''}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `${name}: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
@@ -1172,24 +1174,49 @@ function showSettings({ ws, items }) {
 /** The setting's words: "Auto (by model)", "Sage · Claude", "SEEKER robot". */
 function characterChoiceLabel(id) {
   if (id === 'seeker') return 'SEEKER robot';
-  return CHARACTERS[id] ? `${CHARACTERS[id].name} · ${CHARACTERS[id].family}` : 'Auto (by model)';
+  return CHARACTERS[id] ? `${CHARACTERS[id].name} · ${CHARACTERS[id].role ?? CHARACTERS[id].family}` : 'Auto (by model)';
 }
 
 /** Kept on this phone only: the Mac and its other phones keep their own. */
 function chooseCharacter() {
   const selected = CHOICES.includes(characterSetting) ? characterSetting : 'auto';
-  choose('Live Agent character', CHOICES.map((id) => [id, characterChoiceLabel(id)]), selected, (id) => store(CHARACTER_SETTING, (characterSetting = id)));
+  characterPicker('Live Agent character', selected, (id) => store(CHARACTER_SETTING, (characterSetting = id)));
 }
 
 /** One project's character, kept on this phone by the project's path. "Phone setting" follows the one above. */
 function chooseProjectCharacter(meta) {
   const own = Object.hasOwn(projectCharacters, meta.path) ? projectCharacters[meta.path] : 'default';
-  choose(`Character for ${meta.name}`, [['default', `Phone setting · ${characterChoiceLabel(characterSetting)}`], ...CHOICES.map((id) => [id, characterChoiceLabel(id)])], own, (id) => {
+  characterPicker(`Character for ${meta.name}`, own, (id) => {
     projectCharacters = { ...projectCharacters };
     if (id === 'default') delete projectCharacters[meta.path];
     else projectCharacters[meta.path] = id;
     store(PROJECT_CHARACTERS, JSON.stringify(projectCharacters));
-  });
+  }, true);
+}
+
+/** Portrait previews for both the phone-wide choice and the project override. */
+function characterPicker(title, selected, pick, project = false) {
+  const option = (id, label, ...content) => h('button', {
+    type: 'button',
+    class: `row-btn pick${selected === id ? ' on' : ''}`,
+    'aria-pressed': String(selected === id),
+    onclick: () => (closeSheet(), pick(id), render(true)),
+  }, ...content, label, selected === id && h('span', { class: 'tick', icon: 'check' }));
+  const ids = Object.keys(CHARACTERS);
+  const card = (id) => {
+    const { name, role, family } = CHARACTERS[id];
+    return option(id, h('span', { class: 'mascot-label' }, name, h('small', {}, role ?? family)),
+      bot('idle', 'sm', { who: { id }, label: false }));
+  };
+  sheet(title,
+    project && option('default', `Phone setting · ${characterChoiceLabel(characterSetting)}`),
+    option('auto', characterChoiceLabel('auto')),
+    option('seeker', characterChoiceLabel('seeker')),
+    h('h4', { class: 'mascot-heading' }, 'Mascot collection'),
+    h('div', { class: 'mascot-grid' }, ids.filter((id) => CHARACTERS[id].portrait).map(card)),
+    h('h4', { class: 'mascot-heading' }, 'Model characters'),
+    h('div', { class: 'mascot-grid' }, ids.filter((id) => !CHARACTERS[id].portrait).map(card)),
+  );
 }
 
 /** What a project's character row says: its own choice, or that it follows the phone's setting. */
