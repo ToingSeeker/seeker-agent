@@ -14,6 +14,7 @@ import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view a
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
+import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, characterLabel, drawCharacter, pickCharacter } from './characters.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCKOUT_TRIES, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, readLock, sameId, triesLeft, userVerified, writeLock } from './lock.js';
@@ -109,16 +110,25 @@ const ICONS = {
 // ── the robot, alive ─────────────────────────────────────────────────────────
 // The logo robot with what it is doing around it. Its mood (robot.js) comes from the Mac's reports;
 // style.css draws each one. Only transforms and opacity move, and nothing moves with reduced motion.
-function bot(mood, size = 'md', { label = true } = {}) {
+// `who` (characters.js) swaps the robot for the agent's character, whose face shows the mood.
+function bot(mood, size = 'md', { label = true, who = null } = {}) {
   const fx = (cls, n, text = null) => h('span', { class: cls, 'aria-hidden': 'true' }, text ?? Array.from({ length: n }, () => h('i')));
+  const name = who ? CHARACTERS[who.id].name : 'Seeker';
+  const body = h('span', { class: 'body', icon: who ? null : 'logo' });
+  if (who) body.innerHTML = drawCharacter(who, { face: FACES[mood] }); // fixed drawings; nothing from the Mac
   return h(
     'span',
-    { class: `bot ${size} m-${mood}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `Seeker: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
+    { class: `bot ${size} m-${mood}${who ? ' char' : ''}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `${name}: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
     h('span', { class: 'ring', 'aria-hidden': 'true' }),
-    h('span', { class: 'body', icon: 'logo' }),
+    body,
     size !== 'sm' && [fx('orbit', 3), fx('code', 0, '</>'), fx('term', 3), fx('alert', 0, '!'), fx('spark', 6)],
   );
 }
+
+// The phone's choice of agent character (Settings): by model, one for every agent, or the robot.
+let characterSetting = stored(CHARACTER_SETTING, 'auto');
+/** Who stands in for the agent of a session; null keeps SEEKER's robot. */
+const whoFor = (meta) => pickCharacter(characterSetting, meta?.model, meta?.provider);
 
 const steady = new Steady(); // keeps each robot's mood on screen long enough to be read
 const moodTimers = new Map();
@@ -668,7 +678,7 @@ function openSwitcher() {
                 h(
                   'button',
                   { class: `s-row sw-row${row.id === state.view.ws && state.view.name === 'session' ? ' selected' : ''}`, 'data-key': row.id, onclick: () => (closeSheet(), go({ name: 'session', ws: row.id })) },
-                  state.workspaces.has(row.id) ? bot(moodOf(state.workspaces.get(row.id), { up }), 'sm', { label: false }) : h('span', { class: 'ico', icon: 'folder' }),
+                  state.workspaces.has(row.id) ? bot(moodOf(state.workspaces.get(row.id), { up }), 'sm', { label: false, who: whoFor(state.workspaces.get(row.id).meta) }) : h('span', { class: 'ico', icon: 'folder' }),
                   h(
                     'span',
                     { class: 'grow' },
@@ -1126,6 +1136,18 @@ function showSettings({ ws, items }) {
   sheet('Settings', h('p', { class: 'tu-sub' }, 'For the projects opened from the phone. A change is saved at once.'), h('div', { class: 'ck-top' }, field), h('div', { class: 'ck-list' }, rows, none));
 }
 
+/** The setting's words: "Auto (by model)", "Sage · Claude", "SEEKER robot". */
+function characterChoiceLabel(id) {
+  if (id === 'seeker') return 'SEEKER robot';
+  return CHARACTERS[id] ? `${CHARACTERS[id].name} · ${CHARACTERS[id].family}` : 'Auto (by model)';
+}
+
+/** Kept on this phone only: the Mac and its other phones keep their own. */
+function chooseCharacter() {
+  const selected = CHOICES.includes(characterSetting) ? characterSetting : 'auto';
+  choose('Live Agent character', CHOICES.map((id) => [id, characterChoiceLabel(id)]), selected, (id) => store(CHARACTER_SETTING, (characterSetting = id)));
+}
+
 /** A sheet of choices with the one in force ticked. */
 function choose(title, options, selected, pick) {
   sheet(title, ...options.map(([id, label]) => h('button', { class: `row-btn pick${selected === id ? ' on' : ''}`, 'aria-pressed': String(selected === id), onclick: () => (closeSheet(), pick(id), render(true)) }, label, selected === id && h('span', { class: 'tick', icon: 'check' }))));
@@ -1165,15 +1187,16 @@ function controlCenter(model) {
     const open = () => go({ name: 'session', ws: meta.id });
     const mark = now.status === 'completed' ? 'check' : now.status === 'failed' ? 'cross' : null;
     const last = since(meta.lastAt);
+    const who = whoFor(meta);
     activityPanel = h(
       'section',
       { class: 'panel-box hero', 'aria-label': `Live agent: ${meta.name}, ${MOODS[model.mood].toLowerCase()}` },
       // The mood under the name says the state; a second label here would say it in other words.
-      h('div', { class: 'cap' }, h('span', {}, now.live ? 'LIVE AGENT' : 'LAST AGENT')),
+      h('div', { class: 'cap' }, h('span', {}, now.live ? 'LIVE AGENT' : 'LAST AGENT'), who && h('span', { class: 'char-tag', style: `--sk-char:${CHARACTERS[who.id].accent}` }, characterLabel(who))),
       h(
         'div',
         { class: 'hero-main' },
-        h('button', { class: 'hero-bot', type: 'button', 'aria-label': `Open ${meta.name}`, onclick: open }, bot(model.mood, 'lg')),
+        h('button', { class: 'hero-bot', type: 'button', 'aria-label': `Open ${meta.name}`, onclick: open }, bot(model.mood, 'lg', { who })),
         h(
           'span',
           { class: 'grow' },
@@ -1425,7 +1448,7 @@ function usageSheet(usage, up) {
 function homeNow() {
   const list = [...state.workspaces.values()];
   const link = connection(state);
-  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation];
+  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation, characterSetting];
   if (state.homeTab === 'projects') {
     const rows = explorerRows(list, state.explorer);
     const local = localFolders(state.folders, list, state.explorer.localQuery);
@@ -1437,7 +1460,7 @@ function homeNow() {
   const meta = now?.ws.meta;
   const mood = now ? moodFor('hero', now.ws) : moodOf(null, { up: link.key === 'online' });
   const last = meta && since(meta.lastAt);
-  return { link, now, stats, mood, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
+  return { link, now, stats, mood, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, meta.model, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
 }
 
 function home(model) {
@@ -2632,10 +2655,12 @@ function rowKeys(event) {
 
 function sessionRow(row) {
   const when = since(row.at);
+  const ws = state.workspaces.get(row.id);
+  const who = ws && whoFor(ws.meta);
   return h(
     'button',
     { class: `s-row${row.id === state.lastSession ? ' selected' : ''}`, 'data-ws': row.id, 'aria-current': row.id === state.lastSession ? 'true' : null, onclick: () => go({ name: 'session', ws: row.id }) },
-    h('span', { class: 'ico', icon: 'folder' }),
+    who ? bot(moodOf(ws, { up: state.linked && state.online }), 'sm', { label: false, who }) : h('span', { class: 'ico', icon: 'folder' }),
     h(
       'span',
       { class: 'grow' },
@@ -2661,7 +2686,7 @@ function sessionParts(ws) {
 function sessionsNow() {
   const model = sessionsView([...state.workspaces.values()], state.list);
   const labels = model.rows.map((r) => [r.id, r.name, r.status, r.task, r.model, r.tools, since(r.at)]);
-  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, state.list, state.lastSession, model.count, labels]);
+  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, characterSetting, state.list, state.lastSession, model.count, labels]);
   return { ...model, signature };
 }
 
@@ -2741,6 +2766,8 @@ function settings() {
     section('MODEL'),
     h('div', { class: 'group' }, row('cube', first?.model ?? state.device?.model ?? '—', null, { sub: first ? `${first.provider} · ${sizeOf(first.limit)} context${first.vision === false ? ' · no images' : first.vision ? ' · sees images' : ''}` : (state.device?.provider ?? 'No project open'), onclick: up ? chooseModel : null })),
     ...agentSettings(up, toggle),
+    section('AGENT CHARACTER'),
+    h('div', { class: 'group' }, row('logo', 'Live Agent character', characterChoiceLabel(characterSetting), { sub: 'Kept on this phone. Auto picks a character by the session’s model.', onclick: chooseCharacter })),
     section('NOTIFICATIONS'),
     h(
       'div',

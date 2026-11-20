@@ -5540,6 +5540,65 @@ pre,
 .bot.m-disconnected .ring {
   border-color: var(--sk-text-muted);
 }
+/* ── the agent's character (characters.js) in place of the robot ──
+   Its face carries the mood (characters.js FACES); the ring, orbit, marks and sparks above stay as
+   they are. A little larger than the robot: the drawing is round and fills less of its box. */
+.bot.char.lg {
+  width: 96px;
+  height: 96px;
+}
+.bot.char .body {
+  width: 100%;
+  height: 100%;
+}
+.bot.char .ring {
+  bottom: 0;
+  border-color: var(--sk-border-strong);
+}
+.bot.char.m-executing .ring {
+  border-color: var(--sk-primary);
+}
+.bot.char.m-awaiting_approval .ring {
+  border-color: var(--sk-amber);
+}
+.bot.char.m-error .ring {
+  border-color: var(--sk-danger);
+}
+.bot.char .char .eye {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* It blinks while resting or thinking, each on its own beat. */
+.bot.char:is(.m-idle, .m-thinking) .char .eye {
+  animation: char-blink 5s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.bot.char.m-disconnected .body {
+  filter: grayscale(1) brightness(0.7);
+}
+@keyframes char-blink {
+  0%, 92%, 100% { transform: none; }
+  95% { transform: scaleY(0.1); }
+}
+/* In the lists it takes the folder's place, at the folder's size. */
+.s-row > .bot.char.sm {
+  width: 46px;
+  height: 46px;
+}
+.sw-list .s-row > .bot.char.sm {
+  width: 40px;
+  height: 40px;
+}
+.hero .cap .char-tag {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--sk-char) 40%, transparent);
+  border-radius: 99px;
+  color: var(--sk-char);
+  font: 600 11px/1.4 var(--sans);
+  letter-spacing: 0.2px;
+  text-transform: none;
+}
+
 /* Animation off in the Mac's settings, or the page in the background: nothing runs. */
 .still .bot *,
 .bot.still * {
