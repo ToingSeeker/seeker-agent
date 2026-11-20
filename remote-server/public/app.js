@@ -945,6 +945,17 @@ const row = (icon, label, value, { tone = '', onclick = null, sub = null } = {})
     onclick && h('span', { class: 'chev', icon: 'chevron' }),
   );
 
+/** Beside the switcher: opens the projects on Home, and a second tap goes back to what the agent is doing. */
+function projectsButton() {
+  const on = state.view.name === 'home' && state.homeTab === 'projects';
+  const toggle = () => {
+    state.homeTab = on ? 'control' : 'projects';
+    if (state.view.name === 'home') render(true);
+    else go({ name: 'home' });
+  };
+  return h('button', { class: on ? 'switch-btn projects-btn on' : 'switch-btn projects-btn', 'aria-label': 'Projects', 'aria-pressed': String(on), onclick: toggle }, h('span', { icon: 'layers' }));
+}
+
 function header() {
   const { running } = switcher([...state.workspaces.values()], { up: state.linked && state.online });
   return h(
@@ -952,6 +963,7 @@ function header() {
     { class: 'brand' },
     h('span', { class: state.device?.settings?.animation === false ? 'mark still' : 'mark', icon: 'logo' }),
     h('div', { class: 'grow' }, h('div', { class: 'word' }, 'SEEKER'), h('div', { class: 'sub' }, 'REMOTE')),
+    projectsButton(),
     h('button', { class: 'switch-btn', id: 'switcher', 'aria-label': `Switch agent session${running ? ` — ${running} running session${running === 1 ? '' : 's'}` : ''}`, 'aria-haspopup': 'dialog', onclick: openSwitcher }, h('span', { icon: 'swap' }), running > 0 && h('span', { class: 'count', 'aria-hidden': 'true' }, running)),
   );
 }
@@ -1532,8 +1544,7 @@ function homeNow() {
 }
 
 function home(model) {
-  const tab = (id, icon, label) => h('button', { class: state.homeTab === id ? 'active' : '', role: 'tab', 'aria-selected': String(state.homeTab === id), onclick: () => ((state.homeTab = id), render(true)) }, h('span', { class: 'tab-icon', icon }), h('span', {}, label));
-  return [header(), h('div', { class: 'tabs home-tabs', role: 'tablist' }, tab('control', 'grid', 'Control Center'), tab('projects', 'folder', 'Projects')), state.homeTab === 'projects' ? workspaceExplorer(model) : controlCenter(model)];
+  return [header(), state.homeTab === 'projects' ? workspaceExplorer(model) : controlCenter(model)];
 }
 
 function sendText(wsId, text, images = [], files = []) {
@@ -3403,7 +3414,7 @@ function draw() {
   nav.replaceChildren(
     ...NAV.map(([id, label, icon]) => {
       const [n, said] = waiting[id] ?? [0, ''];
-      return h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => go({ name: id }) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, h('span', { icon }), n > 0 && h('span', { class: 'count' }, n)), h('span', { class: 'label' }, label), n > 0 && h('span', { class: 'sr-only' }, `, ${n} ${said}`));
+      return h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => (id === 'home' && (state.homeTab = 'control'), go({ name: id })) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, h('span', { icon }), n > 0 && h('span', { class: 'count' }, n)), h('span', { class: 'label' }, label), n > 0 && h('span', { class: 'sr-only' }, `, ${n} ${said}`));
     }),
   );
   drawSheet();
