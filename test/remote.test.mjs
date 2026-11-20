@@ -470,6 +470,78 @@ test('remote: questions from the model, switching model, and notifications reach
   await running;
 });
 
+test('remote: a project can be given its own model, which it keeps when opened again, and the default leaves it alone', async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const [a, b] = ['alpha', 'beta'].map((name) => (fs.mkdirSync(path.join(home, name)), path.join(home, name)));
+  const secret = 'a-long-secret-for-the-project-model-test-1';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const ollama = await fakeOllama([]);
+  let daemon;
+  t.after(async () => {
+    await daemon?.stop();
+    relay.close();
+    relay.closeAllConnections();
+    ollama.close();
+  });
+  const config = { ...DEFAULTS, host: ollama.host, model: 'small:1b', bundledSkills: false, remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider(config.provider, config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  daemon = new RemoteDaemon({ config, folders: [a, b], build, info: { tools: true, thinking: false, context: null }, remember: false });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(() => me.close());
+  await until(() => me.state.online && me.state.workspaces.size === 2);
+  const byName = (name) => [...me.state.workspaces.values()].find((w) => w.name === name);
+  const toast = (re) => until(() => me.state.replies.some((r) => r.t === 'toast' && re.test(r.text)));
+
+  // ── switched from inside alpha: only alpha changes, and the default stays ──
+  await me.send('model', { ws: byName('alpha').id, provider: 'ollama', model: 'big:30b' });
+  await until(() => byName('alpha').model === 'big:30b' && byName('alpha').ownModel === true);
+  await toast(/^alpha: big:30b via Ollama$/);
+  assert.equal(byName('beta').model, 'small:1b');
+  assert.equal(byName('beta').ownModel, undefined);
+  assert.equal(me.state.device.model, 'small:1b', 'the default model is unchanged');
+  assert.deepEqual(config.projectModels, { [a]: { provider: 'ollama', model: 'big:30b' } });
+
+  // The picker marks what alpha runs, not the default.
+  await me.send('models', { ws: byName('alpha').id, provider: 'ollama' });
+  assert.equal((await until(() => me.state.replies.find((r) => r.t === 'models'))).active, 'big:30b');
+
+  // ── the default moves beta, never alpha ──
+  await me.send('model', { provider: 'ollama', model: 'big:30b' });
+  await until(() => me.state.device.model === 'big:30b' && byName('beta').model === 'big:30b');
+  await me.send('model', { ws: byName('alpha').id, provider: 'ollama', model: 'small:1b' });
+  await until(() => byName('alpha').model === 'small:1b');
+  await me.send('model', { provider: 'ollama', model: 'small:1b' });
+  await until(() => me.state.device.model === 'small:1b' && byName('beta').model === 'small:1b');
+  await me.send('model', { provider: 'ollama', model: 'big:30b' });
+  await until(() => me.state.device.model === 'big:30b' && byName('beta').model === 'big:30b');
+  assert.equal(byName('alpha').model, 'small:1b', 'a project with its own model keeps it when the default changes');
+
+  // ── closed and opened again, alpha comes back on its own model ──
+  const alphaId = byName('alpha').id;
+  await me.send('close', { ws: alphaId });
+  await until(() => !byName('alpha'));
+  await me.send('open', { path: a });
+  await until(() => byName('alpha')?.model === 'small:1b' && byName('alpha').ownModel === true);
+
+  // ── back to the default ──
+  await me.send('model', { ws: alphaId, reset: true });
+  await until(() => byName('alpha').model === 'big:30b' && byName('alpha').ownModel === undefined);
+  await toast(/alpha uses the default model again: big:30b/);
+  assert.deepEqual(config.projectModels, {});
+
+  // ── a project that has closed is not taken to mean the default ──
+  await me.send('model', { ws: 'gone000000', provider: 'ollama', model: 'small:1b' });
+  await toast(/no longer open/);
+  assert.equal(me.state.device.model, 'big:30b');
+  await daemon.stop();
+  await running;
+});
+
 test('remote control: pictures sent from the phone reach the model, and what is not a picture is refused', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
   const secret = 'test-secret-that-is-long-enough-123456';

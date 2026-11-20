@@ -25,7 +25,7 @@ Plain Node, no build step.
 <details>
 <summary>The phone app (<code>seeker remote</code>)</summary>
 
-![The phone app: Home, the list of sessions, and a session waiting for approval](docs/remote.png)
+![The phone app: Home with the Live Agent card and each project's character, the list of sessions, and a session waiting for approval](docs/remote.png)
 
 </details>
 
@@ -564,7 +564,7 @@ the chain.
 
 ## Remote control from a phone
 
-![The phone app: Home, the list of sessions, and a session waiting for approval](docs/remote.png)
+![The phone app: Home with the Live Agent card and each project's character, the list of sessions, and a session waiting for approval](docs/remote.png)
 
 `seeker remote` runs the agent on your computer and connects it to a relay (`remote-server/`, a
 dependency-free Node server you deploy yourself, for example on Railway). The phone opens the web app
@@ -686,7 +686,11 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   a session typed in a terminal has no queue.
 - **Approvals** — each command and each file change waits here. A change is shown as a diff with line
   numbers; a command the safety patterns flag is marked dangerous. One request is one command or one file.
-- **Settings** — connection, model, and which notifications this phone gets: finished tasks, approvals
+- **A model and a character per project** — `/model` inside a project switches that project only, and the
+  computer keeps the choice for it (`projectModels` in `~/.seeker/config.json`), so it comes back on that
+  model when opened again; *Use the default model* lets it follow Settings again. Each project can also have
+  its own character on the Live Agent card (session menu → Character), kept on the phone.
+- **Settings** — connection, the default model (used by every project without one of its own), and which notifications this phone gets: finished tasks, approvals
   and questions, errors. Everything `/config` holds is here too: thinking, whether to ask for approval,
   context window, steps per message, how long a model stays in memory, the Ollama address, and the two
   terminal display settings. A cloud provider's API key can be entered here; it is stored on the computer

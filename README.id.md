@@ -24,7 +24,7 @@ lewat `/model` bisa juga memakai server lokal lain atau model cloud. Node murni,
 <details>
 <summary>Aplikasi di HP (<code>seeker remote</code>)</summary>
 
-![Aplikasi di HP: Home, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
+![Aplikasi di HP: Home dengan kartu Live Agent dan karakter tiap project, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
 
 </details>
 
@@ -174,7 +174,7 @@ dari titik perubahannya. Tinjauan setelah menjawab hanya membaca bagian terbaru 
 
 ## Remote control dari HP
 
-![Aplikasi di HP: Home, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
+![Aplikasi di HP: Home dengan kartu Live Agent dan karakter tiap project, daftar sesi, dan satu sesi yang menunggu persetujuan](docs/remote.png)
 
 `seeker remote` menjalankan agent di Mac dan menghubungkannya ke relay (`remote-server/`, di-deploy ke Railway).
 HP membuka aplikasi web di alamat relay itu.
@@ -297,7 +297,11 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
   kamu melanjutkannya. Gambar belum bisa diantrekan, dan sesi yang diketik di terminal tidak punya antrean.
 - **Approvals** — tiap perintah dan tiap perubahan file menunggu di sini. Perubahan ditampilkan sebagai
   diff bernomor baris; perintah yang kena pola berbahaya diberi tanda. Satu permintaan = satu perintah atau satu file.
-- **Settings** — koneksi, model, dan notifikasi mana yang diterima HP ini: tugas selesai, persetujuan dan
+- **Model dan karakter per proyek** — `/model` di dalam proyek hanya mengganti model proyek itu, dan komputer
+  mengingatnya (`projectModels` di `~/.seeker/config.json`), jadi proyek itu kembali ke model yang sama saat
+  dibuka lagi; *Use the default model* membuatnya ikut Settings lagi. Tiap proyek juga bisa punya karakter
+  sendiri di kartu Live Agent (menu sesi → Character), disimpan di HP.
+- **Settings** — koneksi, model default (dipakai semua proyek yang tidak punya model sendiri), dan notifikasi mana yang diterima HP ini: tugas selesai, persetujuan dan
   pertanyaan, error. Di sini juga semua setelan `/config`: thinking, minta persetujuan atau tidak, context
   window, jumlah langkah per pesan, lama model disimpan di memori, alamat Ollama, dan dua setelan tampilan
   terminal. API key penyedia cloud bisa diisi dari sini; key disimpan di komputer dan tidak pernah dikirim balik.

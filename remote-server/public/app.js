@@ -8,11 +8,13 @@
 // Nothing on these screens is made up here: statuses, counts and timings come
 // from the Mac's events, and a value the Mac has not reported is shown as "—".
 
-import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, summary, workspaces as explorerRows } from './home.js';
+import { SOURCES, WORKSPACE_SORTS, activity, connection, crew, current, localFolders, summary, workspaces as explorerRows } from './home.js';
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
+import { gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
+import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, PROJECT_CHARACTERS, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from './characters.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCKOUT_TRIES, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, readLock, sameId, triesLeft, userVerified, writeLock } from './lock.js';
@@ -108,16 +110,27 @@ const ICONS = {
 // ── the robot, alive ─────────────────────────────────────────────────────────
 // The logo robot with what it is doing around it. Its mood (robot.js) comes from the Mac's reports;
 // style.css draws each one. Only transforms and opacity move, and nothing moves with reduced motion.
-function bot(mood, size = 'md', { label = true } = {}) {
+// `who` (characters.js) swaps the robot for the agent's character, whose face shows the mood.
+function bot(mood, size = 'md', { label = true, who = null } = {}) {
   const fx = (cls, n, text = null) => h('span', { class: cls, 'aria-hidden': 'true' }, text ?? Array.from({ length: n }, () => h('i')));
+  const name = who ? CHARACTERS[who.id].name : 'Seeker';
+  const body = h('span', { class: 'body', icon: who ? null : 'logo' });
+  if (who) body.innerHTML = drawCharacter(who, { face: FACES[mood] }); // fixed drawings; nothing from the Mac
   return h(
     'span',
-    { class: `bot ${size} m-${mood}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `Seeker: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
+    { class: `bot ${size} m-${mood}${who ? ' char' : ''}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `${name}: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
     h('span', { class: 'ring', 'aria-hidden': 'true' }),
-    h('span', { class: 'body', icon: 'logo' }),
+    body,
     size !== 'sm' && [fx('orbit', 3), fx('code', 0, '</>'), fx('term', 3), fx('alert', 0, '!'), fx('spark', 6)],
   );
 }
+
+// The phone's choice of agent character (Settings): by model, one for every agent, or the robot.
+let characterSetting = stored(CHARACTER_SETTING, 'auto');
+// A project can have a character of its own (session menu), kept by its path; the rest follow the setting above.
+let projectCharacters = readProjectCharacters(stored(PROJECT_CHARACTERS, '{}'));
+/** Who stands in for the agent of a session; null keeps SEEKER's robot. */
+const whoFor = (meta) => pickCharacter(characterSettingFor(characterSetting, projectCharacters, meta?.path), meta?.model, meta?.provider);
 
 const steady = new Steady(); // keeps each robot's mood on screen long enough to be read
 const moodTimers = new Map();
@@ -157,6 +170,7 @@ const state = {
   folders: [],
   view: { name: 'home' },
   homeTab: 'control',
+  crewPin: null, // the live session picked from the crew on Home, kept up front while it runs
   sessionTab: 'activity', // activity | tools | metrics
   toolFilter: 'all', // the Tools tab: all | failed | edits | commands | reads
   error: '',
@@ -667,7 +681,7 @@ function openSwitcher() {
                 h(
                   'button',
                   { class: `s-row sw-row${row.id === state.view.ws && state.view.name === 'session' ? ' selected' : ''}`, 'data-key': row.id, onclick: () => (closeSheet(), go({ name: 'session', ws: row.id })) },
-                  state.workspaces.has(row.id) ? bot(moodOf(state.workspaces.get(row.id), { up }), 'sm', { label: false }) : h('span', { class: 'ico', icon: 'folder' }),
+                  state.workspaces.has(row.id) ? bot(moodOf(state.workspaces.get(row.id), { up }), 'sm', { label: false, who: whoFor(state.workspaces.get(row.id).meta) }) : h('span', { class: 'ico', icon: 'folder' }),
                   h(
                     'span',
                     { class: 'grow' },
@@ -719,15 +733,33 @@ function openQueues() {
 }
 
 // ── choosing the model (the lists come from the Mac) ──
-async function chooseModel() {
+// From inside a project (`ws`) the choice is that project's only, and the Mac keeps it for the project.
+// Without one (Settings) it is the default: every project without a model of its own follows it.
+const modelTarget = () => (state.modelFor ? { ws: state.modelFor } : {});
+function modelTitle() {
+  const meta = state.modelFor && state.workspaces.get(state.modelFor)?.meta;
+  return meta ? `Model for ${meta.name}` : 'Default model';
+}
+
+async function chooseModel(ws = null) {
   state.picking = true;
-  sheet('Where should the model run?', h('div', { class: 'muted' }, 'Asking your Mac…'));
-  if (!(await command('providers'))) closeSheet();
+  state.modelFor = typeof ws === 'string' ? ws : null;
+  sheet(modelTitle(), h('div', { class: 'muted' }, 'Asking your Mac…'));
+  if (!(await command('providers', modelTarget()))) closeSheet();
 }
 
 function showProviders(list) {
+  const meta = state.modelFor && state.workspaces.get(state.modelFor)?.meta;
   sheet(
-    'Where should the model run?',
+    modelTitle(),
+    h('div', { class: 'muted small pad' }, meta ? `Only ${meta.name} changes, and it keeps this model when opened again.` : 'Used by every project that has no model of its own.'),
+    meta?.ownModel &&
+      h(
+        'button',
+        { class: 'row-btn', onclick: () => ((state.picking = false), closeSheet(), command('model', { ws: meta.id, reset: true })) },
+        h('div', {}, 'Use the default model'),
+        h('div', { class: 'muted small' }, `${state.device?.model ?? 'the default'} · ${meta.name} follows Settings again`),
+      ),
     ...list.map((p) =>
       h(
         'button',
@@ -737,7 +769,7 @@ function showProviders(list) {
           onclick: () => {
             if (!p.ready) return enterKey(p);
             sheet(p.label, h('div', { class: 'muted' }, 'Loading its models…'));
-            command('models', { provider: p.id });
+            command('models', { provider: p.id, ...modelTarget() });
           },
         },
         h('div', {}, p.label, p.active && h('span', { class: 'accent' }, '  • active')),
@@ -762,7 +794,7 @@ function showModels({ provider, label, models, active }) {
               state.picking = false;
               closeSheet();
               toast(`Switching to ${m.name}…`);
-              command('model', { provider, model: m.name });
+              command('model', { provider, model: m.name, ...modelTarget() });
             },
           },
           h('div', { class: 'mono' }, m.name, m.name === active && h('span', { class: 'accent' }, '  • active')),
@@ -1125,16 +1157,71 @@ function showSettings({ ws, items }) {
   sheet('Settings', h('p', { class: 'tu-sub' }, 'For the projects opened from the phone. A change is saved at once.'), h('div', { class: 'ck-top' }, field), h('div', { class: 'ck-list' }, rows, none));
 }
 
+/** The setting's words: "Auto (by model)", "Sage · Claude", "SEEKER robot". */
+function characterChoiceLabel(id) {
+  if (id === 'seeker') return 'SEEKER robot';
+  return CHARACTERS[id] ? `${CHARACTERS[id].name} · ${CHARACTERS[id].family}` : 'Auto (by model)';
+}
+
+/** Kept on this phone only: the Mac and its other phones keep their own. */
+function chooseCharacter() {
+  const selected = CHOICES.includes(characterSetting) ? characterSetting : 'auto';
+  choose('Live Agent character', CHOICES.map((id) => [id, characterChoiceLabel(id)]), selected, (id) => store(CHARACTER_SETTING, (characterSetting = id)));
+}
+
+/** One project's character, kept on this phone by the project's path. "Phone setting" follows the one above. */
+function chooseProjectCharacter(meta) {
+  const own = Object.hasOwn(projectCharacters, meta.path) ? projectCharacters[meta.path] : 'default';
+  choose(`Character for ${meta.name}`, [['default', `Phone setting · ${characterChoiceLabel(characterSetting)}`], ...CHOICES.map((id) => [id, characterChoiceLabel(id)])], own, (id) => {
+    projectCharacters = { ...projectCharacters };
+    if (id === 'default') delete projectCharacters[meta.path];
+    else projectCharacters[meta.path] = id;
+    store(PROJECT_CHARACTERS, JSON.stringify(projectCharacters));
+  });
+}
+
+/** What a project's character row says: its own choice, or that it follows the phone's setting. */
+const projectCharacterLabel = (meta) => (Object.hasOwn(projectCharacters, meta.path) ? characterChoiceLabel(projectCharacters[meta.path]) : `Phone setting · ${characterChoiceLabel(characterSetting)}`);
+
 /** A sheet of choices with the one in force ticked. */
 function choose(title, options, selected, pick) {
   sheet(title, ...options.map(([id, label]) => h('button', { class: `row-btn pick${selected === id ? ' on' : ''}`, 'aria-pressed': String(selected === id), onclick: () => (closeSheet(), pick(id), render(true)) }, label, selected === id && h('span', { class: 'tick', icon: 'check' }))));
+}
+
+// The crew: every session under way, one chip each, under the agent in front. A tap on a chip puts that
+// agent in front (until another asks for an approval); past CREW_SHOWN the rest are in the switcher.
+const CREW_SHOWN = 5;
+const CREW_TONE = { thinking: 'execution', coding: 'execution', executing: 'execution', awaiting_approval: 'primary', success: 'success', error: 'danger' };
+function crewRow(team, front) {
+  let shown = team.slice(0, CREW_SHOWN);
+  const lead = team.find((c) => c.ws.meta.id === front);
+  if (team.length > CREW_SHOWN && lead && !shown.includes(lead)) shown = [...shown.slice(0, CREW_SHOWN - 1), lead];
+  const rest = team.length - shown.length;
+  const chip = ({ ws, mood }) => {
+    const on = ws.meta.id === front;
+    const word = mood === 'awaiting_approval' ? 'Approval' : MOODS[mood];
+    return h(
+      'button',
+      { class: `crew-chip t-${CREW_TONE[mood] ?? 'muted'}${on ? ' on' : ''}`, type: 'button', 'data-ws': ws.meta.id, 'aria-pressed': String(on), 'aria-label': `${ws.meta.name}, ${MOODS[mood].toLowerCase()}`, onclick: () => ((state.crewPin = ws.meta.id), render(true)) },
+      bot(mood, 'sm', { label: false, who: whoFor(ws.meta) }),
+      h('span', { class: 'cn' }, ws.meta.name),
+      h('span', { class: 'cm' }, word),
+      mood === 'awaiting_approval' && h('i', { class: 'pip', 'aria-hidden': 'true' }, '!'),
+    );
+  };
+  return h(
+    'div',
+    { class: `crew${team.length > 3 ? ' scroll' : ''}`, role: 'group', 'aria-label': 'Live agents' },
+    shown.map(chip),
+    rest > 0 && h('button', { class: 'crew-chip more', type: 'button', 'aria-label': `${rest} more live agents. Open the switcher`, onclick: openSwitcher }, h('span', { class: 'plus' }, `+${rest}`), h('span', { class: 'cn' }, 'All'), h('span', { class: 'cm' }, 'sessions')),
+  );
 }
 
 const panel = (title, side, ...content) => h('section', { class: 'panel-box' }, h('div', { class: 'cap' }, h('span', {}, title), side), ...content);
 
 // ── home: the control center ──
 function controlCenter(model) {
-  const { now, link, stats } = model;
+  const { now, link, stats, team } = model;
   const up = link.key === 'online';
   const list = [...state.workspaces.values()];
   const pick = (title, then) => {
@@ -1144,7 +1231,8 @@ function controlCenter(model) {
   };
 
   // The live agent: the robot shows what the agent in front is doing (an approval first, then running work),
-  // as the Mac reported it. A tap on the robot or on Open session goes into that conversation.
+  // as the Mac reported it. A tap on the robot goes into that conversation; switching agents lives in the
+  // header's swap button.
   // Working or waiting for the user: both are sessions still under way.
   const active = list.filter((w) => w.meta.status === 'working' || w.meta.status === 'approval').length;
   let activityPanel;
@@ -1163,15 +1251,16 @@ function controlCenter(model) {
     const open = () => go({ name: 'session', ws: meta.id });
     const mark = now.status === 'completed' ? 'check' : now.status === 'failed' ? 'cross' : null;
     const last = since(meta.lastAt);
+    const who = whoFor(meta);
     activityPanel = h(
       'section',
       { class: 'panel-box hero', 'aria-label': `Live agent: ${meta.name}, ${MOODS[model.mood].toLowerCase()}` },
       // The mood under the name says the state; a second label here would say it in other words.
-      h('div', { class: 'cap' }, h('span', {}, now.live ? 'LIVE AGENT' : 'LAST AGENT')),
+      h('div', { class: 'cap' }, h('span', {}, team.length > 1 ? ['LIVE AGENTS', h('b', { class: 'count' }, team.length)] : now.live ? 'LIVE AGENT' : 'LAST AGENT'), who && h('span', { class: 'char-tag', style: `--sk-char:${CHARACTERS[who.id].accent}` }, characterLabel(who))),
       h(
         'div',
         { class: 'hero-main' },
-        h('button', { class: 'hero-bot', type: 'button', 'aria-label': `Open ${meta.name}`, onclick: open }, bot(model.mood, 'lg')),
+        h('button', { class: 'hero-bot', type: 'button', 'aria-label': `Open ${meta.name}`, onclick: open }, bot(model.mood, 'lg', { who })),
         h(
           'span',
           { class: 'grow' },
@@ -1181,13 +1270,8 @@ function controlCenter(model) {
         ),
       ),
       now.text && h('span', { class: `said ${STATUSES[now.status].tone}` }, mark ? h('span', { class: 'mark', icon: mark }) : now.live && h('i', { class: 'beat' }), h('span', { class: 'text' }, now.text)),
+      team.length > 1 && crewRow(team, meta.id),
       h('div', { class: 'hero-facts' }, h('span', {}, h('i', { class: `state ${link.tone}` }), link.label), h('span', {}, `${active} active`), last && h('span', {}, `Last active ${last.toLowerCase()}`)),
-      h(
-        'div',
-        { class: 'hero-actions' },
-        h('button', { class: 'btn small primary', type: 'button', onclick: open }, 'Open session'),
-        h('button', { class: 'btn small', type: 'button', 'aria-haspopup': 'dialog', onclick: openSwitcher }, h('span', { class: 'ico', icon: 'swap' }), 'Switch agent'),
-      ),
     );
   }
 
@@ -1429,19 +1513,22 @@ function usageSheet(usage, up) {
 function homeNow() {
   const list = [...state.workspaces.values()];
   const link = connection(state);
-  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation];
+  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation, characterSetting, projectCharacters];
   if (state.homeTab === 'projects') {
     const rows = explorerRows(list, state.explorer);
     const local = localFolders(state.folders, list, state.explorer.localQuery);
     return { link, rows, local, signature: JSON.stringify([base, state.explorer, list.length, rows.map((r) => [r, since(r.at)]), local]) };
   }
-  const front = current(list);
+  const front = current(list, { pinned: state.crewPin });
   const now = front && { ...front, status: statusOf(front.ws), text: summary(front.ws) };
+  const up = link.key === 'online';
+  const team = crew(list).map((ws) => ({ ws, mood: moodOf(ws, { up }) }));
+  if (state.crewPin && !team.some((c) => c.ws.meta.id === state.crewPin)) state.crewPin = null; // its run ended: the next one starts unpinned
   const stats = activity(list);
   const meta = now?.ws.meta;
   const mood = now ? moodFor('hero', now.ws) : moodOf(null, { up: link.key === 'online' });
   const last = meta && since(meta.lastAt);
-  return { link, now, stats, mood, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
+  return { link, now, stats, mood, team, signature: JSON.stringify([base, state.latency?.ms, team.map((c) => [c.ws.meta.id, c.ws.meta.name, c.ws.meta.model, c.mood]), list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, meta.model, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
 }
 
 function home(model) {
@@ -2435,7 +2522,8 @@ function session(ws) {
       h('button', { class: 'row-btn', onclick: () => (closeSheet(), sendText(meta.id, INIT)) }, '/init — write SEEKER.md for this project'),
       // A conversation typed in a terminal is started, ended and given its model there.
       meta.terminal && h('div', { class: 'muted small pad' }, 'This conversation runs in a terminal on your Mac. A new conversation, another model, or closing it are done there.'),
-      !meta.terminal && h('button', { class: 'row-btn', onclick: chooseModel }, '/model — switch the model'),
+      !meta.terminal && h('button', { class: 'row-btn', onclick: () => chooseModel(meta.id) }, `/model — switch the model${meta.ownModel ? ' (its own)' : ''}`),
+      h('button', { class: 'row-btn', onclick: () => (closeSheet(), chooseProjectCharacter(meta)) }, `Character — ${projectCharacterLabel(meta)}`),
       !meta.terminal && h('button', { class: 'row-btn', onclick: () => (closeSheet(), newConversation(meta)) }, '/new — start a new conversation'),
       !meta.terminal && h('button', { class: 'row-btn danger', onclick: () => (closeSheet(), confirm(`Close ${meta.name}? Its conversation is saved on your Mac.`) && (command('close', { ws: meta.id }), go({ name: 'home' }))) }, 'Close this project'),
     );
@@ -2467,7 +2555,7 @@ function session(ws) {
               row('laptop', state.device?.name ?? 'Your Mac', up ? 'Connected' : 'Offline', { tone: up ? 'success' : 'danger' }),
               meta.terminal
                 ? h('div', { class: 'row' }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))))
-                : h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
+                : h('button', { class: 'row', 'aria-label': 'Change model', onclick: () => chooseModel(meta.id) }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider, meta.ownModel ? ' • own model' : ' • default'))), h('span', { class: 'chev', icon: 'down' })),
             ),
           ]
         : items.length || pending || st.busy || ws.queue?.items.length
@@ -2636,10 +2724,12 @@ function rowKeys(event) {
 
 function sessionRow(row) {
   const when = since(row.at);
+  const ws = state.workspaces.get(row.id);
+  const who = ws && whoFor(ws.meta);
   return h(
     'button',
     { class: `s-row${row.id === state.lastSession ? ' selected' : ''}`, 'data-ws': row.id, 'aria-current': row.id === state.lastSession ? 'true' : null, onclick: () => go({ name: 'session', ws: row.id }) },
-    h('span', { class: 'ico', icon: 'folder' }),
+    who ? bot(moodOf(ws, { up: state.linked && state.online }), 'sm', { label: false, who }) : h('span', { class: 'ico', icon: 'folder' }),
     h(
       'span',
       { class: 'grow' },
@@ -2665,7 +2755,7 @@ function sessionParts(ws) {
 function sessionsNow() {
   const model = sessionsView([...state.workspaces.values()], state.list);
   const labels = model.rows.map((r) => [r.id, r.name, r.status, r.task, r.model, r.tools, since(r.at)]);
-  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, state.list, state.lastSession, model.count, labels]);
+  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, characterSetting, projectCharacters, state.list, state.lastSession, model.count, labels]);
   return { ...model, signature };
 }
 
@@ -2742,9 +2832,18 @@ function settings() {
       row('timer', 'Round trip to the Mac', state.latency ? `${state.latency.ms} ms` : '—', { sub: state.latency ? `measured ${ago(state.latency.at)} · tap to measure again` : up ? 'measuring…' : 'needs the Mac online', onclick: up ? () => (ping(), toast('Measuring…')) : null }),
       row('clock', 'Last heard from the Mac', ago(state.lastEntryAt)),
     ),
-    section('MODEL'),
-    h('div', { class: 'group' }, row('cube', first?.model ?? state.device?.model ?? '—', null, { sub: first ? `${first.provider} · ${sizeOf(first.limit)} context${first.vision === false ? ' · no images' : first.vision ? ' · sees images' : ''}` : (state.device?.provider ?? 'No project open'), onclick: up ? chooseModel : null })),
+    section('DEFAULT MODEL'),
+    // What a project runs unless it was given its own (from inside it). Details come from one that follows it.
+    (() => {
+      const follower = [...state.workspaces.values()].map((w) => w.meta).find((m) => !m.terminal && !m.ownModel);
+      const own = [...state.workspaces.values()].filter((w) => w.meta.ownModel).length;
+      const detail = follower ? `${follower.provider} · ${sizeOf(follower.limit)} context${follower.vision === false ? ' · no images' : follower.vision ? ' · sees images' : ''}` : (state.device?.provider ?? '');
+      const note = own ? `${own} project${own > 1 ? 's' : ''} on ${own > 1 ? 'their' : 'its'} own model` : 'Every project uses it';
+      return h('div', { class: 'group' }, row('cube', state.device?.model ?? first?.model ?? '—', null, { sub: [detail, note].filter(Boolean).join(' · '), onclick: up ? () => chooseModel() : null }));
+    })(),
     ...agentSettings(up, toggle),
+    section('AGENT CHARACTER'),
+    h('div', { class: 'group' }, row('logo', 'Live Agent character', characterChoiceLabel(characterSetting), { sub: 'Kept on this phone. Auto picks a character by the session’s model.', onclick: chooseCharacter })),
     section('NOTIFICATIONS'),
     h(
       'div',
@@ -2999,10 +3098,40 @@ async function lockOut() {
   signOut(`${LOCKOUT_TRIES} wrong PINs within 10 minutes: this phone was unpaired. To use it again, run seeker remote --setup on your Mac and open the link on this phone.`);
 }
 
-function passed() {
+/** The centres of what the gate's pixels fly out of after an unlock: the PIN's dots, or the Face ID key. */
+function unlockPoints(via) {
+  const pick = via === 'face' ? '#lock .pin-key[aria-label="Unlock with Face ID"]' : '#lock .pin-dots i';
+  return [...document.querySelectorAll(pick)].map((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+}
+
+let gate = null; // the Jack In gate while it plays (jackin.js)
+/** Opens through the gate: the robot, the tap, the code, then the app. `from`: points its pixels fly out of. */
+function jackIn(from = null) {
+  const plan = gatePlan({ paired: Boolean(state.secret), reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, notice: fromNotice });
+  gate?.stop();
+  let root = $('gate');
+  if (plan === 'none') return root?.remove();
+  if (!root) document.body.append((root = h('div', { id: 'gate' })));
+  gate = openGate({
+    root,
+    from,
+    auto: plan === 'auto',
+    status: () => ({ linked: state.linked, online: state.online, ms: state.latency?.ms ?? null, sessions: state.workspaces.size }),
+    target: () => document.querySelector('#app header.brand .mark'),
+    onDone: () => ((gate = null), render()),
+  });
+}
+
+function passed(via = 'pin') {
   const then = pad?.kind === 'verify' ? pad.then : null;
+  // An unlock opens through the gate, its robot built out of the PIN's dots (or the Face ID key).
+  const from = pad?.kind === 'unlock' ? unlockPoints(via) : null;
   if (lockCfg.failures || lockCfg.until) saveLock(cleared(lockCfg));
   state.locked = false;
+  if (from) jackIn(from);
   closePad();
   touched(true);
   if (then) then();
@@ -3019,7 +3148,7 @@ async function tryFace(auto = false) {
   try {
     const cred = await navigator.credentials.get({ publicKey: { challenge: random(32), rpId: location.hostname, allowCredentials: [{ type: 'public-key', id: fromBase64(lockCfg.faceId), transports: ['internal'] }], userVerification: 'required', timeout: 60_000 } });
     if (pad !== asking) return;
-    if (cred && sameId(cred.rawId, lockCfg.faceId) && userVerified(cred.response.authenticatorData)) return passed();
+    if (cred && sameId(cred.rawId, lockCfg.faceId) && userVerified(cred.response.authenticatorData)) return passed('face');
     Object.assign(pad, { note: 'Face ID did not confirm it was you. Enter your PIN.', bad: true });
   } catch {
     // Without a tap first, iOS may refuse to ask: the Face ID key on the pad asks again.
@@ -3171,7 +3300,7 @@ function render(force = false) {
 /** A conversation open on screen has been seen: its ending stops counting on the app's icon (the Mac keeps the mark). */
 function markSeen() {
   const ws = state.view.name === 'session' && state.workspaces.get(state.view.ws);
-  if (!ws?.meta?.unread || document.hidden || !state.online) return;
+  if (!ws?.meta?.unread || document.hidden || !state.online || $('gate')) return;
   const key = `${ws.meta.id}:${ws.meta.lastAt}`;
   if (seenSent.has(key)) return;
   seenSent.add(key);
@@ -3539,7 +3668,7 @@ function slashCommands() {
   };
   return [
     { name: '/init', about: 'write SEEKER.md for this project', off: busy, run: () => sendText(id, INIT) },
-    { name: '/model', about: 'switch the model', off: busy || terminal, run: chooseModel },
+    { name: '/model', about: 'switch this project’s model', off: busy || terminal, run: () => chooseModel(id) },
     { name: '/new', about: 'start a new conversation', off: busy || terminal, run: () => newConversation(ws.meta) },
     { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => $('stop').click() },
     { name: '/image', about: 'attach a photo, screenshot or video', off: false, run: () => $('file').click() },
@@ -3697,7 +3826,8 @@ function addSheet() {
     h(
       'div',
       { class: 'group add-group' },
-      item('cube', 'Model', null, chooseModel, { value: meta.model, off: busy || Boolean(meta.terminal), more: true }),
+      item('cube', 'Model', meta.ownModel ? 'This project’s own' : 'The default', () => chooseModel(meta.id), { value: meta.model, off: busy || Boolean(meta.terminal), more: true }),
+      item('logo', 'Character', null, () => chooseProjectCharacter(meta), { value: projectCharacterLabel(meta).replace(/^Phone setting · /, ''), more: true }),
       item('terminal', 'Commands', 'Slash commands and earlier messages', showCommands, { more: true }),
     ),
   );
@@ -3762,15 +3892,10 @@ if (window.visualViewport) {
 }
 
 // ── start ──────────────────────────────────────────────────────────────────
-// The launch (index.html) plays over the app while it loads; CSS ends it by itself. It leaves the page
-// when its last step ends, on a tap (skip), or after a while in any case.
-{
-  const launch = $('launch');
-  const gone = () => launch?.remove();
-  launch?.addEventListener('animationend', (event) => event.target === launch && event.animationName === 'launch-out' && gone());
-  launch?.addEventListener('pointerdown', gone);
-  setTimeout(gone, 3000);
-}
+// The Jack In gate (jackin.js) covers the app from the first paint: it plays once SEEKER is open, at once
+// or after the unlock. Opened from a notification, it runs without waiting for a tap.
+const fromNotice = /[#&]v=/.test(location.hash);
+$('gate')?.classList.add('held');
 (async () => {
   // A pairing link carries the secret after "#", which browsers never send to the server.
   const fromLink = /[#&]k=([^&]+)/.exec(location.hash)?.[1];
@@ -3782,8 +3907,9 @@ if (window.visualViewport) {
   if (secret) {
     state.secret = secret;
     checkLock();
+    if (!state.locked) jackIn();
     await pair(secret);
-  }
+  } else $('gate')?.remove();
   render();
   globalThis.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.()
     .then((ok) => ((state.faceIdAvailable = ok), render()))
@@ -3808,7 +3934,7 @@ setInterval(() => {
   render();
 }, 30_000);
 document.addEventListener('visibilitychange', () => {
-  // Out of sight, the robots and the launch stop moving (style.css), so nothing animates for no one.
+  // Out of sight, the robots and the gate stop moving (style.css), so nothing animates for no one.
   document.documentElement.classList.toggle('backgrounded', document.hidden);
   if (!document.hidden && state.secret) (ping(), render());
 });

@@ -97,7 +97,7 @@ test('lock: the app hides everything behind the lock and asks Face ID to verify 
   assert.equal((app.match(/userVerification: 'required'/g) ?? []).length, 2, 'setup and unlock both require Face ID, not just presence');
   assert.match(app, /authenticatorAttachment: 'platform'/, 'the passkey lives on this phone');
   assert.match(app, /userVerified\(cred\.response\.authenticatorData\)/);
-  assert.match(app, /if \(secret\) \{\s*state\.secret = secret;\s*checkLock\(\);\s*await pair\(secret\);/, 'locked before the first event from the Mac is drawn');
+  assert.match(app, /if \(secret\) \{\s*state\.secret = secret;\s*checkLock\(\);\s*if \(!state\.locked\) jackIn\(\);\s*await pair\(secret\);/, 'locked before the first event from the Mac is drawn');
 });
 
 test('lock: quick taps on the keypad do not zoom the app on iOS', () => {

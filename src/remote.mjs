@@ -310,6 +310,9 @@ export function transcriptOf(messages, at = Date.now()) {
   return items.slice(-MAX_ITEMS);
 }
 
+/** A project opened from the phone, or null (none, or a terminal session, which settles its own model). */
+const own = (workspace) => (workspace && !workspace.linked ? workspace : null);
+
 export class Workspace {
   /**
    * @param {object} daemon  the RemoteDaemon, or for a session running in a terminal the TerminalLink that leads to one
@@ -319,6 +322,7 @@ export class Workspace {
     this.daemon = daemon;
     this.cwd = cwd;
     this.terminal = terminal;
+    this.ownModel = false; // true once the phone gave this project a model of its own (config.projectModels)
     this.id = id ?? crypto.createHash('sha256').update(cwd).digest('hex').slice(0, 10);
     this.name = path.basename(cwd) || cwd;
     this.items = [];
@@ -400,6 +404,8 @@ export class Workspace {
       vision: Boolean(agent.caps.vision || agent.provider.ownTools),
       progress: todos.length ? { done, total: todos.length, current } : null,
       ...(this.terminal ? { terminal: true } : {}),
+      // Chose its own model on the phone, instead of following the default.
+      ...(this.ownModel ? { ownModel: true } : {}),
     };
   }
 
@@ -971,8 +977,48 @@ export class RemoteDaemon {
   }
 
   /** Makes `model` on `providerId` the model of every open workspace, now and for the next start. */
-  async #switchModel(providerId, model) {
-    const busy = [...this.workspaces.values()].find((w) => !w.linked && w.status !== 'idle');
+  /** The model a project chose for itself on the phone, or null when it follows the default. */
+  #projectModel(cwd) {
+    const pick = this.config.projectModels?.[cwd];
+    return typeof pick?.provider === 'string' && typeof pick?.model === 'string' ? pick : null;
+  }
+
+  /** Remembers (or with null forgets) a project's own model; on disk too unless this daemon was told not to remember. */
+  #saveProjectModel(cwd, pick) {
+    const all = { ...(this.config.projectModels ?? {}) };
+    if (pick) all[cwd] = pick;
+    else delete all[cwd];
+    this.config.projectModels = all;
+    if (this.remember) saveConfig({ projectModels: all });
+  }
+
+  /** Puts a model on one project's agent. The model is checked first, so one that cannot run changes nothing. */
+  async #useModel(workspace, providerId, model) {
+    // Each workspace gets its own provider object: some keep a session per conversation.
+    const provider = createProvider(providerId, this.config);
+    const info = await provider.describe(model);
+    workspace.agent.setModel(model, info, provider);
+    workspace.agent.usedTokens = 0;
+    workspace.agent.lastStats = null;
+    return provider.label;
+  }
+
+  /**
+   * From inside a project the phone switches that project only, and it keeps the model when it is opened again.
+   * Without one (Settings, or an older app) it changes the default, used by every project without a model of its own.
+   */
+  async #switchModel(providerId, model, workspace = null) {
+    if (workspace) {
+      if (workspace.linked) throw new Error('This conversation runs in a terminal on your Mac. Switch its model there.');
+      if (workspace.status !== 'idle') throw new Error(`${workspace.name} is still working. Stop it before switching model.`);
+      const label = await this.#useModel(workspace, providerId, model);
+      this.#saveProjectModel(workspace.cwd, { provider: providerId, model });
+      workspace.ownModel = true;
+      workspace.touch();
+      return label;
+    }
+    const following = [...this.workspaces.values()].filter((w) => !w.linked && !w.ownModel);
+    const busy = following.find((w) => w.status !== 'idle');
     if (busy) throw new Error(`${busy.name} is still working. Stop it before switching model.`);
     const first = createProvider(providerId, this.config);
     const info = await first.describe(model); // fails here if the model or the provider is not usable
@@ -983,14 +1029,26 @@ export class RemoteDaemon {
       saveConfig({ provider: providerId, model });
       saveProviderConfig(this.config, providerId, { model });
     }
-    for (const workspace of this.workspaces.values()) {
-      if (workspace.linked) continue; // a terminal session chooses its own model, in the terminal
+    // A terminal session chooses its own model, in the terminal; a project with its own model keeps it.
+    for (const workspace of following) {
       // Each workspace gets its own provider object: some keep a session per conversation.
       workspace.agent.setModel(model, info, createProvider(providerId, this.config));
       workspace.agent.usedTokens = 0;
       workspace.agent.lastStats = null;
     }
     return first.label;
+  }
+
+  /** A project with its own model goes back to the default one. */
+  #followDefault(workspace) {
+    if (workspace.linked) throw new Error('This conversation runs in a terminal on your Mac. Switch its model there.');
+    if (workspace.status !== 'idle') throw new Error(`${workspace.name} is still working. Stop it before switching model.`);
+    workspace.agent.setModel(this.config.model, this.info, createProvider(this.config.provider, this.config));
+    workspace.agent.usedTokens = 0;
+    workspace.agent.lastStats = null;
+    this.#saveProjectModel(workspace.cwd, null);
+    workspace.ownModel = false;
+    workspace.touch();
   }
 
   #activeDef() {
@@ -1039,23 +1097,26 @@ export class RemoteDaemon {
     if (!def || def.local || def.kind === 'claude-code') throw new Error('That provider does not take an API key.');
     const key = typeof raw === 'string' ? raw.trim() : '';
     if (key.length < 8 || key.length > 400 || /[^\x21-\x7e]/.test(key)) throw new Error('That does not look like an API key.');
-    const active = def.id === this.config.provider;
-    const busy = active && [...this.workspaces.values()].find((w) => !w.linked && w.status !== 'idle');
+    // The projects running on this provider: by default, or by a model of their own.
+    const using = [...this.workspaces.values()].filter((w) => !w.linked && w.agent.provider.id === def.id);
+    const busy = using.find((w) => w.status !== 'idle');
     if (busy) throw new Error(`${busy.name} is still working. Stop it before changing the key it uses.`);
     this.#saveProvider(def.id, { apiKey: key });
-    // A provider may hold on to the key it started with, so the open projects get a fresh one.
-    if (active) for (const workspace of this.workspaces.values()) if (!workspace.linked) workspace.agent.setModel(workspace.agent.model, workspace.agent.info, createProvider(def.id, this.config));
+    // A provider may hold on to the key it started with, so those projects get a fresh one.
+    for (const workspace of using) workspace.agent.setModel(workspace.agent.model, workspace.agent.info, createProvider(def.id, this.config));
     this.log(`API key for ${def.label} set from the phone`);
     return def.label;
   }
 
-  #providerList() {
+  /** The providers the phone can pick from; `workspace`: the project it is picking for, else the default. */
+  #providerList(workspace = null) {
+    const current = workspace ? workspace.agent.provider.id : this.config.provider;
     return providerDefs(this.config).map((d) => ({
       id: d.id,
       label: d.label,
       local: Boolean(d.local),
       ready: !needsKey(d, this.config),
-      active: d.id === this.config.provider,
+      active: d.id === current,
       // null: takes no key. 'env': set in the Mac's environment, which wins over a saved one.
       key: d.local || d.kind === 'claude-code' ? null : d.env && process.env[d.env] ? 'env' : this.config.providers?.[d.id]?.apiKey ? 'set' : 'none',
     }));
@@ -1192,6 +1253,16 @@ export class RemoteDaemon {
     if (existing) return existing;
     const workspace = new Workspace(this, cwd);
     await workspace.open();
+    // A model this project was given on the phone. One that can no longer run leaves it on the default.
+    const pick = this.#projectModel(cwd);
+    if (pick) {
+      try {
+        await this.#useModel(workspace, pick.provider, pick.model);
+        workspace.ownModel = true;
+      } catch (err) {
+        this.log(`${workspace.name}: its own model ${pick.model} cannot be used (${err.message}); using ${this.config.model}`);
+      }
+    }
     // Opened again (after a restart, or closed and opened): it carries on with the conversation it had.
     const held = this.conversations[cwd];
     if (typeof held === 'string' && path.dirname(held) === workspace.session?.dir && fs.existsSync(held) && workspace.resume(held)) this.log(`${workspace.name}: continuing its conversation`);
@@ -1394,11 +1465,12 @@ export class RemoteDaemon {
           // Echoed straight back, so the phone can time the whole path: phone → relay → here → relay → phone.
           return this.send({ t: 'pong', id: command.id });
         case 'providers':
-          return this.send({ t: 'providers', list: this.#providerList() });
+          return this.send({ t: 'providers', list: this.#providerList(own(workspace)) });
         case 'models': {
           const provider = createProvider(String(command.provider), this.config);
           const models = await provider.listModels();
-          const active = provider.id === this.config.provider ? this.config.model : (this.config.providers?.[provider.id]?.model ?? null);
+          const mine = own(workspace);
+          const active = mine && provider.id === mine.agent.provider.id ? mine.agent.model : provider.id === this.config.provider ? this.config.model : (this.config.providers?.[provider.id]?.model ?? null);
           return this.send({
             t: 'models',
             provider: provider.id,
@@ -1408,10 +1480,18 @@ export class RemoteDaemon {
           });
         }
         case 'model': {
-          const label = await this.#switchModel(String(command.provider), String(command.model));
-          this.log(`model switched to ${command.model} via ${label}`);
+          // Named a project that has closed since: switching the default instead would surprise.
+          if (command.ws !== undefined && !workspace) throw new Error('That project is no longer open.');
+          if (workspace && command.reset === true) {
+            this.#followDefault(workspace);
+            this.log(`${workspace.name}: back on the default model ${this.config.model}`);
+            this.send(this.snapshot(), { snapshot: true });
+            return this.send({ t: 'toast', text: `${workspace.name} uses the default model again: ${this.config.model}` });
+          }
+          const label = await this.#switchModel(String(command.provider), String(command.model), workspace ?? null);
+          this.log(`${workspace ? `${workspace.name}: ` : 'default '}model switched to ${command.model} via ${label}`);
           this.send(this.snapshot(), { snapshot: true });
-          return this.send({ t: 'toast', text: `Model: ${command.model} via ${label}` });
+          return this.send({ t: 'toast', text: workspace ? `${workspace.name}: ${command.model} via ${label}` : `Model: ${command.model} via ${label}` });
         }
         case 'config': {
           this.#configure(String(command.key), command.value);
