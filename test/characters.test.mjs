@@ -1,5 +1,6 @@
 // The phone's agent characters: which one each model gets, the phone's setting, and the drawing itself.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { CHARACTERS, CHOICES, FACES, characterFor, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from '../remote-server/public/characters.js';
 import { MOODS } from '../remote-server/public/robot.js';
@@ -56,7 +57,8 @@ test('characters: the label names the character and its tier', () => {
 test('characters: every character draws every mood, with ids that never clash on one page', () => {
   for (const mood of Object.keys(MOODS)) assert.ok(FACES[mood], `a face for ${mood}`);
   const ids = new Set();
-  for (const id of Object.keys(CHARACTERS)) {
+  for (const [id, character] of Object.entries(CHARACTERS)) {
+    if (character.portrait) continue;
     for (const face of new Set(Object.values(FACES))) {
       const svg = drawCharacter({ id, tier: id === 'sage' ? 'opus' : null }, { face });
       assert.match(svg, /^<svg class="char" viewBox="0 0 120 120" aria-hidden="true">[\s\S]*<\/svg>$/);
@@ -89,4 +91,18 @@ test('characters: a project can have its own, and one without follows the phone 
 
   assert.deepEqual(readProjectCharacters(JSON.stringify({ '~/a': 'sage', '~/b': 'nope', '~/c': 3 })), { '~/a': 'sage' });
   for (const bad of ['not json', '[]', 'null', '"x"', undefined]) assert.deepEqual(readProjectCharacters(bad), {}, String(bad));
+});
+
+test('characters: mascot portraits ship with the remote and can be saved per project', () => {
+  const portraits = Object.entries(CHARACTERS).filter(([, character]) => character.portrait);
+  assert.equal(portraits.length, 20);
+  for (const [id, { portrait, role }] of portraits) {
+    assert.ok(role, id);
+    assert.ok(CHOICES.includes(id));
+    const saved = readProjectCharacters(JSON.stringify({ '~/demo': id }));
+    const choice = characterSettingFor('auto', saved, '~/demo');
+    assert.deepEqual(pickCharacter(choice, 'claude-opus-5-5'), { id, tier: null });
+    const image = readFileSync(new URL(`../remote-server/public${portrait}`, import.meta.url));
+    assert.equal(image.toString('ascii', 8, 12), 'WEBP', portrait);
+  }
 });

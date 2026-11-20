@@ -4,7 +4,31 @@
 // Plain data in, an SVG string out — no DOM — so the page and the tests run the same code. Nothing
 // from the Mac is ever put into the SVG: a model name only picks among the fixed drawings below.
 
-/** Every character, in the order the settings list them. `family` is what it stands for. */
+// Portraits from the two concept sheets are manual choices. Automatic choices still use the model.
+const MASCOTS = Object.fromEntries([
+  ['seeker-core', 'Seeker', 'Core Agent', '#62E6FF'],
+  ['nova-builder', 'Nova', 'Builder', '#BA80FF'],
+  ['kairo', 'Kairo', 'Coder', '#FFAD63'],
+  ['zen', 'Zen', 'Reviewer', '#94E975'],
+  ['sage-planner', 'Sage', 'Planner', '#F4BC59'],
+  ['lumi', 'Lumi', 'Creative', '#BD85FF'],
+  ['atlas', 'Atlas', 'Ops', '#A8C5F5'],
+  ['orion', 'Orion', 'Analyzer', '#58E7F0'],
+  ['rae', 'Rae', 'Automator', '#F682C5'],
+  ['cosmo', 'Cosmo', 'Explorer', '#A298FF'],
+  ['golem', 'Golem', 'Infra', '#B1E872'],
+  ['vex', 'Vex', 'Security', '#FF729C'],
+  ['foxwise', 'Foxwise', 'Strategist', '#FFB33E'],
+  ['owlara', 'Owlara', 'Analyst', '#5DEAF2'],
+  ['opty', 'Opty', 'Operator', '#C8C3E2'],
+  ['flowbie', 'Flowbie', 'Executor', '#8EEE80'],
+  ['ravenix', 'Ravenix', 'Scout', '#B385FA'],
+  ['bytecat', 'Bytecat', 'Hacker', '#BE80F6'],
+  ['shieldbug', 'Shieldbug', 'Defender', '#FFBA4D'],
+  ['octy', 'Octy', 'Multitasker', '#5DEAF2'],
+].map(([id, name, role, accent]) => [id, { name, role, accent, portrait: `/mascots/${id}.webp` }]));
+
+/** Model characters carry a family. Mascot portraits carry a collection role. */
 export const CHARACTERS = {
   sage: { name: 'Sage', kind: 'Owl', family: 'Claude', accent: '#E8805F' },
   nova: { name: 'Nova', kind: 'Android', family: 'GPT', accent: '#2BD9B0' },
@@ -14,6 +38,7 @@ export const CHARACTERS = {
   abyss: { name: 'Abyss', kind: 'Diver', family: 'DeepSeek', accent: '#46B4FF' },
   gust: { name: 'Gust', kind: 'Wind spirit', family: 'Mistral', accent: '#86D3FF' },
   byte: { name: 'Byte', kind: 'Slime', family: 'Other models', accent: '#62E089' },
+  ...MASCOTS,
 };
 
 /** Claude's tiers, each worn as an accessory: a crown, a scarf, a sprout, a book. */
@@ -59,7 +84,7 @@ export function characterFor(model, provider) {
 export function pickCharacter(setting, model, provider) {
   if (setting === 'seeker') return null;
   const auto = characterFor(model, provider);
-  if (!setting || setting === 'auto' || !CHARACTERS[setting]) return auto;
+  if (!setting || setting === 'auto' || !Object.hasOwn(CHARACTERS, setting)) return auto;
   return { id: setting, tier: setting === auto.id ? auto.tier : null };
 }
 
