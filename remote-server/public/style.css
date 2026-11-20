@@ -5807,6 +5807,63 @@ button.hero-bot:focus-visible {
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform-origin: 50% 82%;
+}
+
+/* Portraits share the bot's body and status effects. These poses give the
+   artwork additional motion without changing its framing or loading frames. */
+.bot.m-idle .mascot-portrait {
+  animation: mascot-sway 5s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+
+.bot.m-thinking .mascot-portrait {
+  animation: mascot-ponder 3.2s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+
+.bot.m-coding .mascot-portrait {
+  animation: mascot-focus 1.8s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+
+.bot.m-executing .mascot-portrait {
+  animation: mascot-focus 900ms ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+
+.bot.m-awaiting_approval .mascot-portrait {
+  transform: rotate(-5deg);
+}
+
+.bot.m-success .mascot-portrait {
+  animation: mascot-sway 600ms ease-out 1;
+}
+
+.bot.m-error .mascot-portrait {
+  animation: mascot-recoil 360ms ease-out 1;
+}
+
+@keyframes mascot-sway {
+  0%, 100% { transform: none; }
+  30% { transform: rotate(-4deg); }
+  70% { transform: rotate(3deg); }
+}
+
+@keyframes mascot-ponder {
+  0%, 100% { transform: none; }
+  35%, 65% { transform: rotate(-7deg) translateY(-1px); }
+}
+
+@keyframes mascot-focus {
+  0%, 100% { transform: none; }
+  45% { transform: translateY(1px) scale(1.035, 0.965); }
+}
+
+@keyframes mascot-recoil {
+  0%, 100% { transform: none; }
+  25% { transform: rotate(-7deg) scale(0.96); }
+  60% { transform: rotate(3deg); }
 }
 
 #sheet .mascot-heading {
@@ -5846,6 +5903,14 @@ button.hero-bot:focus-visible {
 
 .mascot-grid .bot .ring {
   display: none;
+}
+
+.mascot-grid .row-btn:nth-child(3n + 2) .mascot-portrait {
+  --t: -1.35s;
+}
+
+.mascot-grid .row-btn:nth-child(3n + 3) .mascot-portrait {
+  --t: -2.7s;
 }
 
 .mascot-grid .tick {
