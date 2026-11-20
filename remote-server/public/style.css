@@ -3968,6 +3968,16 @@ img.fpv-media {
   background: var(--sk-surface);
   animation: rise var(--sk-motion-slow) cubic-bezier(0.2, 0.8, 0.2, 1);
 }
+/* The sheet sits outside #app, so it does not shrink with it: while the keyboard is up it is held
+   to the visible height (app.js sets --app-h), which keeps the field and its button above the keys. */
+.keyboard #sheet {
+  bottom: auto;
+  height: var(--app-h);
+}
+.keyboard #sheet .panel {
+  max-height: calc(var(--app-h) - 24px);
+  padding-bottom: 18px;
+}
 #sheet .grip {
   width: 38px;
   height: 4px;
