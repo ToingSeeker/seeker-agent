@@ -12,6 +12,7 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, 
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
+import { gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
@@ -2999,10 +3000,40 @@ async function lockOut() {
   signOut(`${LOCKOUT_TRIES} wrong PINs within 10 minutes: this phone was unpaired. To use it again, run seeker remote --setup on your Mac and open the link on this phone.`);
 }
 
-function passed() {
+/** The centres of what the gate's pixels fly out of after an unlock: the PIN's dots, or the Face ID key. */
+function unlockPoints(via) {
+  const pick = via === 'face' ? '#lock .pin-key[aria-label="Unlock with Face ID"]' : '#lock .pin-dots i';
+  return [...document.querySelectorAll(pick)].map((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+}
+
+let gate = null; // the Jack In gate while it plays (jackin.js)
+/** Opens through the gate: the robot, the tap, the code, then the app. `from`: points its pixels fly out of. */
+function jackIn(from = null) {
+  const plan = gatePlan({ paired: Boolean(state.secret), reduced: matchMedia('(prefers-reduced-motion: reduce)').matches, notice: fromNotice });
+  gate?.stop();
+  let root = $('gate');
+  if (plan === 'none') return root?.remove();
+  if (!root) document.body.append((root = h('div', { id: 'gate' })));
+  gate = openGate({
+    root,
+    from,
+    auto: plan === 'auto',
+    status: () => ({ linked: state.linked, online: state.online, ms: state.latency?.ms ?? null, sessions: state.workspaces.size }),
+    target: () => document.querySelector('#app header.brand .mark'),
+    onDone: () => ((gate = null), render()),
+  });
+}
+
+function passed(via = 'pin') {
   const then = pad?.kind === 'verify' ? pad.then : null;
+  // An unlock opens through the gate, its robot built out of the PIN's dots (or the Face ID key).
+  const from = pad?.kind === 'unlock' ? unlockPoints(via) : null;
   if (lockCfg.failures || lockCfg.until) saveLock(cleared(lockCfg));
   state.locked = false;
+  if (from) jackIn(from);
   closePad();
   touched(true);
   if (then) then();
@@ -3019,7 +3050,7 @@ async function tryFace(auto = false) {
   try {
     const cred = await navigator.credentials.get({ publicKey: { challenge: random(32), rpId: location.hostname, allowCredentials: [{ type: 'public-key', id: fromBase64(lockCfg.faceId), transports: ['internal'] }], userVerification: 'required', timeout: 60_000 } });
     if (pad !== asking) return;
-    if (cred && sameId(cred.rawId, lockCfg.faceId) && userVerified(cred.response.authenticatorData)) return passed();
+    if (cred && sameId(cred.rawId, lockCfg.faceId) && userVerified(cred.response.authenticatorData)) return passed('face');
     Object.assign(pad, { note: 'Face ID did not confirm it was you. Enter your PIN.', bad: true });
   } catch {
     // Without a tap first, iOS may refuse to ask: the Face ID key on the pad asks again.
@@ -3171,7 +3202,7 @@ function render(force = false) {
 /** A conversation open on screen has been seen: its ending stops counting on the app's icon (the Mac keeps the mark). */
 function markSeen() {
   const ws = state.view.name === 'session' && state.workspaces.get(state.view.ws);
-  if (!ws?.meta?.unread || document.hidden || !state.online) return;
+  if (!ws?.meta?.unread || document.hidden || !state.online || $('gate')) return;
   const key = `${ws.meta.id}:${ws.meta.lastAt}`;
   if (seenSent.has(key)) return;
   seenSent.add(key);
@@ -3762,15 +3793,10 @@ if (window.visualViewport) {
 }
 
 // ── start ──────────────────────────────────────────────────────────────────
-// The launch (index.html) plays over the app while it loads; CSS ends it by itself. It leaves the page
-// when its last step ends, on a tap (skip), or after a while in any case.
-{
-  const launch = $('launch');
-  const gone = () => launch?.remove();
-  launch?.addEventListener('animationend', (event) => event.target === launch && event.animationName === 'launch-out' && gone());
-  launch?.addEventListener('pointerdown', gone);
-  setTimeout(gone, 3000);
-}
+// The Jack In gate (jackin.js) covers the app from the first paint: it plays once SEEKER is open, at once
+// or after the unlock. Opened from a notification, it runs without waiting for a tap.
+const fromNotice = /[#&]v=/.test(location.hash);
+$('gate')?.classList.add('held');
 (async () => {
   // A pairing link carries the secret after "#", which browsers never send to the server.
   const fromLink = /[#&]k=([^&]+)/.exec(location.hash)?.[1];
@@ -3782,8 +3808,9 @@ if (window.visualViewport) {
   if (secret) {
     state.secret = secret;
     checkLock();
+    if (!state.locked) jackIn();
     await pair(secret);
-  }
+  } else $('gate')?.remove();
   render();
   globalThis.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable?.()
     .then((ok) => ((state.faceIdAvailable = ok), render()))
@@ -3808,7 +3835,7 @@ setInterval(() => {
   render();
 }, 30_000);
 document.addEventListener('visibilitychange', () => {
-  // Out of sight, the robots and the launch stop moving (style.css), so nothing animates for no one.
+  // Out of sight, the robots and the gate stop moving (style.css), so nothing animates for no one.
   document.documentElement.classList.toggle('backgrounded', document.hidden);
   if (!document.hidden && state.secret) (ping(), render());
 });

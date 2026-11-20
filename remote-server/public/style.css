@@ -25,7 +25,7 @@
   --sk-primary-deep: #B35F00;
   --sk-primary-soft: rgba(255, 138, 0, 0.12);
   --sk-on-primary: #1A0E00;
-  /* The robot's eyes while it works, and the launch's pixels */
+  /* The robot's eyes while it works, and in the Jack In gate */
   --sk-cyan: #31D8F4;
   /* Execution */
   --sk-execution: #4188FF;
@@ -5217,171 +5217,112 @@ pre,
   }
 }
 
-/* ── launch: the robot assembles from pixels and wakes (index.html #launch) ──
-   1.4 s, over the app that is already loading beneath it:
-     0–200 ms     the dark comes up, pixels and a faint grid appear
-     200–650 ms   the pixels fly in and the robot is built from the bottom up
-     650–1050 ms  its eyes light cyan and blink once, a ring opens under it, it floats
-     1050–1400 ms the name appears, the robot settles smaller, the whole layer fades out
-   CSS alone ends it (launch-out leaves it invisible and untouchable), so it cannot stay up even if
-   app.js never runs. Only transforms and opacity move, apart from the robot's short reveal. */
-#launch {
+/* ── the Jack In gate (jackin.js, index.html #gate) ──
+   A canvas draws the robot, the code rain and the dive; the prompt and the terminal are text over it.
+   Before app.js runs the gate is a plain cover; app.js holds it (.held). Without app.js, gate-out takes
+   it away by itself, so it can never keep the app hidden. Under the lock (#lock is z-index 40). */
+#gate {
   position: fixed;
   inset: 0;
-  z-index: 100;
-  display: grid;
-  place-items: center;
+  z-index: 35;
   overflow: hidden;
   background: var(--sk-bg);
-  animation: launch-out 300ms ease-in 1100ms forwards;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  animation: gate-out 300ms ease-in 6s forwards;
 }
-.l-grid {
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(rgba(49, 216, 244, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(49, 216, 244, 0.06) 1px, transparent 1px);
-  background-size: 22px 22px;
-  background-position: center;
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0, transparent 62%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 0, transparent 62%);
-  opacity: 0;
-  animation: l-fade-in 200ms ease-out forwards;
-}
-.l-pixels {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-}
-.l-pixels i {
-  position: absolute;
-  width: 6px;
-  height: 6px;
-  margin: -3px;
-  background: var(--sk-primary);
-  box-shadow: 0 0 8px rgba(255, 138, 0, 0.55);
-  opacity: 0;
-  animation: l-pixel 650ms cubic-bezier(0.55, 0, 0.3, 1) forwards;
-}
-.l-pixels i:nth-child(3n) {
-  background: var(--sk-cyan);
-  box-shadow: 0 0 8px rgba(49, 216, 244, 0.55);
-}
-.l-pixels i:nth-child(1) { --dx: -130px; --dy: -170px; }
-.l-pixels i:nth-child(2) { --dx: 110px; --dy: -150px; animation-delay: 20ms; }
-.l-pixels i:nth-child(3) { --dx: -160px; --dy: -40px; animation-delay: 40ms; }
-.l-pixels i:nth-child(4) { --dx: 150px; --dy: -60px; }
-.l-pixels i:nth-child(5) { --dx: -90px; --dy: 120px; animation-delay: 30ms; }
-.l-pixels i:nth-child(6) { --dx: 120px; --dy: 140px; animation-delay: 10ms; }
-.l-pixels i:nth-child(7) { --dx: -40px; --dy: -210px; animation-delay: 50ms; }
-.l-pixels i:nth-child(8) { --dx: 60px; --dy: 200px; animation-delay: 20ms; }
-.l-pixels i:nth-child(9) { --dx: -190px; --dy: 70px; animation-delay: 60ms; }
-.l-pixels i:nth-child(10) { --dx: 180px; --dy: 30px; animation-delay: 40ms; }
-.l-pixels i:nth-child(11) { --dx: -70px; --dy: -110px; animation-delay: 70ms; }
-.l-pixels i:nth-child(12) { --dx: 80px; --dy: -100px; animation-delay: 30ms; }
-.l-pixels i:nth-child(13) { --dx: -120px; --dy: 40px; animation-delay: 80ms; }
-.l-pixels i:nth-child(14) { --dx: 100px; --dy: 70px; animation-delay: 60ms; }
-.l-pixels i:nth-child(15) { --dx: 20px; --dy: -150px; animation-delay: 90ms; }
-.l-pixels i:nth-child(16) { --dx: -20px; --dy: 150px; animation-delay: 50ms; }
-.l-pixels i:nth-child(17) { --dx: -150px; --dy: -120px; animation-delay: 100ms; }
-.l-pixels i:nth-child(18) { --dx: 140px; --dy: -190px; animation-delay: 70ms; }
-.l-bot {
-  position: relative;
-  width: 112px;
-  height: 112px;
-  opacity: 0;
-  animation: l-build 450ms ease-in-out 200ms forwards, l-settle 300ms ease 1050ms forwards;
-}
-.l-bot .robot {
-  display: block;
-  width: 100%;
-  height: 100%;
-  animation: l-float 400ms ease-in-out 650ms both;
-}
-#launch .robot * {
+#gate.held {
   animation: none;
 }
-#launch .robot .eye {
-  stroke: var(--sk-cyan);
+#gate.drawn {
+  background: transparent;
 }
-#launch .robot .face {
-  opacity: 0.2;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: l-eyes 400ms ease 650ms forwards;
+#gate:focus {
+  outline: none;
 }
-.l-ring {
+#gate canvas {
   position: absolute;
-  left: 50%;
-  bottom: -6px;
-  width: 104px;
-  height: 18px;
-  margin-left: -52px;
-  border: 2px solid var(--sk-primary);
-  border-radius: 50%;
-  box-shadow: 0 0 14px rgba(255, 138, 0, 0.5);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+/* Faint scanlines while it is dark; gone once the code opens on the app. */
+#gate::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 3px);
+  transition: opacity 300ms;
+}
+#gate.open::after {
   opacity: 0;
-  transform: scale(0.3);
-  animation: l-ring 450ms ease-out 700ms forwards;
 }
-.l-word {
+/* Once through, a tap on the app is not taken by the gate. */
+#gate.through {
+  pointer-events: none;
+}
+.g-prompt,
+.g-term {
   position: absolute;
-  top: calc(50% + 74px);
   left: 0;
   right: 0;
-  text-align: center;
-  font: 700 22px/1 var(--sans);
-  letter-spacing: 0.32em;
-  text-indent: 0.32em;
-  color: var(--sk-text-primary);
+  margin: 0 auto;
+  color: var(--sk-success);
+  font: 500 13px/1.6 var(--mono);
   opacity: 0;
-  animation: l-word 250ms ease-out 900ms forwards;
+  transition: opacity 200ms;
+  pointer-events: none;
 }
-@keyframes launch-out {
+.g-prompt {
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+.g-prompt.on,
+.g-term.on {
+  opacity: 1;
+}
+.g-cur {
+  animation: g-cursor 1s step-end infinite;
+}
+.g-term {
+  width: max-content;
+  max-width: calc(100% - 40px);
+  min-height: 7.2em;
+  padding: 10px 14px;
+  overflow: hidden;
+  border: 1px solid rgba(80, 209, 95, 0.35);
+  border-radius: 10px;
+  background: rgba(6, 12, 8, 0.85);
+  box-shadow: 0 0 24px rgba(80, 209, 95, 0.15);
+  font-size: 12px;
+  white-space: pre;
+}
+/* The header robot, when the gate's robot lands on it. */
+.mark.gate-merge {
+  animation: gate-merge 420ms ease-out;
+}
+@keyframes gate-out {
   to {
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
   }
 }
-@keyframes l-fade-in {
-  to { opacity: 1; }
+@keyframes g-cursor {
+  50% { opacity: 0; }
 }
-@keyframes l-pixel {
-  0% { opacity: 0; transform: translate(var(--dx), var(--dy)); }
-  30% { opacity: 1; transform: translate(var(--dx), var(--dy)); }
-  85% { opacity: 1; }
-  100% { opacity: 0; transform: translate(0, 0) scale(0.4); }
+@keyframes gate-merge {
+  0% { transform: none; filter: none; }
+  35% { transform: scale(1.3); filter: brightness(1.6) drop-shadow(0 0 10px var(--sk-primary)); }
+  100% { transform: none; filter: none; }
 }
-@keyframes l-build {
-  0% { opacity: 0; transform: scale(0.7); clip-path: inset(100% 0 0 0); }
-  40% { opacity: 1; }
-  100% { opacity: 1; transform: none; clip-path: inset(0 0 0 0); }
-}
-@keyframes l-settle {
-  from { opacity: 1; transform: none; }
-  to { opacity: 1; transform: translateY(-6px) scale(0.86); }
-}
-@keyframes l-float {
-  0%, 100% { transform: none; }
-  50% { transform: translateY(-5px); }
-}
-@keyframes l-eyes {
-  0% { opacity: 0.2; }
-  35% { opacity: 1; transform: none; }
-  55% { opacity: 1; transform: scaleY(0.15); }
-  75%, 100% { opacity: 1; transform: none; }
-}
-@keyframes l-ring {
-  0% { opacity: 0; transform: scale(0.3); }
-  40% { opacity: 0.9; }
-  100% { opacity: 0.35; transform: scale(1.15); }
-}
-@keyframes l-word {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-/* No motion wanted: no launch at all (the global rule above stops every animation, which would also stop this one from ending). */
+/* No motion wanted: no gate (app.js does not open it either). */
 @media (prefers-reduced-motion: reduce) {
-  #launch {
+  #gate {
     display: none;
   }
 }
@@ -5605,7 +5546,7 @@ pre,
   animation: none !important;
 }
 html.backgrounded .bot *,
-html.backgrounded #launch * {
+html.backgrounded #gate * {
   animation-play-state: paused;
 }
 @keyframes bot-breathe {

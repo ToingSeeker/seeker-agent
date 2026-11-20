@@ -53,16 +53,10 @@
     <div id="announce" class="sr-only" aria-live="polite"></div>
     <!-- The app lock (lock.js): Face ID or a 6-digit PIN. While it is up, #app and #sheet are hidden and inert. -->
     <div id="lock" hidden></div>
-    <!-- The launch: the robot assembles from pixels and wakes, over the app that is already loading
-         beneath it. CSS alone plays it and takes it away (style.css, "launch"), so it can never stay up;
-         app.js only removes it from the page afterwards, or at once on a tap. Every page load plays it:
-         returning to an app left open does not load the page again. -->
-    <div id="launch" aria-hidden="true">
-      <div class="l-grid"></div>
-      <div class="l-pixels"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
-      <div class="l-bot"><svg class="robot" viewBox="0 -1.5 11 11" shape-rendering="crispEdges" aria-hidden="true"><path class="o" d="M3 0h1v1H3zM7 0h1v1H7zM3 7h2v1H3zM6 7h2v1H6z"/><path class="c" d="M2 1h7v1H2zM1 2h1v2H1zM9 2h1v2H9zM2 4h7v1H2zM3 5h5v1H3zM3 6h2v1H3zM6 6h2v1H6z"/><path class="b" d="M.5 2H1v2H.5zM10 2h.5v2H10zM2 6h1v1H2zM8 6h1v1H8z"/><path class="k" d="M2 2h7v2H2z"/><path class="y" d="M5 6h1v1H5z"/><g class="face" shape-rendering="geometricPrecision"><path class="eye open" d="M4.2 2.5l.6.5-.6.5M6.8 2.5l-.6.5.6.5"/><path class="eye shut" d="M4.15 3h.7M6.15 3h.7"/><path class="cur" d="M5.15 3.4h.7v.25h-.7z"/></g></svg><span class="l-ring"></span></div>
-      <div class="l-word">SEEKER</div>
-    </div>
+    <!-- The Jack In gate (jackin.js): covers the app from the first paint until the robot is tapped.
+         Under the lock (z-index), so after an unlock the robot is built out of the PIN's dots. If app.js
+         never runs, CSS takes it away by itself after a few seconds (style.css, "gate"). -->
+    <div id="gate" aria-hidden="true"></div>
     <script type="module" src="/app.js"></script>
   </body>
 </html>
