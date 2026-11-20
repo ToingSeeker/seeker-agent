@@ -1,6 +1,5 @@
 // The phone's agent characters: which one each model gets, the phone's setting, and the drawing itself.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { CHARACTERS, CHOICES, FACES, characterFor, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from '../remote-server/public/characters.js';
 import { MOODS } from '../remote-server/public/robot.js';
@@ -57,8 +56,7 @@ test('characters: the label names the character and its tier', () => {
 test('characters: every character draws every mood, with ids that never clash on one page', () => {
   for (const mood of Object.keys(MOODS)) assert.ok(FACES[mood], `a face for ${mood}`);
   const ids = new Set();
-  for (const [id, character] of Object.entries(CHARACTERS)) {
-    if (character.portrait) continue;
+  for (const id of Object.keys(CHARACTERS)) {
     for (const face of new Set(Object.values(FACES))) {
       const svg = drawCharacter({ id, tier: id === 'sage' ? 'opus' : null }, { face });
       assert.match(svg, /^<svg class="char" viewBox="0 0 120 120" aria-hidden="true">[\s\S]*<\/svg>$/);
@@ -93,16 +91,20 @@ test('characters: a project can have its own, and one without follows the phone 
   for (const bad of ['not json', '[]', 'null', '"x"', undefined]) assert.deepEqual(readProjectCharacters(bad), {}, String(bad));
 });
 
-test('characters: mascot portraits ship with the remote and can be saved per project', () => {
-  const portraits = Object.entries(CHARACTERS).filter(([, character]) => character.portrait);
-  assert.equal(portraits.length, 20);
-  for (const [id, { portrait, role }] of portraits) {
-    assert.ok(role, id);
+test('characters: the mascot collection is drawn like the model characters and can be saved per project', () => {
+  const mascots = Object.entries(CHARACTERS).filter(([, character]) => character.role);
+  assert.equal(mascots.length, 20);
+  const names = Object.values(CHARACTERS).map(({ name }) => name);
+  assert.equal(new Set(names).size, names.length, 'no two characters share a name');
+  for (const [id, { family }] of mascots) {
+    assert.equal(family, undefined, `${id} is picked by hand, never by a model`);
     assert.ok(CHOICES.includes(id));
     const saved = readProjectCharacters(JSON.stringify({ '~/demo': id }));
     const choice = characterSettingFor('auto', saved, '~/demo');
     assert.deepEqual(pickCharacter(choice, 'claude-opus-5-5'), { id, tier: null });
-    const image = readFileSync(new URL(`../remote-server/public${portrait}`, import.meta.url));
-    assert.equal(image.toString('ascii', 8, 12), 'WEBP', portrait);
+    // Its own drawing, not Byte's fallback, and a face that changes with the mood.
+    const [calm, happy] = ['normal', 'happy'].map((face) => drawCharacter({ id }, { face }).replace(/ch\d+/g, ''));
+    assert.notEqual(calm, drawCharacter({ id: 'byte' }, { face: 'normal' }).replace(/ch\d+/g, ''), id);
+    assert.notEqual(calm, happy, id);
   }
 });

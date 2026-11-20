@@ -115,9 +115,7 @@ function bot(mood, size = 'md', { label = true, who = null } = {}) {
   const fx = (cls, n, text = null) => h('span', { class: cls, 'aria-hidden': 'true' }, text ?? Array.from({ length: n }, () => h('i')));
   const name = who ? CHARACTERS[who.id].name : 'Seeker';
   const body = h('span', { class: 'body', icon: who ? null : 'logo' });
-  const portrait = who && CHARACTERS[who.id].portrait;
-  if (portrait) body.append(h('img', { class: 'mascot-portrait', src: portrait, alt: '', decoding: 'async' }));
-  else if (who) body.innerHTML = drawCharacter(who, { face: FACES[mood] }); // fixed drawings; nothing from the Mac
+  if (who) body.innerHTML = drawCharacter(who, { face: FACES[mood] }); // fixed drawings; nothing from the Mac
   return h(
     'span',
     { class: `bot ${size} m-${mood}${who ? ' char' : ''}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `${name}: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
@@ -1194,7 +1192,7 @@ function chooseProjectCharacter(meta) {
   }, true);
 }
 
-/** Portrait previews for both the phone-wide choice and the project override. */
+/** Each character drawn beside its name, for both the phone-wide choice and the project override. */
 function characterPicker(title, selected, pick, project = false) {
   const option = (id, label, ...content) => h('button', {
     type: 'button',
@@ -1212,10 +1210,8 @@ function characterPicker(title, selected, pick, project = false) {
     project && option('default', `Phone setting · ${characterChoiceLabel(characterSetting)}`),
     option('auto', characterChoiceLabel('auto')),
     option('seeker', characterChoiceLabel('seeker')),
-    h('h4', { class: 'mascot-heading' }, 'Mascot collection'),
-    h('div', { class: 'mascot-grid' }, ids.filter((id) => CHARACTERS[id].portrait).map(card)),
-    h('h4', { class: 'mascot-heading' }, 'Model characters'),
-    h('div', { class: 'mascot-grid' }, ids.filter((id) => !CHARACTERS[id].portrait).map(card)),
+    h('h4', { class: 'mascot-heading' }, 'Characters'),
+    h('div', { class: 'mascot-grid' }, ids.map(card)),
   );
 }
 
