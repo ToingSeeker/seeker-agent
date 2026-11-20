@@ -650,7 +650,12 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
 
 ### What the phone shows
 
-- **Home → Control Center** — what the agent is doing now (or, when nothing runs, how the latest task ended),
+- **Opening the app** — the robot assembles from pixels and wakes (about 1.4 s) over Home, which is already
+  loading beneath it; a tap skips it, and with Reduce Motion on it is not shown. It plays when the app is
+  started, not when you come back to an app left open, and a notification still opens its own screen.
+- **Home → Control Center** — the live agent: the robot shows what the agent in front is doing, from what the
+  computer reports (idle, thinking, coding, executing, awaiting approval, completed, failed, or disconnected
+  when the phone cannot reach the computer), with Open session and Switch agent. Then what the agent is doing now (or, when nothing runs, how the latest task ended),
   the connected computer with its state and the measured round trip, the last 24 hours (projects that were
   active and tool runs, counted from the conversations themselves), the tokens used today — tap it for the
   last seven days and the total since counting began — and
@@ -751,6 +756,11 @@ running, the terminal works exactly as before.
   computer to the phone's push service with Web Push encryption (`src/webpush.mjs`); the relay is not
   involved. Turn them on in the app's Settings. On iPhone the app must first be added with
   Share → Add to Home Screen.
+- The number on the app's icon counts what waits for you: requests waiting for an answer, and tasks whose
+  end you were notified of and have not opened since. The computer counts it and sends it with each push;
+  while the app is open it follows the computer's state. It needs notifications on, and on iPhone the app on
+  the Home Screen (iOS 16.4 or later). Where the icon cannot show a number, the same counts sit on
+  Approvals and Sessions in the dock. Unpairing clears it and stops this phone's notifications.
 - App lock (Settings → App lock): Face ID, with a 6-digit PIN as the backup, asked for when the app opens
   or has gone unused for 1, 5, 15 or 60 minutes. It lives on the phone only: the PIN is kept as a salted
   PBKDF2 hash, Face ID is a passkey for this site that must report the user as verified. Three wrong PINs

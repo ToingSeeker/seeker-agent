@@ -326,6 +326,7 @@ export class Workspace {
     this.activity = '';
     this.phase = null; // thinking | executing | responding, while working
     this.outcome = null; // how the last turn ended: completed | failed | stopped
+    this.unread = null; // 'failed' | 'completed': an ending the phone was notified of and has not looked at yet
     this.stopped = false;
     this.stopping = false; // a stop was asked for and the turn has not ended yet
     this.turn = null; // names the turn in progress, so a stop can only end the one it was meant for
@@ -380,6 +381,7 @@ export class Workspace {
       status: this.status,
       phase: this.status === 'working' ? this.phase : null,
       outcome: this.status === 'idle' ? this.outcome : null,
+      unread: this.unread,
       activity: this.status === 'idle' ? '' : this.activity,
       startedAt: this.status === 'idle' ? null : this.startedAt,
       turn: this.status === 'idle' ? null : this.turn,
@@ -399,6 +401,19 @@ export class Workspace {
       progress: todos.length ? { done, total: todos.length, current } : null,
       ...(this.terminal ? { terminal: true } : {}),
     };
+  }
+
+  /** Marks how the turn ended as not yet seen on the phone (it counts on the app's badge), and tells the phone. */
+  #unread(kind) {
+    this.unread = kind;
+    this.touch();
+  }
+
+  /** The phone opened this conversation: its ending no longer waits to be seen. */
+  seen() {
+    if (!this.unread) return;
+    this.unread = null;
+    this.touch();
   }
 
   /** Tells the phone this workspace's summary changed. */
@@ -485,6 +500,7 @@ export class Workspace {
     this.activity = 'Starting';
     this.phase = 'thinking';
     this.outcome = null;
+    this.unread = null;
     this.stopped = false;
     this.startedAt = started;
     // The transcript keeps the small previews; the pictures go to the model, and are kept in the inbox
@@ -510,9 +526,11 @@ export class Workspace {
     const url = `/#v=session:${this.id}`;
     if (this.outcome === 'failed') {
       const error = [...this.items].reverse().find((i) => i.kind === 'notice' && i.level === 'error');
+      this.#unread('failed');
       this.daemon.notify({ title: `${this.name}: failed`, body: (error?.text ?? 'The task ended with an error.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'error');
     } else if (this.outcome === 'completed' && Date.now() - started >= this.daemon.notifyAfter) {
       const last = [...this.items].reverse().find((i) => i.kind === 'assistant' && i.text);
+      this.#unread('completed');
       this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'done');
     }
   }
@@ -914,6 +932,7 @@ export class RemoteDaemon {
   async notify(payload, kind = null) {
     const wanted = this.subscriptions.filter((s) => !kind || s.prefs?.[kind] !== false);
     if (!wanted.length) return 0;
+    payload = { ...payload, badge: this.badge() };
     const results = await Promise.all(
       wanted.map((subscription) => sendPush(subscription, payload, this.config.remote.vapid, { subject: this.url, anyHost: this.pushAnyHost }).then((result) => ({ subscription, ...result }))),
     );
@@ -926,6 +945,17 @@ export class RemoteDaemon {
     const failed = results.filter((r) => !r.ok && !r.gone);
     if (failed.length) this.log(`push: ${failed.length} notification(s) not accepted (status ${failed.map((r) => r.status).join(', ')})`);
     return results.filter((r) => r.ok).length;
+  }
+
+  /**
+   * The number on the app's icon: what waits for the user. Requests waiting for an answer, and
+   * conversations whose ending the phone was notified of and has not opened since. Work in progress
+   * and routine steps never count.
+   */
+  badge() {
+    let unread = 0;
+    for (const workspace of this.workspaces.values()) if (!workspace.linked && workspace.unread) unread += 1;
+    return this.approvals.size + unread;
   }
 
   /** Shows an approval (or a question from the model) on the phone and waits for the answer. */
@@ -1433,6 +1463,9 @@ export class RemoteDaemon {
           // Lets the phone that asked go straight to it.
           return this.send({ t: 'opened', id: opened.id, created: made, fresh: !before.has(opened.id) });
         }
+        case 'seen':
+          if (workspace && !workspace.linked) workspace.seen();
+          return;
         case 'close':
           if (workspace?.linked) return this.send({ t: 'toast', text: 'This conversation runs in a terminal on your Mac. It leaves the list when that terminal is closed.' });
           if (!workspace || workspace.status !== 'idle') return;
