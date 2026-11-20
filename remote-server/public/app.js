@@ -1145,7 +1145,8 @@ function controlCenter(model) {
   };
 
   // The live agent: the robot shows what the agent in front is doing (an approval first, then running work),
-  // as the Mac reported it. A tap on the robot or on Open session goes into that conversation.
+  // as the Mac reported it. A tap on the robot goes into that conversation; switching agents lives in the
+  // header's swap button.
   // Working or waiting for the user: both are sessions still under way.
   const active = list.filter((w) => w.meta.status === 'working' || w.meta.status === 'approval').length;
   let activityPanel;
@@ -1183,12 +1184,6 @@ function controlCenter(model) {
       ),
       now.text && h('span', { class: `said ${STATUSES[now.status].tone}` }, mark ? h('span', { class: 'mark', icon: mark }) : now.live && h('i', { class: 'beat' }), h('span', { class: 'text' }, now.text)),
       h('div', { class: 'hero-facts' }, h('span', {}, h('i', { class: `state ${link.tone}` }), link.label), h('span', {}, `${active} active`), last && h('span', {}, `Last active ${last.toLowerCase()}`)),
-      h(
-        'div',
-        { class: 'hero-actions' },
-        h('button', { class: 'btn small primary', type: 'button', onclick: open }, 'Open session'),
-        h('button', { class: 'btn small', type: 'button', 'aria-haspopup': 'dialog', onclick: openSwitcher }, h('span', { class: 'ico', icon: 'swap' }), 'Switch agent'),
-      ),
     );
   }
 

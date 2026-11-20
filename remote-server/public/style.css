@@ -5607,6 +5607,19 @@ html.backgrounded #gate * {
   border-radius: 20px;
   background: none;
 }
+/* The robot is the way into the session, so it answers a press. */
+button.hero-bot {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+button.hero-bot:active {
+  transform: scale(0.92);
+}
+button.hero-bot:focus-visible {
+  outline: 2px solid var(--sk-amber-bright);
+  outline-offset: 4px;
+}
 .hero .name {
   font-size: 18px;
 }
