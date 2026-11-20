@@ -686,7 +686,11 @@ kept awake while `seeker remote` runs. Stop it with Ctrl+C.
   a session typed in a terminal has no queue.
 - **Approvals** — each command and each file change waits here. A change is shown as a diff with line
   numbers; a command the safety patterns flag is marked dangerous. One request is one command or one file.
-- **Settings** — connection, model, and which notifications this phone gets: finished tasks, approvals
+- **A model and a character per project** — `/model` inside a project switches that project only, and the
+  computer keeps the choice for it (`projectModels` in `~/.seeker/config.json`), so it comes back on that
+  model when opened again; *Use the default model* lets it follow Settings again. Each project can also have
+  its own character on the Live Agent card (session menu → Character), kept on the phone.
+- **Settings** — connection, the default model (used by every project without one of its own), and which notifications this phone gets: finished tasks, approvals
   and questions, errors. Everything `/config` holds is here too: thinking, whether to ask for approval,
   context window, steps per message, how long a model stays in memory, the Ollama address, and the two
   terminal display settings. A cloud provider's API key can be entered here; it is stored on the computer

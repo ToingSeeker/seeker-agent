@@ -63,6 +63,26 @@ export function pickCharacter(setting, model, provider) {
   return { id: setting, tier: setting === auto.id ? auto.tier : null };
 }
 
+/** The phone's choice per project: project path → one of CHOICES. A project not in it follows CHARACTER_SETTING. */
+export const PROJECT_CHARACTERS = 'seeker.character.projects';
+
+/** The setting in force for one project: its own choice when it has a valid one, else the phone's. */
+export function characterSettingFor(setting, byProject, project) {
+  const own = byProject && typeof project === 'string' && Object.hasOwn(byProject, project) ? byProject[project] : null;
+  return CHOICES.includes(own) ? own : setting;
+}
+
+/** Reads the per-project choices kept on the phone; anything malformed counts as none. */
+export function readProjectCharacters(text) {
+  try {
+    const all = JSON.parse(text ?? '{}');
+    if (!all || typeof all !== 'object' || Array.isArray(all)) return {};
+    return Object.fromEntries(Object.entries(all).filter(([, id]) => CHOICES.includes(id)));
+  } catch {
+    return {};
+  }
+}
+
 /** "Sage · Opus": the character's name and tier, for the card's corner. */
 export function characterLabel(who) {
   if (!who || !CHARACTERS[who.id]) return '';

@@ -14,7 +14,7 @@ import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view a
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
-import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, characterLabel, drawCharacter, pickCharacter } from './characters.js';
+import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, PROJECT_CHARACTERS, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from './characters.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCKOUT_TRIES, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, readLock, sameId, triesLeft, userVerified, writeLock } from './lock.js';
@@ -127,8 +127,10 @@ function bot(mood, size = 'md', { label = true, who = null } = {}) {
 
 // The phone's choice of agent character (Settings): by model, one for every agent, or the robot.
 let characterSetting = stored(CHARACTER_SETTING, 'auto');
+// A project can have a character of its own (session menu), kept by its path; the rest follow the setting above.
+let projectCharacters = readProjectCharacters(stored(PROJECT_CHARACTERS, '{}'));
 /** Who stands in for the agent of a session; null keeps SEEKER's robot. */
-const whoFor = (meta) => pickCharacter(characterSetting, meta?.model, meta?.provider);
+const whoFor = (meta) => pickCharacter(characterSettingFor(characterSetting, projectCharacters, meta?.path), meta?.model, meta?.provider);
 
 const steady = new Steady(); // keeps each robot's mood on screen long enough to be read
 const moodTimers = new Map();
@@ -731,15 +733,33 @@ function openQueues() {
 }
 
 // ── choosing the model (the lists come from the Mac) ──
-async function chooseModel() {
+// From inside a project (`ws`) the choice is that project's only, and the Mac keeps it for the project.
+// Without one (Settings) it is the default: every project without a model of its own follows it.
+const modelTarget = () => (state.modelFor ? { ws: state.modelFor } : {});
+function modelTitle() {
+  const meta = state.modelFor && state.workspaces.get(state.modelFor)?.meta;
+  return meta ? `Model for ${meta.name}` : 'Default model';
+}
+
+async function chooseModel(ws = null) {
   state.picking = true;
-  sheet('Where should the model run?', h('div', { class: 'muted' }, 'Asking your Mac…'));
-  if (!(await command('providers'))) closeSheet();
+  state.modelFor = typeof ws === 'string' ? ws : null;
+  sheet(modelTitle(), h('div', { class: 'muted' }, 'Asking your Mac…'));
+  if (!(await command('providers', modelTarget()))) closeSheet();
 }
 
 function showProviders(list) {
+  const meta = state.modelFor && state.workspaces.get(state.modelFor)?.meta;
   sheet(
-    'Where should the model run?',
+    modelTitle(),
+    h('div', { class: 'muted small pad' }, meta ? `Only ${meta.name} changes, and it keeps this model when opened again.` : 'Used by every project that has no model of its own.'),
+    meta?.ownModel &&
+      h(
+        'button',
+        { class: 'row-btn', onclick: () => ((state.picking = false), closeSheet(), command('model', { ws: meta.id, reset: true })) },
+        h('div', {}, 'Use the default model'),
+        h('div', { class: 'muted small' }, `${state.device?.model ?? 'the default'} · ${meta.name} follows Settings again`),
+      ),
     ...list.map((p) =>
       h(
         'button',
@@ -749,7 +769,7 @@ function showProviders(list) {
           onclick: () => {
             if (!p.ready) return enterKey(p);
             sheet(p.label, h('div', { class: 'muted' }, 'Loading its models…'));
-            command('models', { provider: p.id });
+            command('models', { provider: p.id, ...modelTarget() });
           },
         },
         h('div', {}, p.label, p.active && h('span', { class: 'accent' }, '  • active')),
@@ -774,7 +794,7 @@ function showModels({ provider, label, models, active }) {
               state.picking = false;
               closeSheet();
               toast(`Switching to ${m.name}…`);
-              command('model', { provider, model: m.name });
+              command('model', { provider, model: m.name, ...modelTarget() });
             },
           },
           h('div', { class: 'mono' }, m.name, m.name === active && h('span', { class: 'accent' }, '  • active')),
@@ -1149,6 +1169,20 @@ function chooseCharacter() {
   choose('Live Agent character', CHOICES.map((id) => [id, characterChoiceLabel(id)]), selected, (id) => store(CHARACTER_SETTING, (characterSetting = id)));
 }
 
+/** One project's character, kept on this phone by the project's path. "Phone setting" follows the one above. */
+function chooseProjectCharacter(meta) {
+  const own = Object.hasOwn(projectCharacters, meta.path) ? projectCharacters[meta.path] : 'default';
+  choose(`Character for ${meta.name}`, [['default', `Phone setting · ${characterChoiceLabel(characterSetting)}`], ...CHOICES.map((id) => [id, characterChoiceLabel(id)])], own, (id) => {
+    projectCharacters = { ...projectCharacters };
+    if (id === 'default') delete projectCharacters[meta.path];
+    else projectCharacters[meta.path] = id;
+    store(PROJECT_CHARACTERS, JSON.stringify(projectCharacters));
+  });
+}
+
+/** What a project's character row says: its own choice, or that it follows the phone's setting. */
+const projectCharacterLabel = (meta) => (Object.hasOwn(projectCharacters, meta.path) ? characterChoiceLabel(projectCharacters[meta.path]) : `Phone setting · ${characterChoiceLabel(characterSetting)}`);
+
 /** A sheet of choices with the one in force ticked. */
 function choose(title, options, selected, pick) {
   sheet(title, ...options.map(([id, label]) => h('button', { class: `row-btn pick${selected === id ? ' on' : ''}`, 'aria-pressed': String(selected === id), onclick: () => (closeSheet(), pick(id), render(true)) }, label, selected === id && h('span', { class: 'tick', icon: 'check' }))));
@@ -1479,7 +1513,7 @@ function usageSheet(usage, up) {
 function homeNow() {
   const list = [...state.workspaces.values()];
   const link = connection(state);
-  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation, characterSetting];
+  const base = [state.homeTab, state.loaded, switcher(list, { up: link.key === 'online' }).running, link.key, state.device?.name, state.device?.settings?.animation, characterSetting, projectCharacters];
   if (state.homeTab === 'projects') {
     const rows = explorerRows(list, state.explorer);
     const local = localFolders(state.folders, list, state.explorer.localQuery);
@@ -2488,7 +2522,8 @@ function session(ws) {
       h('button', { class: 'row-btn', onclick: () => (closeSheet(), sendText(meta.id, INIT)) }, '/init — write SEEKER.md for this project'),
       // A conversation typed in a terminal is started, ended and given its model there.
       meta.terminal && h('div', { class: 'muted small pad' }, 'This conversation runs in a terminal on your Mac. A new conversation, another model, or closing it are done there.'),
-      !meta.terminal && h('button', { class: 'row-btn', onclick: chooseModel }, '/model — switch the model'),
+      !meta.terminal && h('button', { class: 'row-btn', onclick: () => chooseModel(meta.id) }, `/model — switch the model${meta.ownModel ? ' (its own)' : ''}`),
+      h('button', { class: 'row-btn', onclick: () => (closeSheet(), chooseProjectCharacter(meta)) }, `Character — ${projectCharacterLabel(meta)}`),
       !meta.terminal && h('button', { class: 'row-btn', onclick: () => (closeSheet(), newConversation(meta)) }, '/new — start a new conversation'),
       !meta.terminal && h('button', { class: 'row-btn danger', onclick: () => (closeSheet(), confirm(`Close ${meta.name}? Its conversation is saved on your Mac.`) && (command('close', { ws: meta.id }), go({ name: 'home' }))) }, 'Close this project'),
     );
@@ -2520,7 +2555,7 @@ function session(ws) {
               row('laptop', state.device?.name ?? 'Your Mac', up ? 'Connected' : 'Offline', { tone: up ? 'success' : 'danger' }),
               meta.terminal
                 ? h('div', { class: 'row' }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))))
-                : h('button', { class: 'row', 'aria-label': 'Change model', onclick: chooseModel }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider))), h('span', { class: 'chev', icon: 'down' })),
+                : h('button', { class: 'row', 'aria-label': 'Change model', onclick: () => chooseModel(meta.id) }, h('span', { class: 'ico', icon: 'cube' }), h('span', { class: 'grow' }, h('span', { class: 'label mono line' }, meta.model, h('span', { class: 'muted' }, ' • ', meta.provider, meta.ownModel ? ' • own model' : ' • default'))), h('span', { class: 'chev', icon: 'down' })),
             ),
           ]
         : items.length || pending || st.busy || ws.queue?.items.length
@@ -2720,7 +2755,7 @@ function sessionParts(ws) {
 function sessionsNow() {
   const model = sessionsView([...state.workspaces.values()], state.list);
   const labels = model.rows.map((r) => [r.id, r.name, r.status, r.task, r.model, r.tools, since(r.at)]);
-  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, characterSetting, state.list, state.lastSession, model.count, labels]);
+  const signature = JSON.stringify([state.linked, state.online, state.loaded, state.device?.name, state.device?.settings?.animation, characterSetting, projectCharacters, state.list, state.lastSession, model.count, labels]);
   return { ...model, signature };
 }
 
@@ -2797,8 +2832,15 @@ function settings() {
       row('timer', 'Round trip to the Mac', state.latency ? `${state.latency.ms} ms` : '—', { sub: state.latency ? `measured ${ago(state.latency.at)} · tap to measure again` : up ? 'measuring…' : 'needs the Mac online', onclick: up ? () => (ping(), toast('Measuring…')) : null }),
       row('clock', 'Last heard from the Mac', ago(state.lastEntryAt)),
     ),
-    section('MODEL'),
-    h('div', { class: 'group' }, row('cube', first?.model ?? state.device?.model ?? '—', null, { sub: first ? `${first.provider} · ${sizeOf(first.limit)} context${first.vision === false ? ' · no images' : first.vision ? ' · sees images' : ''}` : (state.device?.provider ?? 'No project open'), onclick: up ? chooseModel : null })),
+    section('DEFAULT MODEL'),
+    // What a project runs unless it was given its own (from inside it). Details come from one that follows it.
+    (() => {
+      const follower = [...state.workspaces.values()].map((w) => w.meta).find((m) => !m.terminal && !m.ownModel);
+      const own = [...state.workspaces.values()].filter((w) => w.meta.ownModel).length;
+      const detail = follower ? `${follower.provider} · ${sizeOf(follower.limit)} context${follower.vision === false ? ' · no images' : follower.vision ? ' · sees images' : ''}` : (state.device?.provider ?? '');
+      const note = own ? `${own} project${own > 1 ? 's' : ''} on ${own > 1 ? 'their' : 'its'} own model` : 'Every project uses it';
+      return h('div', { class: 'group' }, row('cube', state.device?.model ?? first?.model ?? '—', null, { sub: [detail, note].filter(Boolean).join(' · '), onclick: up ? () => chooseModel() : null }));
+    })(),
     ...agentSettings(up, toggle),
     section('AGENT CHARACTER'),
     h('div', { class: 'group' }, row('logo', 'Live Agent character', characterChoiceLabel(characterSetting), { sub: 'Kept on this phone. Auto picks a character by the session’s model.', onclick: chooseCharacter })),
@@ -3626,7 +3668,7 @@ function slashCommands() {
   };
   return [
     { name: '/init', about: 'write SEEKER.md for this project', off: busy, run: () => sendText(id, INIT) },
-    { name: '/model', about: 'switch the model', off: busy || terminal, run: chooseModel },
+    { name: '/model', about: 'switch this project’s model', off: busy || terminal, run: () => chooseModel(id) },
     { name: '/new', about: 'start a new conversation', off: busy || terminal, run: () => newConversation(ws.meta) },
     { name: '/stop', about: 'cancel what it is doing', off: !busy, run: () => $('stop').click() },
     { name: '/image', about: 'attach a photo, screenshot or video', off: false, run: () => $('file').click() },
@@ -3784,7 +3826,8 @@ function addSheet() {
     h(
       'div',
       { class: 'group add-group' },
-      item('cube', 'Model', null, chooseModel, { value: meta.model, off: busy || Boolean(meta.terminal), more: true }),
+      item('cube', 'Model', meta.ownModel ? 'This project’s own' : 'The default', () => chooseModel(meta.id), { value: meta.model, off: busy || Boolean(meta.terminal), more: true }),
+      item('logo', 'Character', null, () => chooseProjectCharacter(meta), { value: projectCharacterLabel(meta).replace(/^Phone setting · /, ''), more: true }),
       item('terminal', 'Commands', 'Slash commands and earlier messages', showCommands, { more: true }),
     ),
   );

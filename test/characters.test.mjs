@@ -1,7 +1,7 @@
 // The phone's agent characters: which one each model gets, the phone's setting, and the drawing itself.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CHARACTERS, CHOICES, FACES, characterFor, characterLabel, drawCharacter, pickCharacter } from '../remote-server/public/characters.js';
+import { CHARACTERS, CHOICES, FACES, characterFor, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from '../remote-server/public/characters.js';
 import { MOODS } from '../remote-server/public/robot.js';
 
 test('characters: each model family gets its own, by the model name first', () => {
@@ -73,4 +73,20 @@ test('characters: nothing outside the fixed drawings reaches the SVG', () => {
   const svg = drawCharacter({ id: '<script>', tier: '"><img onerror=x>' }, { face: '<b>' });
   assert.doesNotMatch(svg, /script|onerror|<b>/);
   assert.match(svg, /fill="url\(#ch\d+s\)"/, 'an unknown id draws Byte');
+});
+
+test('characters: a project can have its own, and one without follows the phone setting', () => {
+  const byProject = { '~/shop': 'gust', '~/blog': 'seeker' };
+  assert.equal(characterSettingFor('auto', byProject, '~/shop'), 'gust');
+  assert.equal(characterSettingFor('auto', byProject, '~/blog'), 'seeker');
+  assert.equal(characterSettingFor('kit', byProject, '~/other'), 'kit', 'not listed: the phone setting');
+  assert.equal(characterSettingFor('auto', byProject, undefined), 'auto');
+  assert.equal(characterSettingFor('auto', { '~/x': 'dragon' }, '~/x'), 'auto', 'an unknown choice counts as none');
+  assert.equal(characterSettingFor('auto', {}, 'toString'), 'auto', 'inherited names are not choices');
+  // Two projects on the same model can now look different.
+  assert.deepEqual(pickCharacter(characterSettingFor('auto', byProject, '~/shop'), 'qwen3.5:27b', 'Ollama'), { id: 'gust', tier: null });
+  assert.deepEqual(pickCharacter(characterSettingFor('auto', byProject, '~/other'), 'qwen3.5:27b', 'Ollama'), { id: 'kit', tier: null });
+
+  assert.deepEqual(readProjectCharacters(JSON.stringify({ '~/a': 'sage', '~/b': 'nope', '~/c': 3 })), { '~/a': 'sage' });
+  for (const bad of ['not json', '[]', 'null', '"x"', undefined]) assert.deepEqual(readProjectCharacters(bad), {}, String(bad));
 });
