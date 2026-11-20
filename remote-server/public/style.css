@@ -25,6 +25,8 @@
   --sk-primary-deep: #B35F00;
   --sk-primary-soft: rgba(255, 138, 0, 0.12);
   --sk-on-primary: #1A0E00;
+  /* The robot's eyes while it works, and the launch's pixels */
+  --sk-cyan: #31D8F4;
   /* Execution */
   --sk-execution: #4188FF;
   --sk-execution-soft: rgba(65, 136, 255, 0.12);
@@ -5213,4 +5215,496 @@ pre,
   :is(.btn, .ctl, .sw-action, .icon-btn, .fpv-icon, .switch-btn, .tool-btn, .fab, .pin-key, .stop-btn, .send, .fact, .s-row, .panel-box, .commands button, .filters button, .tool-filters button, .st-options button, .topbar .back, .topbar .more, #nav button, .w-row, .frow, .mode):active {
     transform: none;
   }
+}
+
+/* ── launch: the robot assembles from pixels and wakes (index.html #launch) ──
+   1.4 s, over the app that is already loading beneath it:
+     0–200 ms     the dark comes up, pixels and a faint grid appear
+     200–650 ms   the pixels fly in and the robot is built from the bottom up
+     650–1050 ms  its eyes light cyan and blink once, a ring opens under it, it floats
+     1050–1400 ms the name appears, the robot settles smaller, the whole layer fades out
+   CSS alone ends it (launch-out leaves it invisible and untouchable), so it cannot stay up even if
+   app.js never runs. Only transforms and opacity move, apart from the robot's short reveal. */
+#launch {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--sk-bg);
+  animation: launch-out 300ms ease-in 1100ms forwards;
+}
+.l-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(49, 216, 244, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(49, 216, 244, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0, transparent 62%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 0, transparent 62%);
+  opacity: 0;
+  animation: l-fade-in 200ms ease-out forwards;
+}
+.l-pixels {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+}
+.l-pixels i {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  background: var(--sk-primary);
+  box-shadow: 0 0 8px rgba(255, 138, 0, 0.55);
+  opacity: 0;
+  animation: l-pixel 650ms cubic-bezier(0.55, 0, 0.3, 1) forwards;
+}
+.l-pixels i:nth-child(3n) {
+  background: var(--sk-cyan);
+  box-shadow: 0 0 8px rgba(49, 216, 244, 0.55);
+}
+.l-pixels i:nth-child(1) { --dx: -130px; --dy: -170px; }
+.l-pixels i:nth-child(2) { --dx: 110px; --dy: -150px; animation-delay: 20ms; }
+.l-pixels i:nth-child(3) { --dx: -160px; --dy: -40px; animation-delay: 40ms; }
+.l-pixels i:nth-child(4) { --dx: 150px; --dy: -60px; }
+.l-pixels i:nth-child(5) { --dx: -90px; --dy: 120px; animation-delay: 30ms; }
+.l-pixels i:nth-child(6) { --dx: 120px; --dy: 140px; animation-delay: 10ms; }
+.l-pixels i:nth-child(7) { --dx: -40px; --dy: -210px; animation-delay: 50ms; }
+.l-pixels i:nth-child(8) { --dx: 60px; --dy: 200px; animation-delay: 20ms; }
+.l-pixels i:nth-child(9) { --dx: -190px; --dy: 70px; animation-delay: 60ms; }
+.l-pixels i:nth-child(10) { --dx: 180px; --dy: 30px; animation-delay: 40ms; }
+.l-pixels i:nth-child(11) { --dx: -70px; --dy: -110px; animation-delay: 70ms; }
+.l-pixels i:nth-child(12) { --dx: 80px; --dy: -100px; animation-delay: 30ms; }
+.l-pixels i:nth-child(13) { --dx: -120px; --dy: 40px; animation-delay: 80ms; }
+.l-pixels i:nth-child(14) { --dx: 100px; --dy: 70px; animation-delay: 60ms; }
+.l-pixels i:nth-child(15) { --dx: 20px; --dy: -150px; animation-delay: 90ms; }
+.l-pixels i:nth-child(16) { --dx: -20px; --dy: 150px; animation-delay: 50ms; }
+.l-pixels i:nth-child(17) { --dx: -150px; --dy: -120px; animation-delay: 100ms; }
+.l-pixels i:nth-child(18) { --dx: 140px; --dy: -190px; animation-delay: 70ms; }
+.l-bot {
+  position: relative;
+  width: 112px;
+  height: 112px;
+  opacity: 0;
+  animation: l-build 450ms ease-in-out 200ms forwards, l-settle 300ms ease 1050ms forwards;
+}
+.l-bot .robot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: l-float 400ms ease-in-out 650ms both;
+}
+#launch .robot * {
+  animation: none;
+}
+#launch .robot .eye {
+  stroke: var(--sk-cyan);
+}
+#launch .robot .face {
+  opacity: 0.2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: l-eyes 400ms ease 650ms forwards;
+}
+.l-ring {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 104px;
+  height: 18px;
+  margin-left: -52px;
+  border: 2px solid var(--sk-primary);
+  border-radius: 50%;
+  box-shadow: 0 0 14px rgba(255, 138, 0, 0.5);
+  opacity: 0;
+  transform: scale(0.3);
+  animation: l-ring 450ms ease-out 700ms forwards;
+}
+.l-word {
+  position: absolute;
+  top: calc(50% + 74px);
+  left: 0;
+  right: 0;
+  text-align: center;
+  font: 700 22px/1 var(--sans);
+  letter-spacing: 0.32em;
+  text-indent: 0.32em;
+  color: var(--sk-text-primary);
+  opacity: 0;
+  animation: l-word 250ms ease-out 900ms forwards;
+}
+@keyframes launch-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+  }
+}
+@keyframes l-fade-in {
+  to { opacity: 1; }
+}
+@keyframes l-pixel {
+  0% { opacity: 0; transform: translate(var(--dx), var(--dy)); }
+  30% { opacity: 1; transform: translate(var(--dx), var(--dy)); }
+  85% { opacity: 1; }
+  100% { opacity: 0; transform: translate(0, 0) scale(0.4); }
+}
+@keyframes l-build {
+  0% { opacity: 0; transform: scale(0.7); clip-path: inset(100% 0 0 0); }
+  40% { opacity: 1; }
+  100% { opacity: 1; transform: none; clip-path: inset(0 0 0 0); }
+}
+@keyframes l-settle {
+  from { opacity: 1; transform: none; }
+  to { opacity: 1; transform: translateY(-6px) scale(0.86); }
+}
+@keyframes l-float {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-5px); }
+}
+@keyframes l-eyes {
+  0% { opacity: 0.2; }
+  35% { opacity: 1; transform: none; }
+  55% { opacity: 1; transform: scaleY(0.15); }
+  75%, 100% { opacity: 1; transform: none; }
+}
+@keyframes l-ring {
+  0% { opacity: 0; transform: scale(0.3); }
+  40% { opacity: 0.9; }
+  100% { opacity: 0.35; transform: scale(1.15); }
+}
+@keyframes l-word {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+/* No motion wanted: no launch at all (the global rule above stops every animation, which would also stop this one from ending). */
+@media (prefers-reduced-motion: reduce) {
+  #launch {
+    display: none;
+  }
+}
+
+/* ── the robot, alive (app.js bot(), robot.js moods) ──
+   The logo robot with what it is doing around it. Eyes: cyan while it works, amber waiting for the
+   user, green when done, red on failure, grey without the Mac. Loops are slow and small; a finished or
+   failed task plays once and then rests. */
+.bot {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+}
+.bot.lg {
+  width: 84px;
+  height: 84px;
+}
+.bot.sm {
+  width: 34px;
+  height: 34px;
+}
+.bot .body {
+  display: block;
+  width: 82%;
+  height: 82%;
+}
+.bot .body svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.bot .ring {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: 2%;
+  height: 12%;
+  border: 1.5px solid var(--sk-primary);
+  border-radius: 50%;
+  opacity: 0.3;
+}
+.bot.sm .ring {
+  display: none;
+}
+.bot .robot .eye {
+  transition: stroke 300ms ease;
+}
+.bot .orbit,
+.bot .code,
+.bot .term,
+.bot .alert,
+.bot .spark {
+  position: absolute;
+  inset: 0;
+  display: none;
+  pointer-events: none;
+}
+/* idle: breathing, its own blink and glance */
+.bot.m-idle .body {
+  animation: bot-breathe 4s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+/* thinking: cyan eyes that pulse, three pixels circling the head */
+.bot:is(.m-thinking, .m-coding, .m-executing) .robot .eye {
+  stroke: var(--sk-cyan);
+}
+.bot.m-thinking .robot .eye.open {
+  animation: bot-eye 1.6s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.bot.m-thinking .orbit {
+  display: block;
+  animation: spin 2.4s linear infinite;
+  animation-delay: var(--t, 0s);
+}
+.bot .orbit i {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: var(--sk-cyan);
+}
+.bot .orbit i:nth-child(1) { top: 2%; left: 48%; }
+.bot .orbit i:nth-child(2) { top: 62%; left: 6%; background: var(--sk-primary); }
+.bot .orbit i:nth-child(3) { top: 62%; right: 6%; }
+.bot.m-thinking .body,
+.bot.m-coding .body {
+  animation: bot-breathe 2.4s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+/* coding: a code mark rises beside it now and then */
+.bot.m-coding .code {
+  display: block;
+  inset: auto -4px 58% auto;
+  font: 700 11px/1 var(--mono);
+  color: var(--sk-cyan);
+  animation: bot-rise 1.8s ease-out infinite;
+  animation-delay: var(--t, 0s);
+}
+/* executing: terminal blocks that pulse quickly, an amber edge on the ring */
+.bot.m-executing .term {
+  display: flex;
+  inset: auto -2px 62% auto;
+  flex-direction: column;
+  gap: 2px;
+}
+.bot .term i {
+  display: block;
+  width: 10px;
+  height: 3px;
+  background: var(--sk-cyan);
+  animation: bot-blink 900ms step-end infinite;
+  animation-delay: var(--t, 0s);
+}
+.bot .term i:nth-child(2) {
+  width: 7px;
+  animation-delay: calc(var(--t, 0s) + 300ms);
+}
+.bot .term i:nth-child(3) {
+  width: 12px;
+  animation-delay: calc(var(--t, 0s) + 600ms);
+}
+.bot.m-executing .ring {
+  opacity: 0.8;
+  box-shadow: 0 0 10px rgba(255, 138, 0, 0.35);
+  animation: pulse 1.1s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+/* awaiting approval: it stops moving, amber eyes pulse slowly, a mark asks for attention */
+.bot.m-awaiting_approval .robot * {
+  animation: none;
+}
+.bot.m-awaiting_approval .robot .eye {
+  stroke: var(--sk-amber-bright);
+}
+.bot.m-awaiting_approval .robot .face {
+  animation: pulse 2.2s ease-in-out infinite;
+  animation-delay: var(--t, 0s);
+}
+.bot.m-awaiting_approval .alert {
+  display: grid;
+  place-items: center;
+  inset: -2px -2px auto auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--sk-amber);
+  color: var(--sk-on-primary);
+  font: 800 12px/1 var(--sans);
+}
+.bot.sm.m-awaiting_approval .alert {
+  display: none;
+}
+.bot.m-awaiting_approval .ring {
+  opacity: 0.85;
+  border-color: var(--sk-amber);
+}
+/* success: green eyes, one bounce, a burst of pixels */
+.bot.m-success .robot .eye {
+  stroke: var(--sk-success);
+}
+.bot.m-success .body {
+  animation: bot-bounce 600ms cubic-bezier(0.3, 1.6, 0.5, 1) 1;
+}
+.bot.m-success .spark {
+  display: block;
+}
+.bot .spark i {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  width: 4px;
+  height: 4px;
+  background: var(--sk-success);
+  opacity: 0;
+  animation: bot-spark 700ms ease-out 1 forwards;
+}
+.bot .spark i:nth-child(even) {
+  background: var(--sk-primary);
+}
+.bot .spark i:nth-child(1) { --dx: -30px; --dy: -22px; }
+.bot .spark i:nth-child(2) { --dx: 30px; --dy: -24px; }
+.bot .spark i:nth-child(3) { --dx: -36px; --dy: 6px; }
+.bot .spark i:nth-child(4) { --dx: 36px; --dy: 4px; }
+.bot .spark i:nth-child(5) { --dx: -12px; --dy: -36px; }
+.bot .spark i:nth-child(6) { --dx: 14px; --dy: -34px; }
+/* error: red eyes, one short glitch, then still */
+.bot.m-error .robot * {
+  animation: none;
+}
+.bot.m-error .robot .eye {
+  stroke: var(--sk-danger);
+}
+.bot.m-error .body {
+  animation: bot-glitch 360ms steps(2, end) 1;
+}
+.bot.m-error .ring {
+  border-color: var(--sk-danger);
+}
+/* disconnected: dimmed, grey eyes, nothing moves */
+.bot.m-disconnected {
+  opacity: 0.45;
+}
+.bot.m-disconnected .robot * {
+  animation: none;
+}
+.bot.m-disconnected .robot :is(.c, .b, .cur) {
+  fill: var(--sk-text-muted);
+}
+.bot.m-disconnected .robot .eye {
+  stroke: var(--sk-text-muted);
+}
+.bot.m-disconnected .ring {
+  border-color: var(--sk-text-muted);
+}
+/* Animation off in the Mac's settings, or the page in the background: nothing runs. */
+.still .bot *,
+.bot.still * {
+  animation: none !important;
+}
+html.backgrounded .bot *,
+html.backgrounded #launch * {
+  animation-play-state: paused;
+}
+@keyframes bot-breathe {
+  0%, 100% { transform: none; }
+  50% { transform: translateY(-2px) scale(1.015); }
+}
+@keyframes bot-eye {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes bot-rise {
+  0% { opacity: 0; transform: translateY(6px); }
+  25% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes bot-blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@keyframes bot-bounce {
+  0%, 100% { transform: none; }
+  40% { transform: translateY(-9px); }
+  70% { transform: translateY(1px); }
+}
+@keyframes bot-spark {
+  0% { opacity: 1; transform: translate(0, 0); }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)); }
+}
+@keyframes bot-glitch {
+  0% { transform: translateX(-3px); }
+  25% { transform: translateX(3px); }
+  50% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+  100% { transform: none; }
+}
+
+/* ── Home: the live agent ── */
+.panel-box.hero {
+  gap: 12px;
+}
+.hero .hero-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.hero .hero-main > .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.hero .hero-bot {
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  background: none;
+}
+.hero .name {
+  font-size: 18px;
+}
+.mood-word {
+  font: 650 13px/1.3 var(--sans);
+  letter-spacing: 0;
+  color: var(--sk-text-secondary);
+}
+.mood-word:is(.m-thinking, .m-coding, .m-executing) {
+  color: var(--sk-cyan);
+}
+.mood-word.m-awaiting_approval {
+  color: var(--sk-amber-bright);
+}
+.mood-word.m-success {
+  color: var(--sk-success);
+}
+.mood-word.m-error {
+  color: var(--sk-danger);
+}
+.hero .hero-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 12.5px;
+  color: var(--sk-text-muted);
+}
+.hero .hero-actions {
+  display: flex;
+  gap: 8px;
+}
+.hero .hero-actions .btn {
+  flex: 1;
+  justify-content: center;
+}
+.hero .hero-actions .ico {
+  width: 16px;
+  height: 16px;
+}
+.sw-row .bot {
+  margin-right: 2px;
 }

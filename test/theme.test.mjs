@@ -24,7 +24,7 @@ test('the stylesheet takes every colour from a token', () => {
   const css = read('style.css');
   const rules = css.slice(css.indexOf('}', css.indexOf(':root')));
   assert.deepEqual(rules.match(/#[0-9a-fA-F]{6}\b/g) ?? [], [], 'a colour written out below the token block');
-  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--mono', 'var(--nav-h', 'var(--p', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
+  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--dx', 'var(--dy', 'var(--mono', 'var(--nav-h', 'var(--p', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
   // The class names the app gives its states all have a rule.
   const app = read('app.js');
   for (const tone of ['primary', 'execution', 'reasoning', 'success', 'danger']) {
@@ -215,9 +215,9 @@ test('the phone app navigates with a floating glass dock, and its lists are sepa
   // Every screen under it leaves room, so the last item scrolls clear; with the keyboard up the dock steps aside.
   assert.match(css, /#view:is\(\.screen-home, \.screen-sessions, \.screen-approvals, \.screen-settings\) \{\s*padding-bottom: var\(--sk-dock-room\);/);
   assert.match(css, /\.keyboard #nav \{\s*display: none;/);
-  // The current screen is said, not only coloured; the badge on Approvals is said in words too.
+  // The current screen is said, not only coloured; the counts on Approvals and Sessions are said in words too.
   assert.ok(app.includes("'aria-current': state.view.name === id ? 'page' : null"));
-  assert.ok(app.includes('waiting`)'));
+  assert.ok(app.includes("h('span', { class: 'sr-only' }, `, ${n} ${said}`)") && app.includes("approvals: [state.approvals.length, 'waiting']"));
   // Sessions are cards of their own, not rows parted by hairlines; the selected one is amber glass.
   assert.match(css, /\.s-list \{\s*display: grid;/);
   assert.ok(!/\.s-row \+ \.s-row/.test(css), 'no hairline between session cards');

@@ -411,7 +411,7 @@ test('remote: questions from the model, switching model, and notifications reach
   // ── notifications ──
   await me.send('push_subscribe', { subscription });
   await until(() => pushes.length === 1 && me.state.device.phones === 1);
-  assert.deepEqual(readPush(pushes[0]), { title: 'SEEKER', body: 'Notifications are on for this phone.', url: '/', tag: 'hello' });
+  assert.deepEqual(readPush(pushes[0]), { title: 'SEEKER', body: 'Notifications are on for this phone.', url: '/', tag: 'hello', badge: 0 });
   assert.equal(pushes[0].headers['content-encoding'], 'aes128gcm');
   assert.match(pushes[0].headers.authorization, /^vapid t=.+, k=/);
   assert.equal(pushes[0].body.includes('Notifications'), false, 'the push service sees only ciphertext');
@@ -421,18 +421,25 @@ test('remote: questions from the model, switching model, and notifications reach
   const question = await until(() => me.state.approvals[0]);
   assert.deepEqual([question.kind, question.title, question.options], ['question', 'Which database?', ['Postgres', 'MySQL']]);
   await until(() => pushes.length === 2);
-  assert.deepEqual(readPush(pushes[1]), { title: `${ws.name}: Seeker has a question`, body: 'Which database?', url: `/#v=review:${question.id}`, tag: question.id });
+  assert.deepEqual(readPush(pushes[1]), { title: `${ws.name}: Seeker has a question`, body: 'Which database?', url: `/#v=review:${question.id}`, tag: question.id, badge: 1 }, 'the icon counts the question waiting');
   await me.send('answer', { id_approval: question.id, answer: 'Postgres' });
   await until(() => me.state.workspaces.get(ws.id).status === 'idle' && me.state.approvals.length === 0);
   assert.equal(me.state.workspaces.get(ws.id).items.at(-1).text, 'Using Postgres.');
   await until(() => pushes.length === 3);
-  assert.deepEqual(readPush(pushes[2]), { title: `${ws.name}: finished`, body: 'Using Postgres.', url: `/#v=session:${ws.id}`, tag: `done-${ws.id}` });
+  assert.deepEqual(readPush(pushes[2]), { title: `${ws.name}: finished`, body: 'Using Postgres.', url: `/#v=session:${ws.id}`, tag: `done-${ws.id}`, badge: 1 }, 'the question was answered; the finished task, not opened yet, counts');
+  assert.equal(me.state.workspaces.get(ws.id).unread, 'completed');
+  assert.equal(daemon.badge(), 1);
+  // Opening the conversation on the phone takes it off the count; saying so twice changes nothing.
+  await me.send('seen', { ws: ws.id });
+  await until(() => me.state.workspaces.get(ws.id).unread === null);
+  await me.send('seen', { ws: ws.id });
+  assert.equal(daemon.badge(), 0);
 
   // ── an approval also notifies ──
   await me.send('message', { ws: ws.id, text: 'run the tests' });
   const approval = await until(() => me.state.approvals[0]);
   await until(() => pushes.length === 4);
-  assert.deepEqual(readPush(pushes[3]), { title: `${ws.name}: Run this command?`, body: 'Running npm test', url: `/#v=review:${approval.id}`, tag: approval.id });
+  assert.deepEqual(readPush(pushes[3]), { title: `${ws.name}: Run this command?`, body: 'Running npm test', url: `/#v=review:${approval.id}`, tag: approval.id, badge: 1 });
 
   // ── the model cannot be switched while work is going on, and can be once it is idle ──
   await me.send('model', { provider: 'ollama', model: 'big:30b' });

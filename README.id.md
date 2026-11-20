@@ -260,7 +260,13 @@ dijaga agar tidak tidur selama `seeker remote` berjalan. Hentikan dengan Ctrl+C.
 
 ### Yang tampil di HP
 
-- **Home → Control Center** — apa yang sedang dikerjakan agen (atau, kalau tidak ada yang jalan, bagaimana
+- **Membuka aplikasi** — robot tersusun dari piksel lalu bangun (sekitar 1,4 detik) di atas Home, yang sudah
+  dimuat di belakangnya; ketuk untuk melewatinya, dan dengan Reduce Motion aktif animasi ini tidak tampil.
+  Diputar saat aplikasi dijalankan, bukan saat kembali ke aplikasi yang masih terbuka, dan notifikasi tetap
+  membuka layarnya sendiri.
+- **Home → Control Center** — agen yang sedang aktif: robot menunjukkan apa yang dikerjakan agen paling depan,
+  sesuai laporan komputer (idle, thinking, coding, executing, awaiting approval, completed, failed, atau
+  disconnected saat HP tidak bisa menjangkau komputer), dengan tombol Open session dan Switch agent. Lalu apa yang sedang dikerjakan agen (atau, kalau tidak ada yang jalan, bagaimana
   task terakhir berakhir), komputer yang terhubung beserta statusnya dan waktu bolak-balik yang terukur,
   24 jam terakhir (proyek yang aktif dan jumlah tool run, dihitung dari percakapannya sendiri), token yang
   terpakai hari ini — ketuk untuk melihat tujuh hari terakhir dan total sejak penghitungan dimulai — dan `/init` `/model` `/resume`.
@@ -362,6 +368,12 @@ bergabung sendiri dan tampil di HP sebagai *terminal session*. Tidak ada yang pe
 - Notifikasi push (persetujuan, pertanyaan dari model, tugas selesai) dikirim langsung dari Mac ke layanan push HP
   dengan enkripsi Web Push (`src/webpush.mjs`); relay tidak terlibat. Nyalakan di Settings aplikasi HP.
   Di iPhone, aplikasinya harus dipasang dulu lewat Share → Add to Home Screen.
+- Angka di ikon aplikasi menghitung yang menunggumu: permintaan yang belum dijawab, dan tugas yang selesainya
+  sudah dinotifikasikan tapi belum kamu buka. Komputer yang menghitungnya dan mengirimnya bersama tiap push;
+  selama aplikasi terbuka, angkanya mengikuti keadaan di komputer. Perlu notifikasi aktif, dan di iPhone
+  aplikasinya harus ada di Home Screen (iOS 16.4 ke atas). Kalau ikon tidak bisa menampilkan angka, hitungan
+  yang sama ada di Approvals dan Sessions pada dock. Melepas pairing menghapus angkanya dan menghentikan
+  notifikasi ke HP ini.
 - Kunci aplikasi (Settings → App lock): Face ID, dengan PIN 6 digit sebagai cadangan, diminta saat aplikasi
   dibuka atau setelah tidak dipakai 1, 5, 15, atau 60 menit. Semuanya di HP saja: PIN disimpan sebagai hash
   PBKDF2 bersalt, Face ID memakai passkey untuk situs ini yang wajib melaporkan pengguna sudah terverifikasi.

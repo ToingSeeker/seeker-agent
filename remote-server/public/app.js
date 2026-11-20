@@ -12,6 +12,7 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, current, localFolders, 
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
+import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
 import { ACTIVE_KEY, AFTER_OPTIONS, DEFAULT_AFTER, LOCKOUT_TRIES, PIN_LENGTH, afterLabel, checkPin, cleared, dueToLock, failed, lockedOut, makePin, readLock, sameId, triesLeft, userVerified, writeLock } from './lock.js';
@@ -103,6 +104,44 @@ const ICONS = {
   stop: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2.2"/></svg>`,
   send: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 4l18 8-18 8 3-8zm3 8h7"/></svg>`,
 };
+
+// ── the robot, alive ─────────────────────────────────────────────────────────
+// The logo robot with what it is doing around it. Its mood (robot.js) comes from the Mac's reports;
+// style.css draws each one. Only transforms and opacity move, and nothing moves with reduced motion.
+function bot(mood, size = 'md', { label = true } = {}) {
+  const fx = (cls, n, text = null) => h('span', { class: cls, 'aria-hidden': 'true' }, text ?? Array.from({ length: n }, () => h('i')));
+  return h(
+    'span',
+    { class: `bot ${size} m-${mood}${state.device?.settings?.animation === false ? ' still' : ''}`, ...(label ? { role: 'img', 'aria-label': `Seeker: ${MOODS[mood].toLowerCase()}` } : { 'aria-hidden': 'true' }) },
+    h('span', { class: 'ring', 'aria-hidden': 'true' }),
+    h('span', { class: 'body', icon: 'logo' }),
+    size !== 'sm' && [fx('orbit', 3), fx('code', 0, '</>'), fx('term', 3), fx('alert', 0, '!'), fx('spark', 6)],
+  );
+}
+
+const steady = new Steady(); // keeps each robot's mood on screen long enough to be read
+const moodTimers = new Map();
+/** The mood to draw for `key`; asks for a redraw when a held or celebrated mood is due to change. */
+function moodFor(key, ws) {
+  const wanted = moodOf(ws, { up: state.linked && state.online });
+  const shown = steady.next(key, wanted);
+  const due = shown.at ?? (shown.mood === 'success' ? (ws.meta.lastAt ?? Date.now()) + SUCCESS_FOR : null);
+  if (due && !moodTimers.has(key)) moodTimers.set(key, setTimeout(() => (moodTimers.delete(key), render(true)), Math.max(50, due - Date.now() + 20)));
+  return shown.mood;
+}
+
+// ── the number on the app's icon ──
+// The Mac counts what waits for the user (robot.js badgeCount); this only shows it. A push sets it
+// while the app is closed (sw.js). Where the browser cannot badge an app, the counts in the dock remain.
+let badgeShown = null;
+function syncBadge() {
+  if (state.secret && !state.loaded) return; // not known yet: leave what the last push set
+  const n = state.secret ? badgeCount({ approvals: state.approvals, workspaces: [...state.workspaces.values()] }) : 0;
+  if (n === badgeShown || !('setAppBadge' in navigator)) return;
+  badgeShown = n;
+  (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+}
+const seenSent = new Set(); // "<ws>:<lastAt>" already reported as seen, so a redraw does not repeat it
 
 // ── state ──────────────────────────────────────────────────────────────────
 const state = {
@@ -451,6 +490,11 @@ function signOut(message = '') {
   keptPaths = null;
   transfers.clear();
   Object.assign(state, { secret: null, token: null, key: null, since: 0, linked: false, online: false, device: null, workspaces: new Map(), approvals: [], error: message, view: { name: 'home' }, latency: null, lastEntryAt: null });
+  // Nothing of the old pairing stays on this phone: no number on the icon, and no more pushes from that Mac
+  // (its next one is refused, and the Mac forgets this phone).
+  badgeShown = null;
+  if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
+  navigator.serviceWorker?.getRegistration().then((r) => r?.pushManager.getSubscription()).then((s) => s?.unsubscribe()).catch(() => {}).finally(refreshPush);
   render();
 }
 
@@ -623,7 +667,7 @@ function openSwitcher() {
                 h(
                   'button',
                   { class: `s-row sw-row${row.id === state.view.ws && state.view.name === 'session' ? ' selected' : ''}`, 'data-key': row.id, onclick: () => (closeSheet(), go({ name: 'session', ws: row.id })) },
-                  h('span', { class: 'ico', icon: 'folder' }),
+                  state.workspaces.has(row.id) ? bot(moodOf(state.workspaces.get(row.id), { up }), 'sm', { label: false }) : h('span', { class: 'ico', icon: 'folder' }),
                   h(
                     'span',
                     { class: 'grow' },
@@ -1099,20 +1143,51 @@ function controlCenter(model) {
     sheet(title, ...list.map((w) => h('button', { class: 'row-btn', onclick: () => (closeSheet(), then(w.meta)) }, w.meta.name)));
   };
 
+  // The live agent: the robot shows what the agent in front is doing (an approval first, then running work),
+  // as the Mac reported it. A tap on the robot or on Open session goes into that conversation.
+  // Working or waiting for the user: both are sessions still under way.
+  const active = list.filter((w) => w.meta.status === 'working' || w.meta.status === 'approval').length;
   let activityPanel;
   if (!state.loaded) {
-    activityPanel = panel('ACTIVITY', null, h('div', { class: 'skeleton-lines', 'aria-busy': 'true', 'aria-label': 'Loading' }, h('i'), h('i'), h('i')));
+    activityPanel = panel('LIVE AGENT', null, h('div', { class: 'skeleton-lines', 'aria-busy': 'true', 'aria-label': 'Loading' }, h('i'), h('i'), h('i')));
   } else if (!now) {
-    activityPanel = panel('ACTIVITY', null, h('p', { class: 'quiet' }, list.length ? 'Nothing has run yet. Open a session and give Seeker a task.' : 'No project is open yet.'), h('button', { class: 'btn small', disabled: !up, onclick: () => (list.length ? go({ name: 'sessions' }) : addWorkspace()) }, list.length ? 'Open sessions' : 'Open a project'));
+    activityPanel = h(
+      'section',
+      { class: 'panel-box hero' },
+      h('div', { class: 'cap' }, h('span', {}, 'LIVE AGENT'), h('span', { class: `mood-word m-${model.mood}` }, MOODS[model.mood])),
+      h('div', { class: 'hero-main' }, h('span', { class: 'hero-bot' }, bot(model.mood, 'lg')), h('p', { class: 'quiet grow' }, list.length ? 'Nothing has run yet. Open a session and give Seeker a task.' : 'No project is open yet.')),
+      h('div', { class: 'hero-actions' }, h('button', { class: 'btn small', disabled: !up, onclick: () => (list.length ? go({ name: 'sessions' }) : addWorkspace()) }, list.length ? 'Open sessions' : 'Open a project')),
+    );
   } else {
     const { meta } = now.ws;
+    const open = () => go({ name: 'session', ws: meta.id });
     const mark = now.status === 'completed' ? 'check' : now.status === 'failed' ? 'cross' : null;
+    const last = since(meta.lastAt);
     activityPanel = h(
-      'button',
-      { class: 'panel-box tap', onclick: () => go({ name: 'session', ws: meta.id }) },
-      h('span', { class: 'cap' }, h('span', {}, now.live ? 'CURRENT ACTIVITY' : 'RECENT ACTIVITY'), pill(now.status)),
-      h('span', { class: 'lead' }, h('span', { class: 'ico', icon: 'folder' }), h('span', { class: 'grow' }, h('span', { class: 'name line' }, meta.name), h('span', { class: 'meta line' }, [meta.branch, meta.provider].filter(Boolean).join(' · '))), h('span', { class: 'chev', icon: 'chevron' })),
+      'section',
+      { class: 'panel-box hero', 'aria-label': `Live agent: ${meta.name}, ${MOODS[model.mood].toLowerCase()}` },
+      // The mood under the name says the state; a second label here would say it in other words.
+      h('div', { class: 'cap' }, h('span', {}, now.live ? 'LIVE AGENT' : 'LAST AGENT')),
+      h(
+        'div',
+        { class: 'hero-main' },
+        h('button', { class: 'hero-bot', type: 'button', 'aria-label': `Open ${meta.name}`, onclick: open }, bot(model.mood, 'lg')),
+        h(
+          'span',
+          { class: 'grow' },
+          h('span', { class: 'name line' }, meta.name),
+          h('span', { class: `mood-word m-${model.mood}` }, MOODS[model.mood]),
+          h('span', { class: 'meta line' }, [meta.branch, meta.provider].filter(Boolean).join(' · ')),
+        ),
+      ),
       now.text && h('span', { class: `said ${STATUSES[now.status].tone}` }, mark ? h('span', { class: 'mark', icon: mark }) : now.live && h('i', { class: 'beat' }), h('span', { class: 'text' }, now.text)),
+      h('div', { class: 'hero-facts' }, h('span', {}, h('i', { class: `state ${link.tone}` }), link.label), h('span', {}, `${active} active`), last && h('span', {}, `Last active ${last.toLowerCase()}`)),
+      h(
+        'div',
+        { class: 'hero-actions' },
+        h('button', { class: 'btn small primary', type: 'button', onclick: open }, 'Open session'),
+        h('button', { class: 'btn small', type: 'button', 'aria-haspopup': 'dialog', onclick: openSwitcher }, h('span', { class: 'ico', icon: 'swap' }), 'Switch agent'),
+      ),
     );
   }
 
@@ -1364,7 +1439,9 @@ function homeNow() {
   const now = front && { ...front, status: statusOf(front.ws), text: summary(front.ws) };
   const stats = activity(list);
   const meta = now?.ws.meta;
-  return { link, now, stats, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], stats, state.usage && spent(state.usage.today)]) };
+  const mood = now ? moodFor('hero', now.ws) : moodOf(null, { up: link.key === 'online' });
+  const last = meta && since(meta.lastAt);
+  return { link, now, stats, mood, signature: JSON.stringify([base, state.latency?.ms, list.length, list[0]?.meta.provider, state.device?.provider, now && [meta.id, meta.name, meta.branch, meta.provider, now.live, now.status, now.text], mood, last, list.map((w) => w.meta.status).join(), stats, state.usage && spent(state.usage.today)]) };
 }
 
 function home(model) {
@@ -3086,7 +3163,19 @@ function render(force = false) {
   requestAnimationFrame(() => {
     queued = false;
     draw();
+    syncBadge();
+    markSeen();
   });
+}
+
+/** A conversation open on screen has been seen: its ending stops counting on the app's icon (the Mac keeps the mark). */
+function markSeen() {
+  const ws = state.view.name === 'session' && state.workspaces.get(state.view.ws);
+  if (!ws?.meta?.unread || document.hidden || !state.online) return;
+  const key = `${ws.meta.id}:${ws.meta.lastAt}`;
+  if (seenSent.has(key)) return;
+  seenSent.add(key);
+  command('seen', { ws: ws.meta.id }, { quiet: true }).then((sent) => sent || seenSent.delete(key));
 }
 
 function draw() {
@@ -3179,10 +3268,14 @@ function draw() {
 
   const nav = $('nav');
   nav.hidden = !paired || name === 'session' || name === 'review';
+  // What waits for the user, on the dock too: the same counts as the app's icon, for a phone that cannot badge it.
+  const unread = [...state.workspaces.values()].filter((w) => !w.meta.terminal && w.meta.unread).length;
+  const waiting = { approvals: [state.approvals.length, 'waiting'], sessions: [unread, 'ended, not opened yet'] };
   nav.replaceChildren(
-    ...NAV.map(([id, label, icon]) =>
-      h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => go({ name: id }) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, h('span', { icon }), id === 'approvals' && state.approvals.length > 0 && h('span', { class: 'count' }, state.approvals.length)), h('span', { class: 'label' }, label), id === 'approvals' && state.approvals.length > 0 && h('span', { class: 'sr-only' }, `, ${state.approvals.length} waiting`)),
-    ),
+    ...NAV.map(([id, label, icon]) => {
+      const [n, said] = waiting[id] ?? [0, ''];
+      return h('button', { class: state.view.name === id ? 'active' : '', 'aria-current': state.view.name === id ? 'page' : null, onclick: () => go({ name: id }) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, h('span', { icon }), n > 0 && h('span', { class: 'count' }, n)), h('span', { class: 'label' }, label), n > 0 && h('span', { class: 'sr-only' }, `, ${n} ${said}`));
+    }),
   );
   drawSheet();
   document.title = state.approvals.length ? `(${state.approvals.length}) SEEKER Remote` : 'SEEKER Remote';
@@ -3669,6 +3762,15 @@ if (window.visualViewport) {
 }
 
 // ── start ──────────────────────────────────────────────────────────────────
+// The launch (index.html) plays over the app while it loads; CSS ends it by itself. It leaves the page
+// when its last step ends, on a tap (skip), or after a while in any case.
+{
+  const launch = $('launch');
+  const gone = () => launch?.remove();
+  launch?.addEventListener('animationend', (event) => event.target === launch && event.animationName === 'launch-out' && gone());
+  launch?.addEventListener('pointerdown', gone);
+  setTimeout(gone, 3000);
+}
 (async () => {
   // A pairing link carries the secret after "#", which browsers never send to the server.
   const fromLink = /[#&]k=([^&]+)/.exec(location.hash)?.[1];
@@ -3705,4 +3807,8 @@ setInterval(() => {
   if (['home', 'settings'].includes(state.view.name)) ping();
   render();
 }, 30_000);
-document.addEventListener('visibilitychange', () => !document.hidden && state.secret && (ping(), render()));
+document.addEventListener('visibilitychange', () => {
+  // Out of sight, the robots and the launch stop moving (style.css), so nothing animates for no one.
+  document.documentElement.classList.toggle('backgrounded', document.hidden);
+  if (!document.hidden && state.secret) (ping(), render());
+});
