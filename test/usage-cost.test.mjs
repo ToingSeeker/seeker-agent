@@ -44,7 +44,7 @@ test('usage cost: a set sums its priced models and says how many tokens it left 
   const cost = costOfSets([set]);
   near(cost.usd, 4);
   assert.equal(cost.unpriced, 2_000_000, 'deepseek plus the million counted before the split');
-  assert.deepEqual(costOfSets([{ input: 5, output: 5 }]), { usd: null, unpriced: 10 }, 'nothing priced is not $0');
+  assert.deepEqual(costOfSets([{ input: 5, output: 5 }]), { usd: null, charged: 0, unpriced: 10 }, 'nothing priced is not $0');
 });
 
 test('usage cost: the view prices the lifetime, the range and each day from the same ledger', () => {

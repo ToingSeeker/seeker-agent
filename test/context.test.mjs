@@ -80,15 +80,15 @@ test('/usage: totals, the cached share and the days, from the ledger on this mac
   assert.match(text, /Today\s+405\.0K\s+█+/);
   assert.match(text, /Yesterday\s+0\s*$/m, 'a tracked day without use is a real zero');
   assert.equal((text.match(/not recorded/g) ?? []).length, 4, 'days before counting began are not called zero');
-  assert.doesNotMatch(text, /API price/, 'counts with no model to price show no amount, not $0');
+  assert.doesNotMatch(text, /^\s*cost\s/m, 'counts with no model to price show no amount, not $0');
 
   // A Claude model at list price: 1M new input at $4 + 0.5M cache reads at $0.20 + 0.1M output at $20 = $6.10.
   recordUsage({ input: 1_500_000, cached: 500_000, output: 100_000 }, { now: Date.now(), provider: 'claude-code', model: 'claude-opus-5-5' });
   lines.length = 0;
   await runCommand('/usage', ctx);
   const priced = lines.join('\n');
-  assert.match(priced, /API price\s+≈ \$6\.10\s+at Anthropic list prices; 1\.4M tokens without a price left out/);
-  assert.match(priced, /claude-opus-5-5\s+1\.6M .*≈ \$6\.10/);
+  assert.match(priced, /cost\s+≈ \$6\.10\s+at API prices; 1\.4M tokens without a price left out/);
+  assert.match(priced, /claude-opus-5-5\s+1\.6M .*≈ \$6\.10 at API prices/);
   // Both commands answer from the phone as well.
   lines.length = 0;
   await runPhoneCommand('/usage', ctx);

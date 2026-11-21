@@ -102,6 +102,19 @@ test('OpenAI-compatible provider: lists chat models and streams text, reasoning 
   assert.equal(sent.headers.authorization, 'Bearer sk-test');
   assert.equal(sent.body.messages[0].role, 'system');
   assert.equal(sent.body.tools[0].type, 'function');
+  assert.deepEqual(last.spent, { input: 120, output: 30 }, 'no cache figure from the server, none invented');
+});
+
+test('OpenAI-compatible provider: the final usage chunk passes on cache reads, and the cost only from OpenRouter', async () => {
+  const usage = { prompt_tokens: 1000, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 900 }, cost: 0.0031 };
+  const fake = await server((req, res) => sse(res, [JSON.stringify({ choices: [{ delta: { content: 'hi' } }] }), JSON.stringify({ choices: [], usage }), '[DONE]']));
+  const spentFrom = async (id) => {
+    const provider = createProvider(id, { ...DEFAULTS, providers: { [id]: { baseUrl: `${fake.url}/v1`, apiKey: 'sk-test' } } });
+    return (await collect(provider.chat({ model: 'm', system: 'S', messages: [{ role: 'user', content: 'x' }] }))).at(-1).spent;
+  };
+  assert.deepEqual(await spentFrom('openrouter'), { input: 1000, output: 20, cached: 900, cost: 0.0031 });
+  assert.deepEqual(await spentFrom('mine'), { input: 1000, output: 20, cached: 900 }, 'a cost from a server of unknown units is dropped');
+  fake.close();
 });
 
 test('OpenAI-compatible provider: a rejected key is reported with a hint, and the usage option is dropped if refused', async () => {

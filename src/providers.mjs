@@ -186,6 +186,21 @@ function ollamaProvider(def, config) {
 
 // ── OpenAI-compatible ──────────────────────────────────────────────────────
 
+/**
+ * An OpenAI-style usage block as ledger counts. Cache reads are named where the server reports them:
+ * DeepSeek's prompt_cache_hit_tokens, or OpenAI's prompt_tokens_details.cached_tokens (which others copy).
+ * A server that reports neither leaves `cached` out, which the ledger reads as "not reported", not 0.
+ * `cost` is the charge when the server states it and `withCost` says its unit is known: OpenRouter's
+ * usage.cost, in its credits, which are bought in US dollars. Another server's `cost` is not trusted.
+ */
+export function openAISpent(usage = {}, { withCost = false } = {}) {
+  const spent = { input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0 };
+  const cached = usage.prompt_cache_hit_tokens ?? usage.prompt_tokens_details?.cached_tokens;
+  if (Number.isFinite(cached)) spent.cached = cached;
+  if (withCost && Number.isFinite(usage.cost) && usage.cost >= 0) spent.cost = usage.cost;
+  return spent;
+}
+
 function openaiProvider(def, config) {
   const base = (config.providers?.[def.id]?.baseUrl ?? def.baseUrl).replace(/\/+$/, '');
   const headers = () => {
@@ -257,6 +272,7 @@ function openaiProvider(def, config) {
       prompt_eval_count: usage?.prompt_tokens ?? 0,
       eval_count: output,
       eval_duration: output ? (Date.now() - started) * 1e6 : 0,
+      ...(usage ? { spent: openAISpent(usage, { withCost: def.id === 'openrouter' }) } : {}),
     };
   }
 
