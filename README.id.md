@@ -111,7 +111,10 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
   dan input dari cache, output, grafik per hari, riwayatnya, dan model mana memakai berapa dalam rentang yang
   dipilih. Dengan Claude Code setiap model dihitung sendiri, termasuk sub-agent. Hari sebelum penghitungan dimulai
   ditampilkan sebagai tidak tercatat, bukan nol; token yang terhitung sebelum pemecahan per model dimulai
-  ditampilkan sebagai "not attributed", tidak dibagi-bagi ke model.
+  ditampilkan sebagai "not attributed", tidak dibagi-bagi ke model. Di samping hitungan itu HP menunjukkan
+  berapa biaya token tersebut kalau dihitung dengan harga daftar API Anthropic (bertanda ≈): hanya untuk model
+  Claude, tiap jenis token dengan tarifnya sendiri. Langganan Claude tidak ditagih per token, jadi angka ini
+  pembanding, bukan tagihan; model yang tidak punya harga resmi Anthropic tidak dihitung, tidak ditebak.
 - `~/.seeker/memory/` — catatan dari sesi-sesi sebelumnya; `MEMORY.md` adalah indeksnya (satu baris per catatan).
 - `~/.seeker/memory/projects/<folder>/` — catatan khusus satu proyek, dimuat saat SEEKER dijalankan di folder itu.
 - **Skill yang punya daftar pilihan** menawarkannya untuk dicentang saat dipanggil tanpa apa-apa di belakangnya:
@@ -166,8 +169,8 @@ berjalan.
 
 `/context` menunjukkan apa yang mengisi percakapan, bagian demi bagian (instruksi, definisi tool, pesanmu,
 jawaban, hasil tool, gambar) dan seberapa jauh lagi sebelum diringkas. `/usage` menunjukkan token yang
-terpakai: total, input baru dan dari cache, output, tujuh hari terakhir, dan pemecahan per model. Keduanya
-bisa dari HP.
+terpakai: total, input baru dan dari cache, output, biaya menurut harga daftar API, tujuh hari terakhir, dan
+pemecahan per model. Keduanya bisa dari HP.
 
 Setiap langkah mengirim seluruh percakapan ke model lagi, jadi sesi yang panjang dibayar berkali-kali. Saat
 percakapan mencapai 80% jendela konteks, atau 300.000 token kalau itu lebih dulu, percakapan diringkas; bagian

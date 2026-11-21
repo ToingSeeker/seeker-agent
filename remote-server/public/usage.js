@@ -1,6 +1,7 @@
 // Token usage as the phone shows it: totals, how the input divides, a day-by-day series and the
 // numbers on the chart's axis. Plain data in, plain data out — no DOM — so the page and the tests
-// run the same code. Every figure comes from the ledger the Mac keeps; nothing is estimated here.
+// run the same code. Every count comes from the ledger the Mac keeps; the one estimate is the cost at
+// list price (PRICES below), shown only for models with a published price and always labelled as such.
 //
 // How the counts fit together (see src/usage.mjs on the Mac):
 //   input    everything sent to the model: new input + cached input
@@ -91,7 +92,7 @@ export function series(usage, range = '7', now = Date.now()) {
     const counts = recorded.get(day);
     const used = counts && (counts.input > 0 || counts.output > 0);
     const tracked = sinceDay != null && day >= sinceDay;
-    out.push({ day, coverage: used ? 'recorded' : tracked ? 'zero' : 'unavailable', partial: day === sinceDay, counts: used ? breakdown(counts) : tracked ? breakdown({}) : null });
+    out.push({ day, coverage: used ? 'recorded' : tracked ? 'zero' : 'unavailable', partial: day === sinceDay, counts: used ? breakdown(counts) : tracked ? breakdown({}) : null, cost: used ? costOfSets([counts]) : tracked ? { usd: 0, unpriced: 0 } : null });
   }
   return out;
 }
@@ -101,7 +102,10 @@ export function periodTotal(days) {
   const tracked = days.filter((d) => d.counts);
   if (!tracked.length) return null;
   const sum = (key) => tracked.reduce((n, d) => n + d.counts[key], 0);
-  return { total: sum('total'), newInput: sum('newInput'), cachedInput: sum('cachedInput'), output: sum('output'), replies: sum('replies') };
+  // Days without use add $0, but only days that used something priced make the range "priced".
+  const priced = tracked.filter((d) => d.coverage === 'recorded' && d.cost?.usd != null);
+  const cost = { usd: priced.length ? priced.reduce((n, d) => n + d.cost.usd, 0) : null, unpriced: tracked.reduce((n, d) => n + (d.cost?.unpriced ?? 0), 0) };
+  return { total: sum('total'), newInput: sum('newInput'), cachedInput: sum('cachedInput'), output: sum('output'), replies: sum('replies'), cost };
 }
 
 /** Round numbers for the chart's axis: 0 and four steps up to at least `max`. */
@@ -166,13 +170,90 @@ export function byModel(sets) {
   }
   const share = (b) => (total > 0 ? b.total / total : 0);
   const models = [...rows.values()]
-    .map(({ provider, model, local, raw }) => ({ provider, model, local, counts: breakdown(raw) }))
+    .map(({ provider, model, local, raw }) => ({ provider, model, local, raw, counts: breakdown(raw) }))
     .filter((r) => r.counts.total > 0)
-    .map((r) => ({ ...r, share: share(r.counts) }))
+    .map((r) => ({ ...r, share: share(r.counts), usd: costOf(r.provider, r.model, r.raw, r.local) }))
     .sort((a, b) => b.counts.total - a.counts.total || a.model.localeCompare(b.model));
   const unattributed = breakdown(rest);
   return { models, unattributed: unattributed.total > 0 ? { counts: unattributed, share: share(unattributed) } : null, total };
 }
+
+// What the tokens would cost at Anthropic's list prices, in USD per million tokens:
+// [input, 5-minute cache write, cache read, output]. From platform.claude.com/docs/en/about-claude/pricing
+// as read on PRICES_AS_OF. A Claude subscription is not billed per token, so this is "what it would cost
+// on the API", never a bill. Claude Haiku 5.5 is listed at its price for prompts up to 100K tokens: the
+// ledger keeps no per-request prompt size, so longer prompts are under-priced.
+export const PRICES_AS_OF = '2026-11-22';
+const PRICES = {
+  'claude-fable-5-2': [8, 10, 0.2, 40],
+  'claude-mythos-5-2': [8, 10, 0.2, 40],
+  'claude-fable-5-1': [10, 12.5, 0.25, 50],
+  'claude-mythos-5-1': [10, 12.5, 0.25, 50],
+  'claude-fable-5': [10, 12.5, 1, 50],
+  'claude-mythos-5': [10, 12.5, 1, 50],
+  'claude-opus-5-5': [4, 5, 0.2, 20],
+  'claude-opus-5': [5, 6.25, 0.5, 25],
+  'claude-opus-4-8': [5, 6.25, 0.5, 25],
+  'claude-opus-4-7': [5, 6.25, 0.5, 25],
+  'claude-opus-4-6': [5, 6.25, 0.5, 25],
+  'claude-opus-4-5': [5, 6.25, 0.5, 25],
+  'claude-sonnet-5-5': [2, 2.5, 0.1, 10],
+  'claude-sonnet-5': [2, 2.5, 0.2, 10],
+  'claude-sonnet-4-6': [3, 3.75, 0.3, 15],
+  'claude-sonnet-4-5': [3, 3.75, 0.3, 15],
+  'claude-haiku-5-5': [0.1, 0.125, 0.01, 0.5],
+  'claude-haiku-4-5': [1, 1.25, 0.1, 5],
+};
+// Providers that bill at Anthropic's own prices. The same model through another provider (OpenRouter,
+// a cloud platform) is priced by that provider, so it is left unpriced rather than guessed.
+const ANTHROPIC_PRICED = new Set(['claude-code', 'anthropic']);
+
+/** The list price of a model, or null. "claude-opus-5-5[1m]" and a dated "...-20260101" name the same model. */
+export function priceOf(provider, model) {
+  if (!ANTHROPIC_PRICED.has(provider) || typeof model !== 'string') return null;
+  const id = model.toLowerCase().replace(/\[.*\]$/, '').replace(/-\d{8}$/, '');
+  return PRICES[id] ?? null;
+}
+
+/**
+ * The cost of one model's counts at list price, in USD, or null when it has no price. Local models cost 0.
+ * Cache writes are priced at the 5-minute rate (the ledger does not say which duration was written; 1-hour
+ * writes bill higher), so the figure is a floor for them.
+ */
+export function costOf(provider, model, counts, local = false) {
+  if (local) return 0;
+  const price = priceOf(provider, model);
+  if (!price) return null;
+  const b = breakdown(counts);
+  const [input, write, read, output] = price;
+  return ((b.newInput - b.written) * input + b.written * write + b.cachedInput * read + b.output * output) / 1e6;
+}
+
+/**
+ * What a list of sets of counts would cost: `usd` over what has a price, and `unpriced`, the tokens of
+ * models without one (and of counts made before the split by model), which are left out, not guessed.
+ * `usd` is null when nothing could be priced.
+ */
+export function costOfSets(sets) {
+  const { models, unattributed } = byModel(sets);
+  let usd = null;
+  let unpriced = unattributed?.counts.total ?? 0;
+  for (const m of models) {
+    if (m.usd == null) unpriced += m.counts.total;
+    else usd = (usd ?? 0) + m.usd;
+  }
+  return { usd, unpriced };
+}
+
+/** "$0.42", "$12.34", "$1,234". Under a cent says so rather than "$0.00". */
+export function dollars(usd) {
+  if (usd == null) return '—';
+  if (usd > 0 && usd < 0.01) return '<$0.01';
+  return usd >= 1000 ? `$${Math.round(usd).toLocaleString('en-US')}` : `$${usd.toFixed(2)}`;
+}
+
+/** An amount at list price as shown: "≈ $12.35", or "<$0.01", which is already approximate. */
+export const approx = (usd) => (usd > 0 && usd < 0.01 ? dollars(usd) : `≈ ${dollars(usd)}`);
 
 /** The models of a range: the lifetime total for "all", the recorded days of the range otherwise. */
 function modelsOf(usage, range, days) {
@@ -192,5 +273,5 @@ export function view(usage, { range = '7', now = Date.now() } = {}) {
   const { today, sinceDay } = anchors(usage, now);
   const days = series(usage, range, now);
   const top = Math.max(0, ...days.map((d) => d.counts?.total ?? 0));
-  return { today, sinceDay, lifetime: breakdown(usage?.total), days, period: periodTotal(days), models: modelsOf(usage, range, days), ticks: axis(top), empty: !usage?.total || breakdown(usage.total).total === 0 };
+  return { today, sinceDay, lifetime: breakdown(usage?.total), lifetimeCost: costOfSets([usage?.total]), days, period: periodTotal(days), models: modelsOf(usage, range, days), ticks: axis(top), empty: !usage?.total || breakdown(usage.total).total === 0 };
 }
