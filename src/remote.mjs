@@ -25,6 +25,9 @@ import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
 
+// A notification's text: one line, keys hidden before it is cut short (a cut key no longer looks like one).
+const brief = (text) => redactSecrets(text).replace(/\s+/g, ' ').slice(0, 160);
+
 const plain = (text) => String(text ?? '').replace(ANSI, '');
 const MAX_ITEMS = 400; // transcript entries kept per workspace
 const SNAPSHOT_EVERY = 400; // events between full snapshots, which let the relay drop older ones
@@ -452,7 +455,7 @@ export class Workspace {
   }
 
   /** The model's own question to the user; resolves with their answer, or null if they stopped the turn. */
-  async #question({ question, options }) {
+  async #question({ question, options, other = true }) {
     return this.#waiting(() => this.daemon.ask({
       id: crypto.randomBytes(6).toString('hex'),
       ws: this.id,
@@ -460,6 +463,8 @@ export class Workspace {
       kind: 'question',
       title: question,
       options: options ?? [],
+      // false when only the options will do: the phone shows no box for a typed answer.
+      ...(other ? {} : { other: false }),
       cwd: tildify(this.cwd),
       at: Date.now(),
     }));
@@ -534,11 +539,11 @@ export class Workspace {
     if (this.outcome === 'failed') {
       const error = [...this.items].reverse().find((i) => i.kind === 'notice' && i.level === 'error');
       this.#unread('failed');
-      this.daemon.notify({ title: `${this.name}: failed`, body: (error?.text ?? 'The task ended with an error.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'error');
+      this.daemon.notify({ title: `${this.name}: failed`, body: brief(error?.text ?? 'The task ended with an error.'), url, tag: `done-${this.id}` }, 'error');
     } else if (this.outcome === 'completed' && Date.now() - started >= this.daemon.notifyAfter) {
       const last = [...this.items].reverse().find((i) => i.kind === 'assistant' && i.text);
       this.#unread('completed');
-      this.daemon.notify({ title: `${this.name}: finished`, body: (last?.text ?? 'The task has ended.').replace(/\s+/g, ' ').slice(0, 160), url, tag: `done-${this.id}` }, 'done');
+      this.daemon.notify({ title: `${this.name}: finished`, body: brief(last?.text ?? 'The task has ended.'), url, tag: `done-${this.id}` }, 'done');
     }
   }
 
@@ -940,7 +945,9 @@ export class RemoteDaemon {
   async notify(payload, kind = null) {
     const wanted = this.subscriptions.filter((s) => !kind || s.prefs?.[kind] !== false);
     if (!wanted.length) return 0;
-    payload = { ...payload, badge: this.badge() };
+    // A notification shows on the lock screen, where anyone near the phone can read it: no keys in it.
+    const clean = (text) => (typeof text === 'string' ? redactSecrets(text) : text);
+    payload = { ...payload, title: clean(payload.title), body: clean(payload.body), badge: this.badge() };
     const results = await Promise.all(
       wanted.map((subscription) => sendPush(subscription, payload, this.config.remote.vapid, { subject: this.url, anyHost: this.pushAnyHost }).then((result) => ({ subscription, ...result }))),
     );
@@ -974,7 +981,7 @@ export class RemoteDaemon {
       const question = approval.kind === 'question';
       const what = question ? approval.title : `${approval.doing} ${approval.summary}`;
       this.log(`${question ? 'question' : 'approval needed'} in ${approval.wsName}: ${what}`.slice(0, 110));
-      this.notify({ title: `${approval.wsName}: ${question ? 'Seeker has a question' : approval.title}`, body: what.replace(/\s+/g, ' ').slice(0, 160), url: `/#v=review:${approval.id}`, tag: approval.id }, 'approval');
+      this.notify({ title: `${approval.wsName}: ${question ? 'Seeker has a question' : approval.title}`, body: brief(what), url: `/#v=review:${approval.id}`, tag: approval.id }, 'approval');
     });
   }
 

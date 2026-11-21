@@ -186,7 +186,10 @@ and shell commands. Other credentials (`.env` and `.env.*` except examples, `*.p
 keys, `.netrc`, `~/.ssh`, `~/.aws` and similar) are asked about every time, also with `--yolo`, since what is
 read goes to the model provider; with nobody there to answer they are refused. A folder search leaves their
 lines out. `~/.seeker` itself is kept private to your account (0700): saved conversations and prompt history
-can hold whatever you pasted. Key-shaped text is masked in `seeker remote`'s log. Spotting a file in a shell
+can hold whatever you pasted. An API key in a message you type is caught before it goes to a cloud model:
+SEEKER asks whether to mask it, send it as it is, or not send the message (in the terminal and on the phone; a
+local model gets the message unchanged). Key-shaped text is masked in `seeker remote`'s log and in phone
+notifications, and the memory store refuses it. Spotting a file in a shell
 command is a best effort; `/sandbox on` is what stops a command from reading SEEKER's key files.
 
 **Plan mode.** `/plan` (or `seeker --plan`) has SEEKER look first and answer with a plan: the steps, the files

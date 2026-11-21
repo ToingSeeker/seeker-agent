@@ -6,6 +6,7 @@ import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
 import { decide, fallbackChain, reasonText } from './failover.mjs';
 import { PLAN_NOTE } from './permissions.mjs';
+import { findSecrets, keyHint, redactSecrets } from './secrets.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
@@ -13,6 +14,11 @@ import { backendOf } from './backend.mjs';
 import { loadAgents, roleText } from './agents.mjs';
 import { recordUsage } from './usage.mjs';
 import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
+
+// The answers offered when a typed message holds an API key (see #checkKeys).
+export const MASK_KEYS = 'Mask the key';
+export const SEND_KEYS = 'Send it as it is';
+export const CANCEL_SEND = "Don't send";
 
 const CHARS_PER_TOKEN = 3.5;
 const COMPACT_AT = 0.8;
@@ -939,6 +945,26 @@ export class Agent {
   }
 
   /**
+   * A message the user typed that holds an API key: before it leaves the Mac for a cloud model, the
+   * user chooses to mask the key, send it as it is, or not send it. Returns the text to send, or null
+   * for "don't send". With a model on this Mac, or nobody to ask (`seeker serve`, cron), the text
+   * goes unchanged.
+   */
+  async #checkKeys(text) {
+    const keys = findSecrets(text);
+    if (!keys.length || !this.hooks.askUser) return text;
+    // Ollama runs on this Mac, except its cloud models (`gpt-oss:120b-cloud`), which it forwards to ollama.com.
+    if (this.provider.local && !/[-:]cloud\b/.test(this.model ?? '')) return text;
+    const named = keys.slice(0, 3).map(keyHint).join(', ');
+    const question = `Your message holds what looks like ${keys.length > 1 ? `${keys.length} API keys` : 'an API key'} (${named}). Sent as it is, the key goes to ${this.provider.label}, and stays in this conversation's history.`;
+    const options = [MASK_KEYS, SEND_KEYS, CANCEL_SEND];
+    const answer = await this.hooks.askUser({ question, options, other: false });
+    if (answer === SEND_KEYS) return text;
+    if (answer === MASK_KEYS) return redactSecrets(text);
+    return null;
+  }
+
+  /**
    * The images of a user message, added to it so the model sees them: the image files the text
    * names, and those that came with it from another device (`sent`).
    */
@@ -991,6 +1017,15 @@ export class Agent {
     const { signal } = this.controller;
     this.turn = {};
     this.#restorePrimary();
+    if (references && !this.review && !this.parent) {
+      const checked = await this.#checkKeys(userText);
+      if (checked === null) {
+        this.controller = null;
+        ui.warn('  ⚠ Not sent: the message held an API key. Send it again without the key, or choose to mask it.');
+        return;
+      }
+      userText = checked;
+    }
     const message = { role: 'user', content: userText };
     if (this.shellHooks && !this.review && !this.parent) {
       const hooked = await this.shellHooks.run('pre_llm_call', { extra: { user_message: userText } });
