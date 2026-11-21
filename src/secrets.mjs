@@ -96,12 +96,33 @@ const KEY_PATTERNS = [
   /\b((?:api[_-]?key|token|secret|password)\s*[=:]\s*["']?)([A-Za-z0-9+/_-]{20,})/gi,
 ];
 
-/** `text` with key-shaped values replaced by a short marker; for logs, which are kept in plain text. */
+// `token: GITHUB_TOKEN` names an environment variable; it is not the secret itself.
+const VARIABLE_NAME = /^[A-Z][A-Z0-9_]+$/;
+
+/** `text` with key-shaped values replaced by a short marker; for logs and notifications. */
 export function redactSecrets(text) {
   let out = String(text ?? '');
   for (const pattern of KEY_PATTERNS) {
     // One group: the key itself, kept to its first four characters. Two: a `name=` prefix, then the value.
-    out = out.replace(pattern, (match, a, b) => (typeof b === 'string' ? `${a}[redacted]` : `${a.slice(0, 4)}…[redacted]`));
+    out = out.replace(pattern, (match, a, b) => {
+      if (typeof b !== 'string') return `${a.slice(0, 4)}…[redacted]`;
+      return VARIABLE_NAME.test(b) ? match : `${a}[redacted]`;
+    });
   }
   return out;
 }
+
+/** The key-shaped values in `text`, in order, without repeats: what redactSecrets would hide. */
+export function findSecrets(text) {
+  const found = new Set();
+  for (const pattern of KEY_PATTERNS) {
+    for (const m of String(text ?? '').matchAll(pattern)) {
+      const value = m[2] ?? m[1];
+      if (m[2] === undefined || !VARIABLE_NAME.test(value)) found.add(value);
+    }
+  }
+  return [...found];
+}
+
+/** How a found key is named back to the user: enough to recognise it, not enough to use it. */
+export const keyHint = (key) => `${key.slice(0, 4)}…`;

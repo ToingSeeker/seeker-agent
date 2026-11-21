@@ -570,10 +570,11 @@ export async function main(argv) {
   };
 
   // The model's own questions to the user: a short list to choose from, or a typed answer.
-  agent.hooks.askUser = async ({ question, options }) => {
+  // `other: false` when only the options will do (SEEKER's own questions): no typed answer is offered.
+  agent.hooks.askUser = async ({ question, options, other = true }) => {
     ui.toolLine(c.accent(question));
     if (options.length) {
-      const items = [...options.map((label) => ({ label })), { label: 'Something else…', hint: 'type your own answer' }];
+      const items = [...options.map((label) => ({ label })), ...(other ? [{ label: 'Something else…', hint: 'type your own answer' }] : [])];
       const at = await pickList({ term, ui, title: question, items });
       if (at === -1) return null;
       if (at < options.length) {

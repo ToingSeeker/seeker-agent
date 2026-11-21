@@ -47,8 +47,10 @@ maupun lewat perintah shell. Kredensial lain (`.env` dan `.env.*` kecuali contoh
 `id_rsa`, `.netrc`, `~/.ssh`, `~/.aws`, dan sejenisnya) selalu ditanyakan dulu, juga dengan `--yolo`, karena yang
 dibaca ikut terkirim ke penyedia model; kalau tidak ada yang bisa menjawab, ditolak. Pencarian di folder tidak
 menampilkan baris dari file itu. Folder `~/.seeker` dijaga hanya bisa dibuka akunmu (0700), karena percakapan
-tersimpan dan riwayat input bisa berisi apa pun yang kamu tempel. Teks yang bentuknya seperti key disamarkan di log
-`seeker remote`. Pengenalan file di perintah shell hanya upaya terbaik; yang benar-benar mencegah perintah membaca
+tersimpan dan riwayat input bisa berisi apa pun yang kamu tempel. API key di pesan yang kamu ketik dicegat sebelum
+terkirim ke model cloud: SEEKER bertanya mau disamarkan, dikirim apa adanya, atau batal dikirim (di terminal maupun
+di HP; model lokal menerima pesannya tanpa diubah). Teks yang bentuknya seperti key disamarkan di log `seeker remote`
+dan di notifikasi HP, dan ditolak oleh penyimpanan memory. Pengenalan file di perintah shell hanya upaya terbaik; yang benar-benar mencegah perintah membaca
 file key SEEKER adalah `/sandbox on`.
 
 **Mode rencana.** `/plan` (atau `seeker --plan`) membuat SEEKER melihat dulu lalu menjawab dengan rencana: langkahnya,

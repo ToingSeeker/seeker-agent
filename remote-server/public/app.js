@@ -2708,7 +2708,7 @@ function review(approval) {
       h('h2', { class: 'ask' }, approval.title),
       h('p', { class: 'muted' }, 'Seeker is waiting for your answer before it goes on.'),
       ...approval.options.map((option, i) => h('button', { class: i === 0 ? 'btn primary' : 'btn', disabled: busy, onclick: () => answer(option) }, option)),
-      h('form', { onsubmit: (e) => (e.preventDefault(), answer(reply.value)) }, reply, h('button', { class: 'btn quiet', type: 'submit', disabled: busy }, busy ? 'Sending…' : 'Send answer')),
+      approval.other !== false && h('form', { onsubmit: (e) => (e.preventDefault(), answer(reply.value)) }, reply, h('button', { class: 'btn quiet', type: 'submit', disabled: busy }, busy ? 'Sending…' : 'Send answer')),
     ];
   }
 

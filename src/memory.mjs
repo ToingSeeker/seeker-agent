@@ -9,6 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { HOME_DIR, projectSlug } from './config.mjs';
+import { findSecrets } from './secrets.mjs';
 
 export const ENTRY_DELIMITER = '\n§\n';
 export const MEMORIES_DIR = path.join(HOME_DIR, 'memories');
@@ -42,7 +43,8 @@ const THREATS = [
   ['agent_config_mod', /\.seeker\/config\.json|\.seeker\/SEEKER\.md/i],
   // A value written out in full; the name of an environment variable (SHOUTY_SNAKE) is not a secret.
   ['hardcoded_secret', /(?:api[_-]?key|token|secret|password)\s*[=:]\s*["']?([A-Za-z0-9+/=_-]{20,})/i, (m) => !/^[A-Z][A-Z0-9_]+$/.test(m[1])],
-  ['hardcoded_secret', /\b(sk-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|xox[baprs]-[A-Za-z0-9-]{20,}|AKIA[0-9A-Z]{16})\b/],
+  // The same key shapes the log redactor knows (src/secrets.mjs): provider, Stripe, GitHub, Slack, AWS, Google, JWT.
+  ['hardcoded_secret', /^/, (m) => findSecrets(m.input).length > 0],
 ];
 
 // Patterns about secrets and config paths: right for memory, wrong for a project's own
