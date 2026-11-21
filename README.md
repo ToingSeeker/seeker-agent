@@ -180,6 +180,15 @@ Reading is free. Edits, shell commands and network access ask first; "always" an
 rules. A short list of harmless shell commands runs without asking, and commands matching the dangerous
 patterns are asked about even with `--yolo`.
 
+**Secrets.** Files that hold secrets are the exception to free reading. SEEKER's own key files (`config.json`,
+`remote.sock.key` and `push.json` in `~/.seeker`) are refused to the agent in every mode, for reading, writing
+and shell commands. Other credentials (`.env` and `.env.*` except examples, `*.pem`, `*.key`, `id_rsa`-style
+keys, `.netrc`, `~/.ssh`, `~/.aws` and similar) are asked about every time, also with `--yolo`, since what is
+read goes to the model provider; with nobody there to answer they are refused. A folder search leaves their
+lines out. `~/.seeker` itself is kept private to your account (0700): saved conversations and prompt history
+can hold whatever you pasted. Key-shaped text is masked in `seeker remote`'s log. Spotting a file in a shell
+command is a best effort; `/sandbox on` is what stops a command from reading SEEKER's key files.
+
 **Plan mode.** `/plan` (or `seeker --plan`) has SEEKER look first and answer with a plan: the steps, the files
 each touches, how the result will be checked. Reading, searching and the harmless shell commands still run;
 edits, other commands and saving memory are refused without asking you, also with `--yolo`. `/plan go`
