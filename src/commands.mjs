@@ -455,7 +455,7 @@ export async function runCommand(input, ctx) {
 
     case 'usage': {
       const { usageSummary } = await import('./usage.mjs');
-      const { view, compact, percent, dayLabel } = await import('../remote-server/public/usage.js');
+      const { view, compact, percent, dayLabel, approx } = await import('../remote-server/public/usage.js');
       const v = view(usageSummary(), { range: '7' });
       if (v.empty) return ui.notice('  No token usage recorded yet. Counts appear after the first reply of a model.');
       const t = v.lifetime;
@@ -465,6 +465,7 @@ export async function runCommand(input, ctx) {
       if (t.written) ui.line(`  ${c.dim('cache writes')} ${compact(t.written).padStart(8)}  ${c.dim('part of new input')}`);
       ui.line(`  ${c.dim('output      ')} ${compact(t.output).padStart(8)}`);
       ui.line(`  ${c.dim('replies     ')} ${t.replies.toLocaleString().padStart(8)}`);
+      if (v.lifetimeCost.usd != null) ui.line(`  ${c.dim('API price   ')} ${approx(v.lifetimeCost.usd).padStart(8)}  ${c.dim(`at Anthropic list prices${v.lifetimeCost.unpriced ? `; ${compact(v.lifetimeCost.unpriced)} tokens without a price left out` : ''}`)}`);
       ui.line('');
       const top = Math.max(1, ...v.days.map((d) => d.counts?.total ?? 0));
       for (const d of [...v.days].reverse()) {
@@ -483,11 +484,11 @@ export async function runCommand(input, ctx) {
         ui.line('');
         ui.line(`  ${c.bold('By model')} ${c.dim('since counting began')}`);
         for (const [n, sub, m] of rows) {
-          const cache = m.counts.cacheRatio == null ? '' : `  ${percent(m.counts.cacheRatio)} cached`;
+          const cache = `${m.counts.cacheRatio == null ? '' : `  ${percent(m.counts.cacheRatio)} cached`}${m.usd != null && !m.local ? `  ${approx(m.usd)}` : ''}`;
           ui.line(`  ${(n.length > wide ? `${n.slice(0, wide - 1)}…` : n).padEnd(wide)} ${compact(m.counts.total).padStart(8)} ${sharePercent(m.share).padStart(6)}  ${c.dim(`${sub}${cache}`)}`);
         }
       }
-      ui.line(`  ${c.dim('Counted on this machine (~/.seeker/usage.json). Token counts are not charges.')}`);
+      ui.line(`  ${c.dim('Counted on this machine (~/.seeker/usage.json). ≈ amounts are API list prices, not a bill: a Claude subscription is not charged per token.')}`);
       return;
     }
 
