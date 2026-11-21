@@ -6,7 +6,7 @@ import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
 import { decide, fallbackChain, reasonText } from './failover.mjs';
 import { PLAN_NOTE } from './permissions.mjs';
-import { findSecrets, keyHint, redactSecrets } from './secrets.mjs';
+import { findSecrets, keyHint, redactSecrets, secretKind } from './secrets.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
 import { loadSkills } from './skills.mjs';
@@ -604,7 +604,11 @@ export class Agent {
     ui.toolStart(about.verbs[0], about.verbs[1], about.summary);
     entry.row = ui.tool;
     if (about.diff) ui.diff(about.diff);
-    const tool = { name, risk: about.risk ?? 'other', targetPath: () => path.resolve(this.cwd, about.path ?? '.') };
+    // A read of a secret file (the provider's guard turned it into a question) is checked as a read,
+    // so it is asked about even in --yolo mode and never offered "always".
+    const target = path.resolve(this.cwd, about.path ?? '.');
+    const risk = about.risk ?? (about.path && secretKind(target) ? 'read' : 'other');
+    const tool = { name, risk, targetPath: () => target };
     const verdict = await this.permissions.check(tool, { command: about.command, url: about.url });
     if (!verdict.ok) {
       ui.toolFail('not run');

@@ -83,7 +83,7 @@ export function describeExternal(name, input = {}, cwd = '') {
 function describe(name, input) {
   switch (name) {
     case 'Read':
-      return { verbs: ['Reading', 'Read'], summary: input.file_path ?? '', note: (out) => count(out, 'line') };
+      return { verbs: ['Reading', 'Read'], summary: input.file_path ?? '', path: input.file_path, note: (out) => count(out, 'line') };
     case 'Edit':
       return {
         verbs: ['Editing', 'Edited'],
@@ -124,7 +124,7 @@ function describe(name, input) {
     case 'Glob':
       return { verbs: ['Finding', 'Found'], summary: input.pattern ?? '', note: (out) => count(out, 'file') };
     case 'Grep':
-      return { verbs: ['Searching for', 'Searched for'], summary: `"${input.pattern ?? ''}"${input.glob ? ` in ${input.glob}` : ''}`, note: (out) => count(out, 'line') };
+      return { verbs: ['Searching for', 'Searched for'], summary: `"${input.pattern ?? ''}"${input.glob ? ` in ${input.glob}` : ''}`, path: input.path, note: (out) => count(out, 'line') };
     case 'WebFetch':
       return { verbs: ['Fetching', 'Fetched'], summary: input.url ?? '', risk: 'net', url: input.url };
     case 'WebSearch':
