@@ -248,8 +248,11 @@ runs its own tools (Claude Code) stay on this machine. `/status` shows where com
   began is shown as not recorded, never as zero; tokens counted before the split by model began are shown as
   "not attributed", never shared out among the models. Next to the counts the phone shows what the tokens
   would cost at Anthropic's API list prices (marked ≈): for Claude models only, each kind of token at its own
-  rate. A Claude subscription is not billed per token, so this is a comparison, not a bill; models without a
-  published Anthropic price are left out, never guessed.
+  rate. A Claude subscription is not billed per token, so this is a comparison, not a bill. For providers that
+  bill per token the amount estimates the charge, worked out as each reply is counted: the cost OpenRouter
+  states for it, or DeepSeek's published price at that hour (off-peak is half; DeepSeek's off-peak public
+  holidays are not known, so on those days the estimate is high). The provider's own dashboard is the bill.
+  Models without a price, and replies counted before prices were recorded, are left out, never guessed.
 - `~/.seeker/memory/` — notes from earlier sessions; `MEMORY.md` is the index (one line per note).
   `~/.seeker/memory/projects/<folder>/` holds notes for one project.
 - `skills/` in this repository — skills that ship with SEEKER (engineering, design, data, SEO, marketing,
@@ -276,7 +279,7 @@ most recent part and your request word for word.
 
 `/context` shows what fills the conversation, part by part (instructions, tool definitions, your messages,
 replies, tool results, pictures) and how far it is from being summarised. `/usage` shows the tokens used:
-the total, new and cached input, output, the cost at API list prices, the last seven days, and the split by
+the total, new and cached input, output, the cost (≈ API list price, or the estimated charge), the last seven days, and the split by
 model. Both work from the phone.
 
 Every step sends the whole conversation to the model again, so a long session is paid for many times over.

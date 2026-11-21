@@ -1,13 +1,16 @@
 // Token usage as the phone shows it: totals, how the input divides, a day-by-day series and the
 // numbers on the chart's axis. Plain data in, plain data out — no DOM — so the page and the tests
-// run the same code. Every count comes from the ledger the Mac keeps; the one estimate is the cost at
-// list price (PRICES below), shown only for models with a published price and always labelled as such.
+// run the same code. Every count comes from the ledger the Mac keeps; the one estimate is the cost:
+// at Anthropic list price for Claude (PRICES below), and for providers that bill per token the charge
+// the Mac recorded reply by reply (chargeOf). Shown only where there is a price, always labelled as such.
 //
 // How the counts fit together (see src/usage.mjs on the Mac):
 //   input    everything sent to the model: new input + cached input
 //   cached   the part of input read from the provider's cache
 //   written  the part of new input the provider wrote to its cache (reported by some providers)
 //   known    the part of input from replies whose provider reports cache figures at all
+//   nanoUsd  what replies of per-token providers were charged, in billionths of a dollar
+//   costed   the tokens (input + output) of the replies that nanoUsd covers
 //   total    input + output — cached input is inside input and is never added a second time
 
 const DAY = 86_400_000;
@@ -92,7 +95,7 @@ export function series(usage, range = '7', now = Date.now()) {
     const counts = recorded.get(day);
     const used = counts && (counts.input > 0 || counts.output > 0);
     const tracked = sinceDay != null && day >= sinceDay;
-    out.push({ day, coverage: used ? 'recorded' : tracked ? 'zero' : 'unavailable', partial: day === sinceDay, counts: used ? breakdown(counts) : tracked ? breakdown({}) : null, cost: used ? costOfSets([counts]) : tracked ? { usd: 0, unpriced: 0 } : null });
+    out.push({ day, coverage: used ? 'recorded' : tracked ? 'zero' : 'unavailable', partial: day === sinceDay, counts: used ? breakdown(counts) : tracked ? breakdown({}) : null, cost: used ? costOfSets([counts]) : tracked ? { usd: 0, charged: 0, unpriced: 0 } : null });
   }
   return out;
 }
@@ -104,7 +107,7 @@ export function periodTotal(days) {
   const sum = (key) => tracked.reduce((n, d) => n + d.counts[key], 0);
   // Days without use add $0, but only days that used something priced make the range "priced".
   const priced = tracked.filter((d) => d.coverage === 'recorded' && d.cost?.usd != null);
-  const cost = { usd: priced.length ? priced.reduce((n, d) => n + d.cost.usd, 0) : null, unpriced: tracked.reduce((n, d) => n + (d.cost?.unpriced ?? 0), 0) };
+  const cost = { usd: priced.length ? priced.reduce((n, d) => n + d.cost.usd, 0) : null, charged: priced.reduce((n, d) => n + (d.cost.charged ?? 0), 0), unpriced: tracked.reduce((n, d) => n + (d.cost?.unpriced ?? 0), 0) };
   return { total: sum('total'), newInput: sum('newInput'), cachedInput: sum('cachedInput'), output: sum('output'), replies: sum('replies'), cost };
 }
 
@@ -137,14 +140,14 @@ export function labelled(count, room = 7) {
   return (index) => (count - 1 - index) % every === 0;
 }
 
-const COUNT_KEYS = ['input', 'cached', 'output', 'replies', 'written', 'known'];
+const COUNT_KEYS = ['input', 'cached', 'output', 'replies', 'written', 'known', 'nanoUsd', 'costed'];
 export const MODEL_SLOTS = 4; // models drawn in their own colour; the rest fold into "Other models"
 
 /**
  * The counts of a range split by provider and model, largest first. Each set of counts the Mac sends
  * may carry `by` ({ provider: { model: counts } }); what a set holds beyond its `by` was counted before
  * the split existed and comes back as `unattributed`, never shared out among the models.
- * Each row: { provider, model, local, counts, share }; `share` is of the range's total tokens.
+ * Each row: { provider, model, local, counts, share, usd, unpriced }; `share` is of the range's total tokens.
  */
 export function byModel(sets) {
   const rows = new Map();
@@ -172,7 +175,7 @@ export function byModel(sets) {
   const models = [...rows.values()]
     .map(({ provider, model, local, raw }) => ({ provider, model, local, raw, counts: breakdown(raw) }))
     .filter((r) => r.counts.total > 0)
-    .map((r) => ({ ...r, share: share(r.counts), usd: costOf(r.provider, r.model, r.raw, r.local) }))
+    .map((r) => ({ ...r, share: share(r.counts), ...costParts(r.provider, r.model, r.raw, r.local) }))
     .sort((a, b) => b.counts.total - a.counts.total || a.model.localeCompare(b.model));
   const unattributed = breakdown(rest);
   return { models, unattributed: unattributed.total > 0 ? { counts: unattributed, share: share(unattributed) } : null, total };
@@ -207,6 +210,9 @@ const PRICES = {
 // Providers that bill at Anthropic's own prices. The same model through another provider (OpenRouter,
 // a cloud platform) is priced by that provider, so it is left unpriced rather than guessed.
 const ANTHROPIC_PRICED = new Set(['claude-code', 'anthropic']);
+// Claude Code runs on a subscription: its amounts compare with the API, they are not charged. Every other
+// provider that is not local bills per token, so its amounts estimate a real charge.
+export const charged = (provider) => provider !== 'claude-code';
 
 /** The list price of a model, or null. "claude-opus-5-5[1m]" and a dated "...-20260101" name the same model. */
 export function priceOf(provider, model) {
@@ -215,35 +221,97 @@ export function priceOf(provider, model) {
   return PRICES[id] ?? null;
 }
 
-/**
- * The cost of one model's counts at list price, in USD, or null when it has no price. Local models cost 0.
- * Cache writes are priced at the 5-minute rate (the ledger does not say which duration was written; 1-hour
- * writes bill higher), so the figure is a floor for them.
- */
-export function costOf(provider, model, counts, local = false) {
-  if (local) return 0;
-  const price = priceOf(provider, model);
-  if (!price) return null;
-  const b = breakdown(counts);
-  const [input, write, read, output] = price;
-  return ((b.newInput - b.written) * input + b.written * write + b.cachedInput * read + b.output * output) / 1e6;
+// Providers that charge per token, priced when each reply is counted (by chargeOf below) because their
+// price depends on the hour. USD per million tokens: [cache miss input, cache hit input, output] at the
+// full (peak) rate. From api-docs.deepseek.com/quick_start/pricing as read on PRICES_AS_OF. Off-peak is
+// half the peak rate; peak is 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday. DeepSeek also makes
+// Chinese public holidays off-peak, which this does not know, so on those days the estimate is high.
+const API_PRICES = {
+  deepseek: {
+    'deepseek-v4-pro': [1.32, 0.044, 3.96],
+    'deepseek-flash': [0.3, 0.006, 1.2],
+    'deepseek-v4-flash': [0.3, 0.006, 1.2], // retired name, served and billed as deepseek-flash
+  },
+};
+
+/** True when `at` falls in DeepSeek's peak hours. */
+export function deepseekPeak(at) {
+  const d = new Date(at);
+  const weekday = d.getUTCDay() >= 1 && d.getUTCDay() <= 5;
+  const hour = d.getUTCHours();
+  return weekday && ((hour >= 1 && hour < 4) || (hour >= 6 && hour < 10));
 }
 
 /**
- * What a list of sets of counts would cost: `usd` over what has a price, and `unpriced`, the tokens of
- * models without one (and of counts made before the split by model), which are left out, not guessed.
+ * What one reply of a per-token provider was charged, in USD, or null when that is not known. A charge the
+ * provider stated (`spent.cost`) is used as it is. Otherwise the reply is priced from API_PRICES at the
+ * moment `at`; that needs the provider to have said how much input it read from cache (`spent.cached`),
+ * because a cache hit costs a fraction of a miss and guessing either way would be wrong.
+ */
+export function chargeOf(provider, model, spent = {}, at = Date.now()) {
+  if (Number.isFinite(spent.cost) && spent.cost >= 0) return spent.cost;
+  const price = API_PRICES[provider]?.[typeof model === 'string' ? model.toLowerCase() : ''];
+  if (!price || !Number.isFinite(spent.cached)) return null;
+  const input = whole(spent.input);
+  const hit = Math.min(whole(spent.cached), input);
+  const [miss, read, output] = price;
+  const rate = provider === 'deepseek' && !deepseekPeak(at) ? 0.5 : 1;
+  return (((input - hit) * miss + hit * read + whole(spent.output) * output) / 1e6) * rate;
+}
+
+// The ledger keeps charges in billionths of a dollar, so they stay whole numbers and a cheap reply is not rounded away.
+export const NANO = 1e9;
+
+/**
+ * One model's cost: `usd` (null when nothing of it has a price) and `unpriced`, the tokens left out.
+ * Local models cost 0. Charges recorded reply by reply (`nanoUsd`, over `costed` tokens) are used as they
+ * are; the rest is priced at Anthropic list price where the model has one, and left out otherwise.
+ * Cache writes are priced at the 5-minute rate (the ledger does not say which duration was written; 1-hour
+ * writes bill higher), so the figure is a floor for them.
+ */
+export function costParts(provider, model, counts, local = false) {
+  const b = breakdown(counts);
+  if (local) return { usd: 0, unpriced: 0 };
+  const costed = Math.min(whole(counts?.costed), b.total);
+  let usd = costed > 0 ? whole(counts?.nanoUsd) / NANO : null;
+  let unpriced = b.total - costed;
+  const price = priceOf(provider, model);
+  if (price && unpriced > 0 && costed === 0) {
+    const [input, write, read, output] = price;
+    usd = ((b.newInput - b.written) * input + b.written * write + b.cachedInput * read + b.output * output) / 1e6;
+    unpriced = 0;
+  }
+  return { usd, unpriced };
+}
+
+/** The cost of one model's counts in USD, or null when it has no price. See costParts. */
+export const costOf = (provider, model, counts, local = false) => costParts(provider, model, counts, local).usd;
+
+/**
+ * What a list of sets of counts would cost: `usd` over what has a price; `charged`, the part of it from
+ * providers that bill per token (the rest compares a subscription with API prices); and `unpriced`, the
+ * tokens of models without a price (and of counts made before the split by model), left out, not guessed.
  * `usd` is null when nothing could be priced.
  */
 export function costOfSets(sets) {
   const { models, unattributed } = byModel(sets);
   let usd = null;
+  let paid = 0;
   let unpriced = unattributed?.counts.total ?? 0;
   for (const m of models) {
-    if (m.usd == null) unpriced += m.counts.total;
-    else usd = (usd ?? 0) + m.usd;
+    unpriced += m.unpriced;
+    if (m.usd == null) continue;
+    usd = (usd ?? 0) + m.usd;
+    if (charged(m.provider)) paid += m.usd;
   }
-  return { usd, unpriced };
+  return { usd, charged: paid, unpriced };
 }
+
+/** What a model's amount is: an estimated charge (per-token providers) or a comparison with API prices (Claude Code). */
+export const costKind = (provider) => (charged(provider) ? 'est. charge' : 'at API prices');
+
+/** The part of a total that providers bill for, said after the total: "" when there is none, or when it is all of it. */
+export const chargedPart = (cost) => (cost?.charged > 0 && cost.usd - cost.charged > 1e-9 ? `${approx(cost.charged)} of it estimated charges from API providers` : '');
 
 /** "$0.42", "$12.34", "$1,234". Under a cent says so rather than "$0.00". */
 export function dollars(usd) {

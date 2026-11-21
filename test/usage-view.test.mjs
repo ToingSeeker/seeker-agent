@@ -60,7 +60,7 @@ test('usage view: a day before counting began is unavailable, a tracked day with
   assert.equal(week[3].counts.total, 1050);
 
   // Recorded without a provider: counted, but with nothing to price, so no amount rather than $0.
-  assert.deepEqual(periodTotal(week), { total: 1470, newInput: 500, cachedInput: 900, output: 70, replies: 2, cost: { usd: null, unpriced: 1470 } });
+  assert.deepEqual(periodTotal(week), { total: 1470, newInput: 500, cachedInput: 900, output: 70, replies: 2, cost: { usd: null, charged: 0, unpriced: 1470 } });
   assert.equal(periodTotal(week.slice(0, 3)), null, 'a range that was never tracked has no total, not a total of 0');
   assert.equal(series(usage, '30').length, 30);
   assert.deepEqual(series(usage, 'all').map((d) => d.day), ['2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'], 'all tracked time starts the day counting began');

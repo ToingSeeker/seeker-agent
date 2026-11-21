@@ -10,7 +10,7 @@
 
 import { SOURCES, WORKSPACE_SORTS, activity, connection, crew, current, localFolders, summary, workspaces as explorerRows } from './home.js';
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
-import { MODEL_SLOTS, PRICES_AS_OF, RANGES, approx, compact, dayLabel, fullDay, labelled, modelName, percent, sharePercent, shortDay, view as usageView } from './usage.js';
+import { MODEL_SLOTS, PRICES_AS_OF, RANGES, approx, chargedPart, charged, compact, costKind, dayLabel, fullDay, labelled, modelName, percent, sharePercent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
@@ -1440,7 +1440,7 @@ function usageDay(d, today) {
     'div',
     { class: 'tu-day', role: 'status' },
     h('b', {}, title),
-    d.coverage === 'zero' ? h('p', {}, 'Counting was on and nothing was used.') : h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? '—' : c.cachedInput.toLocaleString()), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString()), d.cost?.usd != null && cell('At API prices', approx(d.cost.usd))),
+    d.coverage === 'zero' ? h('p', {}, 'Counting was on and nothing was used.') : h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? '—' : c.cachedInput.toLocaleString()), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString()), d.cost?.usd != null && cell('Cost', approx(d.cost.usd))),
     d.partial && h('p', {}, 'Counting began on this day: it holds only what came after that moment.'),
   );
 }
@@ -1462,15 +1462,15 @@ function usageModels(v, labels = {}) {
     unattributed && h('i', { class: 'none', style: `flex-grow:${unattributed.share}` }),
   ];
   const said = [...shown.map((m) => `${who(m)} ${percent(m.share)}`), otherShare > 0 && `other models ${percent(otherShare)}`, unattributed && `not attributed ${percent(unattributed.share)}`].filter(Boolean).join(', ');
-  const detail = (c, usd) => {
+  const detail = (c, usd, provider) => {
     const cell = (label, value) => h('div', {}, h('span', {}, label), h('b', {}, value));
-    return h('div', { class: 'tu-day', role: 'status' }, h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? 'Not reported' : c.cachedInput.toLocaleString()), c.cacheRatio != null && cell('Cached share', percent(c.cacheRatio)), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString()), c.replies > 0 && cell('Per reply', compact(c.total / c.replies)), usd != null && cell('At API prices', approx(usd))));
+    return h('div', { class: 'tu-day', role: 'status' }, h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? 'Not reported' : c.cachedInput.toLocaleString()), c.cacheRatio != null && cell('Cached share', percent(c.cacheRatio)), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString()), c.replies > 0 && cell('Per reply', compact(c.total / c.replies)), usd != null && cell(provider && charged(provider) ? 'Estimated charge' : 'At API prices', approx(usd))));
   };
   const row = (id, swatch, title, sub, item) => {
     const open = usageUi.model === id;
     return [
       h('button', { class: `tu-row tu-model${open ? ' on' : ''}`, type: 'button', 'data-key': `model-${id}`, 'aria-expanded': String(open), onclick: () => ((usageUi.model = open ? null : id), drawSheet()) }, h('i', { class: `tu-swatch ${swatch}`, 'aria-hidden': 'true' }), h('span', { class: 'grow' }, h('span', { class: 'tu-model-name' }, title), h('small', {}, sub)), h('em', {}, sharePercent(item.share)), h('b', {}, compact(item.counts.total))),
-      open && detail(item.counts, item.usd),
+      open && detail(item.counts, item.usd, item.provider),
     ];
   };
   return [
@@ -1478,7 +1478,7 @@ function usageModels(v, labels = {}) {
     h(
       'div',
       { class: 'tu-list' },
-      models.flatMap((m) => row(key(m), slot.get(key(m)) ?? 'other', modelName(m.model), [labels[m.provider] ?? m.provider, m.local && 'Local', !m.local && m.usd != null && approx(m.usd)].filter(Boolean).join(' · '), m)),
+      models.flatMap((m) => row(key(m), slot.get(key(m)) ?? 'other', modelName(m.model), [labels[m.provider] ?? m.provider, m.local && 'Local', !m.local && m.usd != null && `${approx(m.usd)} ${costKind(m.provider)}`].filter(Boolean).join(' · '), m)),
       unattributed && row('unattributed', 'none', 'Not attributed', 'Counted before per-model counting began', unattributed),
     ),
     models.some((m) => m.local) && h('p', { class: 'tu-note' }, 'Local models run on your Mac: their tokens are not sent to any provider.'),
@@ -1527,11 +1527,12 @@ function showUsage() {
   });
 }
 
-/** The cost of the tokens at API list prices, with what had no price said beside it. Nothing when nothing could be priced. */
+/** The cost of the tokens, with what had no price said beside it. Nothing when nothing could be priced. */
 function costLine(cost, when) {
   if (cost?.usd == null) return null;
-  const left = cost.unpriced > 0 ? ` · ${compact(cost.unpriced)} tokens without a list price not included` : '';
-  return h('p', { class: 'tu-cost' }, h('b', {}, approx(cost.usd)), h('span', {}, ` at API list prices, ${when}${left}`));
+  const kind = cost.charged > 0 && cost.usd - cost.charged <= 1e-9 ? 'estimated charges' : 'at API prices';
+  const left = [chargedPart(cost), cost.unpriced > 0 && `${compact(cost.unpriced)} tokens without a price not included`].filter(Boolean).map((t) => ` · ${t}`).join('');
+  return h('p', { class: 'tu-cost' }, h('b', {}, approx(cost.usd)), h('span', {}, ` ${kind}, ${when}${left}`));
 }
 
 function usageSheet(usage, up) {
@@ -1591,7 +1592,7 @@ function usageSheet(usage, up) {
     h('div', { class: 'tu-list' }, listed.flatMap(row)),
     history.length > HISTORY_ROWS && h('button', { class: 'btn quiet small', type: 'button', 'data-key': 'more', onclick: () => ((usageUi.more = !usageUi.more), drawSheet()) }, usageUi.more ? 'Show fewer days' : `Show ${history.length - HISTORY_ROWS} earlier days`),
 
-    h('p', { class: 'tu-note foot' }, `Counted on your Mac${v.sinceDay ? ` since ${fullDay(v.sinceDay)}, when this counter was added` : ''}. What was used before that was never recorded and cannot be recovered. The figures are the providers' own counts, by the Mac's calendar day. Cached input is part of the total. Amounts marked ≈ are what the tokens would cost at Anthropic's API list prices of ${fullDay(PRICES_AS_OF)}: a Claude subscription is not billed per token, so they are a comparison, not a bill. Cache writes are priced at the 5-minute rate. Models without a published Anthropic price are left out, not guessed.`),
+    h('p', { class: 'tu-note foot' }, `Counted on your Mac${v.sinceDay ? ` since ${fullDay(v.sinceDay)}, when this counter was added` : ''}. What was used before that was never recorded and cannot be recovered. The figures are the providers' own counts, by the Mac's calendar day. Cached input is part of the total. Amounts marked ≈ are estimates. For Claude Code they are what the tokens would cost at Anthropic's API list prices of ${fullDay(PRICES_AS_OF)}: a Claude subscription is not billed per token, so they are a comparison, not a bill (cache writes at the 5-minute rate). For providers that bill per token they estimate the charge: the cost OpenRouter states for each reply, or DeepSeek's published price at the hour of the reply. The provider's own dashboard is the bill. Models without a price, and replies counted before prices were recorded, are left out, not guessed.`),
   ];
 }
 
