@@ -179,8 +179,10 @@ export class Terminal {
     this.history.push(text);
     if (this.history.length > HISTORY_MAX) this.history = this.history.slice(-HISTORY_MAX);
     try {
-      fs.mkdirSync(HOME_DIR, { recursive: true });
-      fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.history));
+      fs.mkdirSync(HOME_DIR, { recursive: true, mode: 0o700 });
+      // Owner only: a line typed or pasted here can be a key.
+      fs.writeFileSync(HISTORY_FILE, JSON.stringify(this.history), { mode: 0o600 });
+      fs.chmodSync(HISTORY_FILE, 0o600);
     } catch {}
   }
 

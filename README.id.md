@@ -41,6 +41,16 @@ seeker --plan                # mulai di mode rencana: melihat dan mengusulkan, t
 
 Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/plan`, `/help`, `/exit`, dan `!perintah`.
 
+**Rahasia.** File yang menyimpan rahasia tidak ikut bebas dibaca. File key milik SEEKER sendiri (`config.json`,
+`remote.sock.key`, dan `push.json` di `~/.seeker`) selalu ditolak untuk agen di semua mode, baik dibaca, ditulis,
+maupun lewat perintah shell. Kredensial lain (`.env` dan `.env.*` kecuali contoh, `*.pem`, `*.key`, key seperti
+`id_rsa`, `.netrc`, `~/.ssh`, `~/.aws`, dan sejenisnya) selalu ditanyakan dulu, juga dengan `--yolo`, karena yang
+dibaca ikut terkirim ke penyedia model; kalau tidak ada yang bisa menjawab, ditolak. Pencarian di folder tidak
+menampilkan baris dari file itu. Folder `~/.seeker` dijaga hanya bisa dibuka akunmu (0700), karena percakapan
+tersimpan dan riwayat input bisa berisi apa pun yang kamu tempel. Teks yang bentuknya seperti key disamarkan di log
+`seeker remote`. Pengenalan file di perintah shell hanya upaya terbaik; yang benar-benar mencegah perintah membaca
+file key SEEKER adalah `/sandbox on`.
+
 **Mode rencana.** `/plan` (atau `seeker --plan`) membuat SEEKER melihat dulu lalu menjawab dengan rencana: langkahnya,
 file yang disentuh tiap langkah, dan cara memeriksa hasilnya. Membaca, mencari, dan perintah shell yang tidak
 mengubah apa pun tetap jalan; edit, perintah lain, dan penyimpanan memori ditolak tanpa bertanya, juga dengan

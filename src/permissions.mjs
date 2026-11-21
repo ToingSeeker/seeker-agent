@@ -1,6 +1,9 @@
 // Decides whether a tool call may run. Reads are free; writes, shell commands
 // and network requests need the user's approval unless a rule already covers them.
+// Files that hold secrets are the exception (src/secrets.mjs): SEEKER's own are refused,
+// others are asked about in every mode.
 import path from 'node:path';
+import { secretInCommand, secretKind } from './secrets.mjs';
 
 // Asked about even in --yolo mode: these are hard to undo.
 const DANGEROUS = [
@@ -130,6 +133,9 @@ export function stopsDaemon(command, pid) {
   return /\b(pkill|killall)\b[^\n;&|]*\b(seeker|node)\b/i.test(text);
 }
 
+const SEEKER_SECRET =
+  "Refused: this is one of SEEKER's own key files (its settings with the API keys, the remote key, the push subscriptions). The agent never reads or changes them, whatever the mode. Do not try another way. If the user wants a setting changed, tell them to use /config or /model.";
+
 const STOPS_DAEMON =
   'Refused: this would stop `seeker remote`, the process this agent runs in. It would end this task halfway, and nothing would start it again. Do not try another way. Tell the user to send /restart from the phone app, which restarts it safely, or to restart it on the Mac.';
 
@@ -175,15 +181,35 @@ export class Permissions {
     return !r.startsWith('..') && !path.isAbsolute(r);
   }
 
+  /** The secret file a tool call would touch: `{ kind, file }` (src/secrets.mjs), or null. */
+  #secret(tool, args) {
+    if (tool.risk === 'exec') return secretInCommand(args?.command, this.cwd);
+    if (tool.risk !== 'read' && tool.risk !== 'write') return null;
+    let file = null;
+    try {
+      file = tool.targetPath?.(args ?? {}, this.cwd) ?? null;
+    } catch {
+      return null; // no usable path: the tool itself reports that
+    }
+    const kind = file && secretKind(file);
+    return kind ? { kind, file } : null;
+  }
+
   /** @returns {Promise<{ ok: true } | { ok: false, reason: string }>} */
   async check(tool, args) {
-    if (tool.risk === 'read') return { ok: true };
+    // SEEKER's own key files are refused in every mode; other secrets are asked about even in --yolo,
+    // since what is read goes to the model provider and can be sent on from there.
+    const secret = this.#secret(tool, args);
+    if (secret?.kind === 'seeker') return { ok: false, reason: SEEKER_SECRET };
+    const secretWarning = secret && `${path.basename(secret.file)} looks like it holds secrets (keys, passwords); what is read goes to the model provider.`;
+    if (tool.risk === 'read') return secret ? this.#confirm(tool, args, secretWarning, null) : { ok: true };
     if (tool.risk === 'exec' && this.daemonPid && stopsDaemon(args?.command, this.daemonPid)) return { ok: false, reason: STOPS_DAEMON };
     const refusal = this.planning ? PLANNING : this.lookOnly;
     if (refusal) {
       // Looking around is part of planning: the short list of commands that only read still runs.
       // A page to read is asked about as usual. Anything that changes something waits for the plan.
       const looks = tool.risk === 'exec' && !isDangerous(String(args.command ?? '')) && parse(String(args.command ?? ''))?.every((words) => isSafeCommand(words));
+      if (looks && secret) return this.#confirm(tool, args, secretWarning, null);
       if (!looks && tool.risk !== 'net') return { ok: false, reason: refusal };
       if (looks) return { ok: true };
     }
@@ -194,6 +220,7 @@ export class Permissions {
     if (tool.risk === 'exec') {
       const command = String(args.command ?? '');
       if (isDangerous(command)) warning = 'This command is risky or hard to undo.';
+      else if (secret) warning = secretWarning;
       else if (this.mode === 'auto' || this.#bashAllowed(command)) return { ok: true };
       else if (parse(command)?.length === 1) {
         const prefix = bashPrefix(command);
@@ -202,6 +229,7 @@ export class Permissions {
     } else if (tool.risk === 'write') {
       const inside = this.#insideCwd(tool.targetPath(args, this.cwd));
       if (!inside) warning = 'This file is outside the working folder.';
+      else if (secret) warning = `${path.basename(secret.file)} looks like it holds secrets (keys, passwords).`;
       else if (this.mode === 'auto' || this.allowWrites) return { ok: true };
       else always = { label: 'always allow edits this session', apply: () => (this.allowWrites = true) };
     } else if (tool.risk === 'net') {
@@ -237,7 +265,13 @@ export class Permissions {
       always = { label: `always allow ${tool.name}`, apply: () => this.toolNames.add(tool.name) };
     }
 
+    return this.#confirm(tool, args, warning, always);
+  }
+
+  /** Asks the user, with the warning and the "always" answer if there is one. */
+  async #confirm(tool, args, warning, always) {
     if (!this.ask) {
+      if (always === null && warning?.includes('holds secrets')) return { ok: false, reason: `Refused: ${warning} Nobody is here to approve reading it. Do not try another way; tell the user.` };
       return { ok: false, reason: 'Permission denied: this session is non-interactive. The user must rerun with --yolo to allow this action.' };
     }
 

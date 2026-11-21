@@ -3,6 +3,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { hunkRows } from './hunks.mjs';
 import { SANDBOX_HINT, blockedBySandbox, shellCommand } from './sandbox.mjs';
+import { secretKind } from './secrets.mjs';
 import { backendCommand } from './backend.mjs';
 import fs from 'node:fs';
 import dns from 'node:dns';
@@ -349,6 +350,8 @@ export const TOOLS = [
     },
     verbs: ['Reading', 'Read'],
     summary: (a) => pathArg(a),
+    // Looked at by the permission check: a file that holds secrets is asked about, SEEKER's own refused.
+    targetPath: (a, cwd) => resolvePath(pathArg(a), cwd),
     async run(args, { cwd, vision }) {
       const file = resolvePath(pathArg(args), cwd);
       const stat = await fsp.stat(file).catch(() => null);
@@ -626,6 +629,7 @@ export const TOOLS = [
     },
     verbs: ['Searching for', 'Searched for'],
     summary: (a) => `"${a.pattern}"${a.include ? ` in ${a.include}` : ''}`,
+    targetPath: (a, cwd) => (typeof a.path === 'string' && a.path.trim() ? resolvePath(a.path, cwd) : null),
     async run(args, { cwd, signal }) {
       if (typeof args.pattern !== 'string' || !args.pattern) throw new ToolError('"pattern" is required');
       const target = args.path ? resolvePath(args.path, cwd) : '.';
@@ -647,11 +651,24 @@ export const TOOLS = [
       const r = await runProcess(cmd, argv, { cwd, signal, timeoutMs: 30_000 });
       if (r.error) throw new ToolError(`Search failed: ${r.error.message}`);
       if (r.code > 1) throw new ToolError(r.output.trim() || `search exited with code ${r.code}`);
-      const lines = r.output.split('\n').filter(Boolean).map((l) => (l.length > MAX_LINE ? `${l.slice(0, MAX_LINE)}…` : l));
-      if (!lines.length) return { output: 'No matches.', note: 'no matches' };
+      let lines = r.output.split('\n').filter(Boolean);
+      // A folder search does not hand over lines from files that hold secrets (.env, keys, SEEKER's
+      // settings): reading those is asked about. A single file was already asked about before the search.
+      let withheld = 0;
+      if (!(await fsp.stat(path.resolve(cwd, target)).catch(() => null))?.isFile()) {
+        lines = lines.filter((l) => {
+          const file = /^(.+?):\d+:/.exec(l)?.[1];
+          const secret = file && secretKind(path.resolve(cwd, file));
+          if (secret) withheld++;
+          return !secret;
+        });
+      }
+      lines = lines.map((l) => (l.length > MAX_LINE ? `${l.slice(0, MAX_LINE)}…` : l));
+      const held = withheld ? `\n\n[${withheld} match${withheld > 1 ? 'es' : ''} in files that hold secrets left out; read such a file with read_file and the user is asked]` : '';
+      if (!lines.length) return { output: `No matches.${held}`, note: 'no matches' };
       const shown = lines.slice(0, 200);
       const more = lines.length > shown.length ? `\n\n[${lines.length - shown.length} more matches — narrow the search]` : '';
-      return { output: shown.join('\n') + more, note: `${lines.length} match${lines.length > 1 ? 'es' : ''}` };
+      return { output: shown.join('\n') + more + held, note: `${lines.length} match${lines.length > 1 ? 'es' : ''}` };
     },
   },
   {

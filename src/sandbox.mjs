@@ -4,14 +4,14 @@
 // it is allowed, it has no network beyond this machine. It is one more guard beside the approval
 // rules, not instead of them: a command still asks first where it would have asked.
 //
-// What it does not cover: tools that are not shell commands (SEEKER's own file tools stay inside the
-// project by their own check), a provider's own tools (Claude Code runs its Bash itself), and the
+// What it does not cover: tools that are not shell commands (SEEKER's own file tools are kept off
+// secret files by the permission check, src/secrets.mjs), a provider's own tools (Claude Code runs its Bash itself), and the
 // `!command` lines you type yourself.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { HOME_DIR } from './config.mjs';
+import { seekerSecretFiles } from './secrets.mjs';
 
 const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
@@ -96,7 +96,7 @@ export function writablePlaces(cwd, { write = [] } = {}) {
 }
 
 // What a command has no business reading: the settings file holds API keys, the key file opens the daemon.
-const secretFiles = () => [path.join(HOME_DIR, 'config.json'), path.join(HOME_DIR, 'remote.sock.key'), path.join(HOME_DIR, 'push.json')].map(real);
+const secretFiles = seekerSecretFiles;
 
 /** The Seatbelt profile for a command started in `cwd`. Later rules win over earlier ones. */
 export function sandboxProfile(cwd, { write = [], network = false } = {}) {

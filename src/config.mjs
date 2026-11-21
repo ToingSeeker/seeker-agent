@@ -132,7 +132,21 @@ function readFile() {
   }
 }
 
+/**
+ * Makes SEEKER's folder private to its owner (0700). Conversations, prompt history and logs kept
+ * in it can hold whatever was pasted, a key included; other accounts on the machine must not read them.
+ */
+export function secureHomeDir() {
+  try {
+    fs.mkdirSync(HOME_DIR, { recursive: true, mode: 0o700 });
+    if (fs.statSync(HOME_DIR).mode & 0o077) fs.chmodSync(HOME_DIR, 0o700);
+  } catch {
+    // A folder that cannot be changed (not ours, read-only) must not stop SEEKER from starting.
+  }
+}
+
 export function loadConfig() {
+  secureHomeDir();
   const config = { ...DEFAULTS, ...readFile() };
   if (process.env.OLLAMA_HOST) config.host = process.env.OLLAMA_HOST;
   if (process.env.SEEKER_MODEL) config.model = process.env.SEEKER_MODEL;
@@ -142,7 +156,7 @@ export function loadConfig() {
 
 /** Persists only the given keys, leaving the rest of the file as it was. */
 export function saveConfig(patch) {
-  fs.mkdirSync(HOME_DIR, { recursive: true });
+  secureHomeDir();
   const next = { ...readFile(), ...patch };
   // The file can hold API keys, so only the owner may read it.
   fs.writeFileSync(CONFIG_FILE, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });

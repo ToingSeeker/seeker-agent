@@ -28,8 +28,9 @@ export class Session {
   save(messages, model) {
     if (!messages.length) return;
     try {
-      fs.mkdirSync(this.dir, { recursive: true });
-      fs.writeFileSync(this.file, JSON.stringify({ cwd: this.cwd, model, savedAt: new Date().toISOString(), messages }));
+      // Owner only: a conversation can hold anything that was pasted into it, a key included.
+      fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(this.file, JSON.stringify({ cwd: this.cwd, model, savedAt: new Date().toISOString(), messages }), { mode: 0o600 });
     } catch {
       // Losing history must never break the running conversation.
     }

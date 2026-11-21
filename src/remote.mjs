@@ -17,6 +17,7 @@ import { HOME_DIR, SETTINGS, VERSION, saveConfig, saveProviderConfig } from './c
 import { cardThumb, fullImage, kilobytes, previewOf, receivedImages } from './images.mjs';
 import { LINK_FILE, listenLink, readLines, sameKey, writeLine } from './link.mjs';
 import { createProvider, needsKey, providerDefs } from './providers.mjs';
+import { redactSecrets } from './secrets.mjs';
 import { TOOL_BY_NAME } from './tools.mjs';
 import { ANSI } from './text.mjs';
 import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, cardFacts, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
@@ -840,7 +841,8 @@ export class RemoteDaemon {
     this.url = String(config.remote.url).replace(/\/+$/, '');
     this.keys = deriveKeys(config.remote.secret);
     this.build = build;
-    this.log = log;
+    // Log lines quote what the phone sent and what is asked about; a key in them is masked.
+    this.log = (line) => log(redactSecrets(line));
     this.folders = folders;
     this.workspaces = new Map();
     this.approvals = new Map(); // id → { approval, resolve }
