@@ -106,9 +106,12 @@ dari `LOCAL • PRIVATE` menjadi `CLOUD • <NAMA>`.
   di subfolder (`packages/api/AGENTS.md`) diberikan ke model saat ia pertama kali bekerja di folder itu. File yang
   isinya seperti prompt injection tidak dimuat.
 - `~/.seeker/SEEKER.md` — aturan kerja yang berlaku di semua proyek.
-- `~/.seeker/usage.json` — jumlah token yang dipakai SEEKER: hitungan per hari dan total berjalan, tidak ada
-  yang lain. Tetap di mesin ini dan ditampilkan di Home pada HP: total, input baru dan input dari cache, output,
-  grafik per hari, dan riwayatnya. Hari sebelum penghitungan dimulai ditampilkan sebagai tidak tercatat, bukan nol.
+- `~/.seeker/usage.json` — jumlah token yang dipakai SEEKER: hitungan per hari dan total berjalan, dipecah per
+  provider dan model, tidak ada yang lain. Tetap di mesin ini dan ditampilkan di Home pada HP: total, input baru
+  dan input dari cache, output, grafik per hari, riwayatnya, dan model mana memakai berapa dalam rentang yang
+  dipilih. Dengan Claude Code setiap model dihitung sendiri, termasuk sub-agent. Hari sebelum penghitungan dimulai
+  ditampilkan sebagai tidak tercatat, bukan nol; token yang terhitung sebelum pemecahan per model dimulai
+  ditampilkan sebagai "not attributed", tidak dibagi-bagi ke model.
 - `~/.seeker/memory/` — catatan dari sesi-sesi sebelumnya; `MEMORY.md` adalah indeksnya (satu baris per catatan).
 - `~/.seeker/memory/projects/<folder>/` — catatan khusus satu proyek, dimuat saat SEEKER dijalankan di folder itu.
 - **Skill yang punya daftar pilihan** menawarkannya untuk dicentang saat dipanggil tanpa apa-apa di belakangnya:
@@ -163,7 +166,8 @@ berjalan.
 
 `/context` menunjukkan apa yang mengisi percakapan, bagian demi bagian (instruksi, definisi tool, pesanmu,
 jawaban, hasil tool, gambar) dan seberapa jauh lagi sebelum diringkas. `/usage` menunjukkan token yang
-terpakai: total, input baru dan dari cache, output, dan tujuh hari terakhir. Keduanya bisa dari HP.
+terpakai: total, input baru dan dari cache, output, tujuh hari terakhir, dan pemecahan per model. Keduanya
+bisa dari HP.
 
 Setiap langkah mengirim seluruh percakapan ke model lagi, jadi sesi yang panjang dibayar berkali-kali. Saat
 percakapan mencapai 80% jendela konteks, atau 300.000 token kalau itu lebih dulu, percakapan diringkas; bagian

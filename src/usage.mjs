@@ -3,6 +3,11 @@
 // The ledger lives in ~/.seeker/usage.json (SEEKER_HOME moves it), next to the settings — never
 // in a project folder and never in this repository, so nobody who clones the code sees a number.
 // It holds counts per calendar day and a running total; no prompt, no file name, no project name.
+// Each set of counts may also hold `by`, the same counts split by provider and model:
+//   by: { 'claude-code': { 'claude-opus-5-5': counts, ... }, ollama: { 'qwen3:8b': { ...counts, local: true } } }
+// `split` counts the replies that went into `by`. A model of '' means the provider is known and the
+// model was not recorded. Counts made before the split existed are in the totals and in no `by`: the
+// phone shows that remainder as "not attributed".
 //
 // Every reply of a model is added here, whichever provider gave it and whether SEEKER runs in a
 // terminal or is driven from the phone. Counting starts the first time this file is written:
@@ -27,13 +32,36 @@ export function dayOf(at = Date.now()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function clean(counts) {
-  const input = whole(counts?.input);
-  const cached = Math.min(whole(counts?.cached), input);
+const NAME = 120; // longest provider or model name kept; nothing longer is a name
+
+function tally(raw) {
+  const input = whole(raw?.input);
+  const cached = Math.min(whole(raw?.cached), input);
   // A ledger written before `known` existed: where cache reads were counted, the provider reported them.
-  const known = counts?.known === undefined ? (cached > 0 ? input : 0) : Math.min(whole(counts.known), input);
-  return { input, cached, output: whole(counts?.output), replies: whole(counts?.replies), written: Math.min(whole(counts?.written), input - cached), known: Math.max(known, cached) };
+  const known = raw?.known === undefined ? (cached > 0 ? input : 0) : Math.min(whole(raw.known), input);
+  return { input, cached, output: whole(raw?.output), replies: whole(raw?.replies), written: Math.min(whole(raw?.written), input - cached), known: Math.max(known, cached) };
 }
+
+function clean(raw) {
+  const out = tally(raw);
+  const by = {};
+  for (const [provider, models] of Object.entries(raw?.by ?? {})) {
+    if (!provider || name(provider) !== provider || !models || typeof models !== 'object') continue;
+    for (const [model, c] of Object.entries(models)) {
+      if (name(model) !== model || !c || typeof c !== 'object') continue;
+      (by[provider] ??= {})[model] = { ...tally(c), ...(c.local === true ? { local: true } : {}) };
+    }
+  }
+  if (Object.keys(by).length) {
+    out.by = by;
+    out.split = Math.min(whole(raw.split), out.replies); // replies that were split into `by`
+  }
+  return out;
+}
+
+// Names become keys of plain objects, so the few that would reach into Object's own machinery are dropped.
+const RESERVED = new Set(['__proto__', 'constructor', 'prototype']);
+const name = (v) => (typeof v === 'string' && !RESERVED.has(v.trim()) ? v.trim().slice(0, NAME) : '');
 
 /** The ledger as it is on disk. A missing or damaged file reads as "nothing counted yet". */
 export function readUsage(file = USAGE_FILE) {
@@ -47,29 +75,45 @@ export function readUsage(file = USAGE_FILE) {
   }
 }
 
-/**
- * Adds one reply of a model. `input` is everything sent to it (`cached` is the part of that read
- * from the provider's cache, where the provider says); `output` is what it wrote.
- * Counting must never break a turn: a ledger that cannot be written is skipped.
- */
-export function recordUsage({ input = 0, cached, written = 0, output = 0 } = {}, { file = USAGE_FILE, now = Date.now() } = {}) {
+/** One reply's counts, cleaned: `known` is the input whose provider said anything about its cache. */
+function addition({ input = 0, cached, written = 0, output = 0 } = {}) {
   const add = { input: whole(input), cached: Math.min(whole(cached), whole(input)), output: whole(output) };
   add.written = Math.min(whole(written), add.input - add.cached);
   // A provider that says nothing about its cache has not said "nothing was cached".
   add.known = cached === undefined ? 0 : add.input;
+  return add;
+}
+
+function addTo(target, add) {
+  for (const key of ['input', 'cached', 'written', 'known', 'output']) target[key] += add[key];
+  target.replies += 1;
+}
+
+/**
+ * Adds one reply of a model. `input` is everything sent to it (`cached` is the part of that read
+ * from the provider's cache, where the provider says); `output` is what it wrote.
+ * `provider` and `model` say whose reply it was; `models` lists each model's own share when one
+ * reply used several (Claude Code's sub-agents), and then the reply counts once for each of them.
+ * Counting must never break a turn: a ledger that cannot be written is skipped.
+ */
+export function recordUsage(spent = {}, { file = USAGE_FILE, now = Date.now(), provider, model, local = false, models } = {}) {
+  const add = addition(spent);
   if (!add.input && !add.output) return false;
+  const who = name(provider);
+  const parts = !who ? [] : (models?.length ? models : [{ ...spent, model }]).map((m) => ({ model: name(m.model), add: addition(m) })).filter((m) => m.add.input || m.add.output);
   try {
     // Read just before writing: another SEEKER (a terminal beside the phone's) may have added to it.
     const ledger = readUsage(file);
     ledger.since ??= now;
     const day = (ledger.days[dayOf(now)] ??= blank());
     for (const counts of [day, ledger.total]) {
-      counts.input += add.input;
-      counts.cached += add.cached;
-      counts.written += add.written;
-      counts.known += add.known;
-      counts.output += add.output;
-      counts.replies += 1;
+      addTo(counts, add);
+      if (parts.length) counts.split = (counts.split ?? 0) + 1;
+      for (const part of parts) {
+        const slot = ((counts.by ??= {})[who] ??= {})[part.model] ??= blank();
+        if (local) slot.local = true;
+        addTo(slot, part.add);
+      }
     }
     const kept = Object.keys(ledger.days).sort().slice(-KEEP_DAYS);
     ledger.days = Object.fromEntries(kept.map((key) => [key, ledger.days[key]]));

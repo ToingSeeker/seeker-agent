@@ -291,18 +291,22 @@ export function claudeCodeProvider(def, config, deps = {}) {
       session = null;
       throw new Error(`Claude Code: ${result.result || (result.errors ?? []).join('; ') || result.subtype || 'the request failed'}`);
     }
-    session = { id: result.session_id, system, model, seen: [...messages] };
+    // Each model's running total for the session: a resumed session carries the earlier turns in it.
+    const before = continues ? session.modelUsage : undefined;
+    session = { id: result.session_id, system, model, seen: [...messages], modelUsage: result.modelUsage };
     // The last model call's own count is the size of the conversation; the result's total adds up every step.
     const counted = usage ?? result.usage ?? {};
     const output = result.usage?.output_tokens ?? counted.output_tokens ?? 0;
+    const models = spentByModel(result.modelUsage, before);
     yield {
       message: {},
       done: true,
       prompt_eval_count: (counted.input_tokens ?? 0) + (counted.cache_read_input_tokens ?? 0) + (counted.cache_creation_input_tokens ?? 0),
       eval_count: counted.output_tokens ?? 0,
       eval_duration: output ? ((Date.now() - started) * 1e6 * (counted.output_tokens ?? 0)) / output : 0,
-      // For the usage ledger: every step of this turn, not only the last one.
-      spent: spentOf(result.usage ?? counted),
+      // For the usage ledger: every step of this turn, not only the last one, and per model where
+      // Claude Code says (that includes its sub-agents and helper calls, which result.usage leaves out).
+      spent: models.length ? { ...sumSpent(models), models } : spentOf(result.usage ?? counted),
     };
   }
 
@@ -315,6 +319,31 @@ export function claudeCodeProvider(def, config, deps = {}) {
     describe: async () => ({ tools: true, thinking: true, context: def.context }),
     chat,
   };
+}
+
+/**
+ * What each model used in this reply, from the SDK's `modelUsage`. That is a running total for the
+ * whole session, so what the previous reply of the same session had reached is taken off. A total that
+ * went down (the session was cleared) starts again from zero.
+ */
+export function spentByModel(modelUsage, before = {}) {
+  const out = [];
+  for (const [model, now] of Object.entries(modelUsage ?? {})) {
+    if (!now || typeof now !== 'object') continue;
+    const fields = ['inputTokens', 'cacheReadInputTokens', 'cacheCreationInputTokens', 'outputTokens'];
+    const was = before?.[model];
+    const reset = !was || fields.some((f) => (now[f] ?? 0) < (was[f] ?? 0));
+    const d = Object.fromEntries(fields.map((f) => [f, Math.max(0, (now[f] ?? 0) - (reset ? 0 : (was[f] ?? 0)))]));
+    const spent = spentOf({ input_tokens: d.inputTokens, cache_read_input_tokens: d.cacheReadInputTokens, cache_creation_input_tokens: d.cacheCreationInputTokens, output_tokens: d.outputTokens });
+    if (spent.input || spent.output) out.push({ model, ...spent });
+  }
+  return out;
+}
+
+function sumSpent(models) {
+  const total = { input: 0, cached: 0, written: 0, output: 0 };
+  for (const m of models) for (const key of Object.keys(total)) total[key] += m[key];
+  return total;
 }
 
 /** Anthropic's usage block as ledger counts: everything sent (cache reads included, and named), and what was written. */

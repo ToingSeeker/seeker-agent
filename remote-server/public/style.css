@@ -50,6 +50,11 @@
   --sk-new-input: #E4D9C5;
   --sk-cached-input: #FFAA25;
   --sk-output: #81858F;
+  /* Models in the usage sheet: four categorical slots, checked for colour-blind separation on the dark surface. */
+  --sk-model-1: #3987e5;
+  --sk-model-2: #d95926;
+  --sk-model-3: #199e70;
+  --sk-model-4: #c98500;
   /* Warning */
   --sk-warning: #FFB547;
   --sk-warning-soft: rgba(255, 181, 71, 0.1);
@@ -1724,6 +1729,73 @@ button.stat:active {
 }
 .tu-row.on .grow {
   color: var(--sk-primary);
+}
+/* By model: further models fold into grey, and counts from before the split are hatched, never a model colour. */
+.tu-models {
+  margin-bottom: 6px;
+}
+.tu-models .m0,
+.tu-swatch.m0 {
+  background: var(--sk-model-1);
+}
+.tu-models .m1,
+.tu-swatch.m1 {
+  background: var(--sk-model-2);
+}
+.tu-models .m2,
+.tu-swatch.m2 {
+  background: var(--sk-model-3);
+}
+.tu-models .m3,
+.tu-swatch.m3 {
+  background: var(--sk-model-4);
+}
+.tu-models .other,
+.tu-swatch.other {
+  background: var(--sk-output);
+}
+.tu-models .none,
+.tu-swatch.none {
+  background: repeating-linear-gradient(135deg, var(--sk-border-strong) 0 3px, var(--sk-surface-elevated) 3px 6px);
+}
+.tu-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.tu-model .grow {
+  display: grid;
+  min-width: 0;
+}
+.tu-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tu-model small {
+  font-size: 12px;
+  color: var(--sk-text-muted);
+}
+.tu-model em {
+  flex: none;
+  width: 52px;
+  text-align: right;
+  font: 12.5px/1 var(--mono);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  color: var(--sk-text-muted);
+}
+.tu-model b {
+  min-width: 62px;
+  text-align: right;
+}
+.tu-model.on .grow small {
+  color: var(--sk-text-muted);
+}
+.tu-range-note {
+  font-size: 12.5px;
+  color: var(--sk-text-muted);
 }
 .tu-skeleton {
   display: grid;

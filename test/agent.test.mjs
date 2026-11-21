@@ -191,3 +191,18 @@ test('an image named in a message, or read by the model, reaches a vision model 
   assert.match(third.messages[1].content, /image shot\.png: not shown/);
   assert.equal(third.messages.at(-1).content, 'and other.png?');
 });
+
+test('each reply is counted in the usage ledger under its provider and model', async () => {
+  const { readUsage } = await import('../src/usage.mjs');
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-agent-'));
+  const ollama = await fakeOllama([[done('Hai.', { prompt_eval_count: 70, eval_count: 7 })]]);
+  const agent = makeAgent(ollama.host, cwd);
+  const slot = () => readUsage().total.by?.ollama?.[agent.model] ?? { input: 0, output: 0, replies: 0 };
+  const before = slot();
+  await agent.runTurn('halo');
+  ollama.close();
+  const after = slot();
+  assert.ok(agent.model, 'the agent has a model to count under');
+  assert.deepEqual([after.input - before.input, after.output - before.output, after.replies - before.replies], [70, 7, 1]);
+  assert.equal(after.local, true, 'a model on this machine is marked local');
+});

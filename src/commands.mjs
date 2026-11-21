@@ -472,6 +472,21 @@ export async function runCommand(input, ctx) {
         if (d.coverage === 'unavailable') ui.line(`  ${c.dim(`${label} not recorded`)}`);
         else ui.line(`  ${label} ${compact(d.counts.total).padStart(8)}  ${c.accent('█'.repeat(d.counts.total ? Math.max(1, Math.round((d.counts.total / top) * 24)) : 0))}`);
       }
+      // By model, over everything counted (the phone also splits each range).
+      const { byModel, modelName, sharePercent } = await import('../remote-server/public/usage.js');
+      const { models, unattributed } = byModel([usageSummary().total]);
+      if (models.length || unattributed) {
+        const { providerDefs } = await import('./providers.mjs');
+        const labels = new Map(providerDefs(config).map((p) => [p.id, p.label]));
+        const rows = [...models.map((m) => [modelName(m.model), `${labels.get(m.provider) ?? m.provider}${m.local ? ', local' : ''}`, m]), ...(unattributed ? [['not attributed', 'before per-model counting', unattributed]] : [])];
+        const wide = Math.min(32, Math.max(...rows.map(([n]) => n.length)));
+        ui.line('');
+        ui.line(`  ${c.bold('By model')} ${c.dim('since counting began')}`);
+        for (const [n, sub, m] of rows) {
+          const cache = m.counts.cacheRatio == null ? '' : `  ${percent(m.counts.cacheRatio)} cached`;
+          ui.line(`  ${(n.length > wide ? `${n.slice(0, wide - 1)}…` : n).padEnd(wide)} ${compact(m.counts.total).padStart(8)} ${sharePercent(m.share).padStart(6)}  ${c.dim(`${sub}${cache}`)}`);
+        }
+      }
       ui.line(`  ${c.dim('Counted on this machine (~/.seeker/usage.json). Token counts are not charges.')}`);
       return;
     }
