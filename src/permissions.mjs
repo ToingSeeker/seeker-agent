@@ -133,7 +133,7 @@ export function stopsDaemon(command, pid) {
   return /\b(pkill|killall)\b[^\n;&|]*\b(seeker|node)\b/i.test(text);
 }
 
-const SEEKER_SECRET =
+export const SEEKER_SECRET =
   "Refused: this is one of SEEKER's own key files (its settings with the API keys, the remote key, the push subscriptions). The agent never reads or changes them, whatever the mode. Do not try another way. If the user wants a setting changed, tell them to use /config or /model.";
 
 const STOPS_DAEMON =

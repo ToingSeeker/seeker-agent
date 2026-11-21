@@ -50,7 +50,9 @@ menampilkan baris dari file itu. Folder `~/.seeker` dijaga hanya bisa dibuka aku
 tersimpan dan riwayat input bisa berisi apa pun yang kamu tempel. API key di pesan yang kamu ketik dicegat sebelum
 terkirim ke model cloud: SEEKER bertanya mau disamarkan, dikirim apa adanya, atau batal dikirim (di terminal maupun
 di HP; model lokal menerima pesannya tanpa diubah). Teks yang bentuknya seperti key disamarkan di log `seeker remote`
-dan di notifikasi HP, dan ditolak oleh penyimpanan memory. Pengenalan file di perintah shell hanya upaya terbaik; yang benar-benar mencegah perintah membaca
+dan di notifikasi HP, dan ditolak oleh penyimpanan memory. Aturan yang sama berlaku dengan penyedia Claude Code: sebuah
+hook melihat setiap panggilan tool milik Claude Code (Read, Edit, Bash, …), termasuk yang dijalankannya tanpa bertanya,
+dan pencarian folder lewat Bash atau Grep-nya tidak menampilkan baris dari file rahasia. Pengenalan file di perintah shell hanya upaya terbaik; yang benar-benar mencegah perintah membaca
 file key SEEKER adalah `/sandbox on`.
 
 **Mode rencana.** `/plan` (atau `seeker --plan`) membuat SEEKER melihat dulu lalu menjawab dengan rencana: langkahnya,

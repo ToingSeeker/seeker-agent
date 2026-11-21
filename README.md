@@ -189,7 +189,9 @@ lines out. `~/.seeker` itself is kept private to your account (0700): saved conv
 can hold whatever you pasted. An API key in a message you type is caught before it goes to a cloud model:
 SEEKER asks whether to mask it, send it as it is, or not send the message (in the terminal and on the phone; a
 local model gets the message unchanged). Key-shaped text is masked in `seeker remote`'s log and in phone
-notifications, and the memory store refuses it. Spotting a file in a shell
+notifications, and the memory store refuses it. The same rules hold with the Claude Code provider: a hook sees
+each of Claude Code's own tool calls (Read, Edit, Bash, …), including the ones it runs without asking, and a
+folder search through its Bash or Grep leaves secret files' lines out. Spotting a file in a shell
 command is a best effort; `/sandbox on` is what stops a command from reading SEEKER's key files.
 
 **Plan mode.** `/plan` (or `seeker --plan`) has SEEKER look first and answer with a plan: the steps, the files

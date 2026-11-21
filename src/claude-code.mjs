@@ -9,8 +9,17 @@
 //
 // One Claude Code session is kept per conversation and resumed for each new
 // message, so earlier turns are not sent again.
+//
+// Claude Code runs some tools without asking (reading or searching inside the project, commands it
+// judges read-only), so the approval question alone does not see them. A PreToolUse hook sees
+// every call: SEEKER's own key files are refused there, and other secret files (src/secrets.mjs)
+// turn the call into a question, which reaches SEEKER's prompt like any other.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { SEEKER_SECRET } from './permissions.mjs';
+import { secretInCommand, secretKind } from './secrets.mjs';
 
 // How long a reply waits, after Claude Code's answer, for commands it left running in the background
 // (providers.claude-code.backgroundWait, in ms); and for it to go on once the last of them is done.
@@ -30,6 +39,86 @@ function resultText(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content.map((b) => (b.type === 'text' ? b.text : `[${b.type}]`)).join('\n');
+}
+
+// The input that names the file each of Claude Code's file tools works on.
+const FILE_INPUT = { Read: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', Write: 'file_path', NotebookEdit: 'notebook_path', Grep: 'path' };
+const expandHome = (p) => (p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p);
+
+/** The secret file one of Claude Code's tool calls would touch: `{ kind, file }`, or null. */
+export function secretTouched(name, input, cwd) {
+  if (name === 'Bash') return secretInCommand(input?.command, cwd);
+  const value = input?.[FILE_INPUT[name]];
+  if (typeof value !== 'string' || !value) return null;
+  const file = path.resolve(cwd, expandHome(value));
+  const kind = secretKind(file);
+  return kind ? { kind, file } : null;
+}
+
+const decide = (permissionDecision, permissionDecisionReason) => ({
+  hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision, permissionDecisionReason },
+});
+
+/** The PreToolUse hook: refuses SEEKER's key files, asks about other secret files, leaves the rest alone. */
+export function secretGuard(cwd) {
+  return async (event) => {
+    try {
+      const secret = secretTouched(event.tool_name, event.tool_input, event.cwd || cwd);
+      if (!secret) return {};
+      if (secret.kind === 'seeker') return decide('deny', SEEKER_SECRET);
+      return decide('ask', `${path.basename(secret.file)} looks like it holds secrets (keys, passwords).`);
+    } catch {
+      // A check that failed must not let the call through unseen.
+      return decide('ask', 'SEEKER could not check this call for secret files.');
+    }
+  };
+}
+
+// A search result line names its file first: `path:12:text`, `path:text`, `path:3` (counts).
+const LINE_FILE = /^([^:\n]+):/;
+const LEFT_OUT = '(lines from files that hold secrets were left out)';
+
+/** `text` without the search-result lines that come from secret files; null when none did. */
+export function withoutSecretLines(text, cwd) {
+  if (typeof text !== 'string' || !text) return null;
+  const lines = text.split('\n');
+  const kept = lines.filter((line) => {
+    const file = line.match(LINE_FILE)?.[1];
+    return !(file && secretKind(path.resolve(cwd, expandHome(file.trim()))));
+  });
+  return kept.length === lines.length ? null : `${kept.join('\n')}\n${LEFT_OUT}`;
+}
+
+/**
+ * A tool's result without the lines a folder search took from secret files, or null when there
+ * was nothing to take out. A search (`grep -rn x .` in Bash, or the Grep tool where Claude Code
+ * has one) reads hidden files too, so it can reach a .env that the guard never saw named.
+ */
+export function filterSearch(name, output, cwd) {
+  if (!output || typeof output !== 'object') return null;
+  if (name === 'Bash') {
+    const stdout = withoutSecretLines(output.stdout, cwd);
+    return stdout === null ? null : { ...output, stdout };
+  }
+  if (name !== 'Grep') return null;
+  const secret = (f) => typeof f === 'string' && Boolean(secretKind(path.resolve(cwd, f)));
+  const filenames = Array.isArray(output.filenames) ? output.filenames.filter((f) => !secret(f)) : output.filenames;
+  const content = withoutSecretLines(output.content, cwd);
+  const dropped = (output.filenames?.length ?? 0) !== (filenames?.length ?? 0);
+  if (content === null && !dropped) return null;
+  return { ...output, filenames, numFiles: filenames?.length ?? output.numFiles, content: content ?? output.content };
+}
+
+/** The PostToolUse hook: search results lose their secret files' lines before the model sees them. */
+export function searchFilter(cwd) {
+  return async (event) => {
+    try {
+      const updated = filterSearch(event.tool_name, event.tool_response, event.cwd || cwd);
+      return updated ? { hookSpecificOutput: { hookEventName: 'PostToolUse', updatedToolOutput: updated } } : {};
+    } catch {
+      return {};
+    }
+  };
 }
 
 /** A whole conversation as one prompt, for starting a session in the middle of one. */
@@ -121,6 +210,11 @@ export function claudeCodeProvider(def, config, deps = {}) {
       // Which of the user's Claude Code settings (CLAUDE.md, MCP servers, hooks, allow rules) to load.
       settingSources: settings().settingSources ?? [],
       stderr: (data) => (stderr += data),
+      // Every tool call, asked about or not, is checked for secret files first (see the top of this file).
+      hooks: {
+        PreToolUse: [{ hooks: [secretGuard(cwd)] }],
+        PostToolUse: [{ matcher: 'Bash|Grep', hooks: [searchFilter(cwd)] }],
+      },
       // Called before anything that needs approval; the answer comes from SEEKER's prompt.
       canUseTool: async (name, input, info) => {
         const verdict = hooks.permission
