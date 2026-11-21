@@ -524,7 +524,8 @@ export class Agent {
             const output = chunk.eval_count || 0;
             this.usage = { input, output, totalInput: this.usage.totalInput + input, totalOutput: this.usage.totalOutput + output, known: true };
             // The ledger on this machine. A provider that ran several steps in one reply says what they added up to.
-            recordUsage(chunk.spent ?? { input, output });
+            const spent = chunk.spent ?? { input, output };
+            recordUsage(spent, { provider: this.provider.id, model: this.model, local: Boolean(this.provider.local) && !/[-:]cloud\b/.test(this.model ?? ''), models: spent.models });
           }
           this.lastStats = {
             tokensPerSecond: chunk.eval_duration ? (chunk.eval_count / chunk.eval_duration) * 1e9 : 0,

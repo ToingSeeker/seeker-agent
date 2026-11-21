@@ -241,9 +241,12 @@ runs its own tools (Claude Code) stay on this machine. `/status` shows where com
   An instruction file deeper in the tree (`packages/api/AGENTS.md`) is handed to the model the first time it
   works in that folder. A file that reads like a prompt injection is not loaded.
 - `~/.seeker/SEEKER.md` — rules that apply in every project.
-- `~/.seeker/usage.json` — how many tokens SEEKER has used: counts per day and a running total, nothing else.
-  It stays on this machine and is shown on the phone's Home: the total, new and cached input, output, a
-  chart of the days and their history. A day before counting began is shown as not recorded, never as zero.
+- `~/.seeker/usage.json` — how many tokens SEEKER has used: counts per day and a running total, split by
+  provider and model, nothing else. It stays on this machine and is shown on the phone's Home: the total,
+  new and cached input, output, a chart of the days, their history, and which models used how much in the
+  chosen range. With Claude Code each model is counted on its own, sub-agents included. A day before counting
+  began is shown as not recorded, never as zero; tokens counted before the split by model began are shown as
+  "not attributed", never shared out among the models.
 - `~/.seeker/memory/` — notes from earlier sessions; `MEMORY.md` is the index (one line per note).
   `~/.seeker/memory/projects/<folder>/` holds notes for one project.
 - `skills/` in this repository — skills that ship with SEEKER (engineering, design, data, SEO, marketing,
@@ -270,7 +273,7 @@ most recent part and your request word for word.
 
 `/context` shows what fills the conversation, part by part (instructions, tool definitions, your messages,
 replies, tool results, pictures) and how far it is from being summarised. `/usage` shows the tokens used:
-the total, new and cached input, output, and the last seven days. Both work from the phone.
+the total, new and cached input, output, the last seven days, and the split by model. Both work from the phone.
 
 Every step sends the whole conversation to the model again, so a long session is paid for many times over.
 Change these with `/config <name> <value>`:

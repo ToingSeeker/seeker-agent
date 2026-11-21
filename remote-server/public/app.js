@@ -10,7 +10,7 @@
 
 import { SOURCES, WORKSPACE_SORTS, activity, connection, crew, current, localFolders, summary, workspaces as explorerRows } from './home.js';
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
-import { RANGES, compact, dayLabel, fullDay, labelled, percent, shortDay, view as usageView } from './usage.js';
+import { MODEL_SLOTS, RANGES, compact, dayLabel, fullDay, labelled, modelName, percent, sharePercent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
@@ -1427,7 +1427,7 @@ const spent = (counts) => (counts?.input ?? 0) + (counts?.output ?? 0);
 const big = (n) => (n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M` : kilo(n));
 
 // ── token usage: what the Mac has counted, as totals, a split of the input, a chart and a history ──
-const usageUi = { range: '7', day: null, more: false };
+const usageUi = { range: '7', day: null, more: false, model: null };
 const HISTORY_ROWS = 14;
 
 /** The counts of one day, spelled out. Shown under the chart and under the day's row in the history. */
@@ -1443,6 +1443,46 @@ function usageDay(d, today) {
     d.coverage === 'zero' ? h('p', {}, 'Counting was on and nothing was used.') : h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? '—' : c.cachedInput.toLocaleString()), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString())),
     d.partial && h('p', {}, 'Counting began on this day: it holds only what came after that moment.'),
   );
+}
+
+/** Which provider and model used the tokens of the range: a split bar, then one row per model that opens to its counts. */
+function usageModels(v, labels = {}) {
+  const { models, unattributed } = v.models;
+  if (!models.length && !unattributed) return h('p', { class: 'tu-note' }, 'Nothing was used in this range.');
+  // The largest models get their own colour; the rest fold into one grey "Other models" segment.
+  const shown = models.slice(0, models.length > MODEL_SLOTS ? MODEL_SLOTS - 1 : MODEL_SLOTS);
+  const folded = models.slice(shown.length);
+  const otherShare = folded.reduce((n, m) => n + m.share, 0);
+  const key = (m) => JSON.stringify([m.provider, m.model]);
+  const slot = new Map(shown.map((m, i) => [key(m), `m${i}`]));
+  const who = (m) => `${modelName(m.model)} · ${labels[m.provider] ?? m.provider}`;
+  const segments = [
+    ...shown.map((m) => h('i', { class: slot.get(key(m)), style: `flex-grow:${m.share}` })),
+    otherShare > 0 && h('i', { class: 'other', style: `flex-grow:${otherShare}` }),
+    unattributed && h('i', { class: 'none', style: `flex-grow:${unattributed.share}` }),
+  ];
+  const said = [...shown.map((m) => `${who(m)} ${percent(m.share)}`), otherShare > 0 && `other models ${percent(otherShare)}`, unattributed && `not attributed ${percent(unattributed.share)}`].filter(Boolean).join(', ');
+  const detail = (c) => {
+    const cell = (label, value) => h('div', {}, h('span', {}, label), h('b', {}, value));
+    return h('div', { class: 'tu-day', role: 'status' }, h('div', { class: 'tu-day-grid' }, cell('Total', c.total.toLocaleString()), cell('New input', c.newInput.toLocaleString()), cell('Cached input', c.cacheRatio == null ? 'Not reported' : c.cachedInput.toLocaleString()), c.cacheRatio != null && cell('Cached share', percent(c.cacheRatio)), cell('Output', c.output.toLocaleString()), cell('Model replies', c.replies.toLocaleString()), c.replies > 0 && cell('Per reply', compact(c.total / c.replies))));
+  };
+  const row = (id, swatch, title, sub, item) => {
+    const open = usageUi.model === id;
+    return [
+      h('button', { class: `tu-row tu-model${open ? ' on' : ''}`, type: 'button', 'data-key': `model-${id}`, 'aria-expanded': String(open), onclick: () => ((usageUi.model = open ? null : id), drawSheet()) }, h('i', { class: `tu-swatch ${swatch}`, 'aria-hidden': 'true' }), h('span', { class: 'grow' }, h('span', { class: 'tu-model-name' }, title), h('small', {}, sub)), h('em', {}, sharePercent(item.share)), h('b', {}, compact(item.counts.total))),
+      open && detail(item.counts),
+    ];
+  };
+  return [
+    h('div', { class: 'tu-bar-split tu-models', role: 'img', 'aria-label': `Tokens by model: ${said}` }, segments),
+    h(
+      'div',
+      { class: 'tu-list' },
+      models.flatMap((m) => row(key(m), slot.get(key(m)) ?? 'other', modelName(m.model), [labels[m.provider] ?? m.provider, m.local && 'Local'].filter(Boolean).join(' · '), m)),
+      unattributed && row('unattributed', 'none', 'Not attributed', 'Counted before per-model counting began', unattributed),
+    ),
+    models.some((m) => m.local) && h('p', { class: 'tu-note' }, 'Local models run on your Mac: their tokens are not sent to any provider.'),
+  ];
 }
 
 function usageChart(v) {
@@ -1478,7 +1518,7 @@ function usageChart(v) {
 
 /** Token use as the Mac has counted it. The sheet stays open while counts arrive and keeps the range and day chosen. */
 function showUsage() {
-  Object.assign(usageUi, { day: null, more: false });
+  Object.assign(usageUi, { day: null, more: false, model: null });
   openLive('Token usage', () => {
     const up = state.linked && state.online;
     const { usage } = state;
@@ -1531,10 +1571,13 @@ function usageSheet(usage, up) {
     h('div', { class: 'tu-head' }, h('h4', {}, 'Input composition'), all.cacheRatio != null && h('span', { class: 'tu-chip' }, `${percent(all.cacheRatio)} cached input`)),
     composition,
 
-    h('div', { class: 'tu-head' }, h('h4', {}, 'Daily usage'), h('div', { class: 'tu-range', role: 'group', 'aria-label': 'Range' }, RANGES.map(([id, label]) => h('button', { type: 'button', 'data-key': `range-${id}`, class: usageUi.range === id ? 'on' : '', 'aria-pressed': String(usageUi.range === id), 'aria-label': label, onclick: () => (Object.assign(usageUi, { range: id, day: null, more: false }), drawSheet()) }, id === 'all' ? 'All' : `${id}d`)))),
+    h('div', { class: 'tu-head' }, h('h4', {}, 'Daily usage'), h('div', { class: 'tu-range', role: 'group', 'aria-label': 'Range' }, RANGES.map(([id, label]) => h('button', { type: 'button', 'data-key': `range-${id}`, class: usageUi.range === id ? 'on' : '', 'aria-pressed': String(usageUi.range === id), 'aria-label': label, onclick: () => (Object.assign(usageUi, { range: id, day: null, more: false, model: null }), drawSheet()) }, id === 'all' ? 'All' : `${id}d`)))),
     h('p', { class: 'tu-sub' }, RANGES.find(([id]) => id === usageUi.range)[1], v.period ? ` · ${compact(v.period.total)} tokens · ${v.period.replies.toLocaleString()} model replies` : ' · not recorded'),
     usageChart(v),
     chosen ? usageDay(chosen, v.today) : h('p', { class: 'tu-note' }, 'Tap a bar for that day\'s counts.'),
+
+    h('div', { class: 'tu-head' }, h('h4', {}, 'By model'), h('span', { class: 'tu-range-note' }, RANGES.find(([id]) => id === usageUi.range)[1])),
+    usageModels(v, usage.providers),
 
     h('div', { class: 'tu-head' }, h('h4', {}, 'Usage history')),
     h('div', { class: 'tu-list' }, listed.flatMap(row)),

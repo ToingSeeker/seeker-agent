@@ -878,6 +878,9 @@ export class RemoteDaemon {
   /** Token counts from the ledger on this machine (src/usage.mjs). Numbers only; sealed like everything else sent. */
   #usage() {
     const usage = usageSummary();
+    // The names the phone shows for the providers in the ledger ("Claude Code", not "claude-code").
+    const labels = new Map(providerDefs(this.config).map((p) => [p.id, p.label]));
+    usage.providers = Object.fromEntries(Object.keys(usage.total.by ?? {}).map((id) => [id, labels.get(id) ?? id]));
     this.usageSent = JSON.stringify(usage);
     return usage;
   }

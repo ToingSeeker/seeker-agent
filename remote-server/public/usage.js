@@ -133,10 +133,64 @@ export function labelled(count, room = 7) {
   return (index) => (count - 1 - index) % every === 0;
 }
 
+const COUNT_KEYS = ['input', 'cached', 'output', 'replies', 'written', 'known'];
+export const MODEL_SLOTS = 4; // models drawn in their own colour; the rest fold into "Other models"
+
+/**
+ * The counts of a range split by provider and model, largest first. Each set of counts the Mac sends
+ * may carry `by` ({ provider: { model: counts } }); what a set holds beyond its `by` was counted before
+ * the split existed and comes back as `unattributed`, never shared out among the models.
+ * Each row: { provider, model, local, counts, share }; `share` is of the range's total tokens.
+ */
+export function byModel(sets) {
+  const rows = new Map();
+  const rest = Object.fromEntries(COUNT_KEYS.map((k) => [k, 0]));
+  let total = 0;
+  for (const set of sets) {
+    if (!set) continue;
+    const left = Object.fromEntries(COUNT_KEYS.map((k) => [k, whole(set[k])]));
+    total += whole(set.input) + whole(set.output);
+    for (const [provider, models] of Object.entries(set.by ?? {})) {
+      for (const [model, c] of Object.entries(models ?? {})) {
+        const key = JSON.stringify([provider, model]);
+        const row = rows.get(key) ?? { provider, model, local: false, raw: Object.fromEntries(COUNT_KEYS.map((k) => [k, 0])) };
+        for (const k of COUNT_KEYS) row.raw[k] += whole(c?.[k]);
+        // A reply that used several models counts once for each of them, so replies are not taken off the remainder.
+        for (const k of COUNT_KEYS) if (k !== 'replies') left[k] -= whole(c?.[k]);
+        row.local ||= c?.local === true;
+        rows.set(key, row);
+      }
+    }
+    left.replies = Math.max(0, whole(set.replies) - (set.by ? whole(set.split) : 0));
+    for (const k of COUNT_KEYS) rest[k] += Math.max(0, left[k]);
+  }
+  const share = (b) => (total > 0 ? b.total / total : 0);
+  const models = [...rows.values()]
+    .map(({ provider, model, local, raw }) => ({ provider, model, local, counts: breakdown(raw) }))
+    .filter((r) => r.counts.total > 0)
+    .map((r) => ({ ...r, share: share(r.counts) }))
+    .sort((a, b) => b.counts.total - a.counts.total || a.model.localeCompare(b.model));
+  const unattributed = breakdown(rest);
+  return { models, unattributed: unattributed.total > 0 ? { counts: unattributed, share: share(unattributed) } : null, total };
+}
+
+/** The models of a range: the lifetime total for "all", the recorded days of the range otherwise. */
+function modelsOf(usage, range, days) {
+  if (range === 'all') return byModel([usage?.total]);
+  const recorded = new Map((usage?.days ?? usage?.week ?? []).map((d) => [d.day, d]));
+  return byModel(days.map((d) => recorded.get(d.day)));
+}
+
+/** A model's share of the range: a sliver that rounds to 0.0% still says it was used. */
+export const sharePercent = (share) => (share > 0 && share < 0.0005 ? '<0.1%' : percent(share));
+
+/** "claude-opus-5-5" as it reads in a list; a model that was not recorded says so. */
+export const modelName = (model) => model || 'Model not recorded';
+
 /** Everything the sheet draws for one range. */
 export function view(usage, { range = '7', now = Date.now() } = {}) {
   const { today, sinceDay } = anchors(usage, now);
   const days = series(usage, range, now);
   const top = Math.max(0, ...days.map((d) => d.counts?.total ?? 0));
-  return { today, sinceDay, lifetime: breakdown(usage?.total), days, period: periodTotal(days), ticks: axis(top), empty: !usage?.total || breakdown(usage.total).total === 0 };
+  return { today, sinceDay, lifetime: breakdown(usage?.total), days, period: periodTotal(days), models: modelsOf(usage, range, days), ticks: axis(top), empty: !usage?.total || breakdown(usage.total).total === 0 };
 }
