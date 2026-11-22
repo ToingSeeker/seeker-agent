@@ -41,6 +41,7 @@ seeker --yolo                # no permission prompts (dangerous commands are sti
 
 Inside a session: `/init`, `/model`, `/key`, `/resume`, `/paste`, `/config`, `/skills`, `/mcp`, `/clear`, `/compact`,
 `/status`, `/think`, `/yolo`, `/help`, `/exit`, and `!command`.
+A model's reasoning is folded to one line ("◇ thought for 12s"); `/think show` prints the last one in full.
 Type `/` for the list of commands and skills: ↑↓ move through it, Tab completes the highlighted one, Enter runs it,
 Esc closes the list. Typing narrows it (`/rev` also finds `/code-review`). Alt+Enter starts a new line; with no list
 open, ↑↓ walk through earlier messages.

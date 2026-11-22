@@ -85,7 +85,7 @@ export const SETTINGS = {
   model: { parse: (v) => v, help: 'default Ollama model' },
   numCtx: { parse: int(2048), help: 'context window in tokens (min 2048)' },
   think: { parse: bool, help: 'let the model reason before answering' },
-  showThinking: { parse: bool, help: 'show that reasoning on screen' },
+  showThinking: { parse: bool, help: 'show a one-line "thought for Ns" after reasoning (full text: /think show)' },
   animation: { parse: bool, help: 'animate the robot in the header' },
   permissionMode: { parse: (v) => (['ask', 'auto'].includes(v) ? v : undefined), help: 'ask before edits and commands, or run them' },
   maxSteps: { parse: int(1), help: 'tool steps allowed per message' },

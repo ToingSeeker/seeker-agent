@@ -40,6 +40,7 @@ seeker --plan                # mulai di mode rencana: melihat dan mengusulkan, t
 ```
 
 Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/plan`, `/help`, `/exit`, dan `!perintah`.
+Reasoning model dilipat jadi satu baris ("◇ thought for 12s"); `/think show` menampilkan yang terakhir secara lengkap.
 
 **Rahasia.** File yang menyimpan rahasia tidak ikut bebas dibaca. File key milik SEEKER sendiri (`config.json`,
 `remote.sock.key`, dan `push.json` di `~/.seeker`) selalu ditolak untuk agen di semua mode, baik dibaca, ditulis,

@@ -171,7 +171,7 @@ test('the terminal interface says what a step is with colour and with a mark', a
   assert.ok(colour.includes(`\x1b[${accent}m›\x1b[0m \x1b[1mnext\x1b[0m`), 'the prompt mark is the brand colour, the typed text is not');
   const plain = draw(0);
   assert.ok(!plain.includes('\x1b'), 'no escape codes without colour');
-  for (const mark of ['◇ thinking', '▸ Editing a.txt', '✓ 1 change', '✗ Running npm test', '› next']) assert.ok(plain.includes(mark), `"${mark}" reads without colour`);
+  for (const mark of ['◇ thought for 1s', '▸ Editing a.txt', '✓ 1 change', '✗ Running npm test', '› next']) assert.ok(plain.includes(mark), `"${mark}" reads without colour`);
 });
 
 test('Stop and Send take turns in one place, and a long message scrolls inside the box', () => {
@@ -225,4 +225,43 @@ test('the phone app navigates with a floating glass dock, and its lists are sepa
   // Blur only where something floats, with a solid fallback when it is unavailable or unwanted.
   assert.match(css, /@supports not \(\(backdrop-filter: blur\(1px\)\) or \(-webkit-backdrop-filter: blur\(1px\)\)\)/);
   assert.match(css, /@media \(prefers-reduced-transparency: reduce\)/);
+});
+
+test('reasoning is folded to one line, its latest line shown live, the full text kept for /think show', async (t) => {
+  const { UI } = await import('../src/ui.mjs');
+  const { runCommand } = await import('../src/commands.mjs');
+  let out = '';
+  let live = [];
+  const ui = new UI({});
+  ui.c = terminalPalette(0);
+  ui.attach({ width: 99, append: (s) => (out += s), setLive: (rows) => (live = rows), render() {} });
+  ui.turnStart();
+  t.after(() => ui.stopSpinner());
+  ui.thinkStart();
+  ui.thinkChunk('Wait, the logo is 512px.\nActually, let me check ');
+  ui.thinkChunk('where it is used.');
+  await new Promise((r) => setTimeout(r, 150)); // one spinner frame
+  assert.match(live.join(''), /Thinking · Actually, let me check where it is used\./, 'the live row follows the latest line');
+  ui.thinkEnd();
+  ui.thinkEnd(); // a second end (the agent's finally) adds nothing
+  assert.ok(!out.includes('Wait, the logo'), 'the reasoning itself is not printed');
+  assert.equal(out.match(/◇ thought for \d+s · \/think show/g)?.length, 1, 'one folded line, naming the way back');
+  ui.thinkStart();
+  ui.thinkChunk('second thought');
+  ui.thinkEnd();
+  assert.equal(out.match(/\/think show/g).length, 1, 'the hint is given once');
+
+  out = '';
+  await runCommand('/think show', { ui, agent: {}, config: {} });
+  assert.ok(out.includes('second thought') && !out.includes('Wait, the logo'), '/think show prints the last reasoning');
+
+  const quiet = new UI({ showThinking: false });
+  quiet.c = terminalPalette(0);
+  let shown = '';
+  quiet.attach({ width: 99, append: (s) => (shown += s), setLive() {}, render() {} });
+  quiet.thinkStart();
+  quiet.thinkChunk('hidden');
+  quiet.thinkEnd();
+  assert.ok(!shown.includes('thought for') && !shown.includes('hidden'), 'with showThinking off nothing stays on screen');
+  assert.equal(quiet.lastThought, 'hidden');
 });
