@@ -73,9 +73,8 @@ gulir, jadi menyeret biasa tidak memblok teks: tahan Fn sambil menyeret di Termi
 mengembalikan mouse sampai kamu menyalakannya lagi; selama itu roda mouse tidak menggulir percakapan. Hanya yang
 tampak di layar yang bisa diblok. Saat SEEKER ditutup, percakapannya dicetak ke terminal, dan scrollback terminal
 menyimpannya.
-Robot di header berkedip dan melirik. Di percakapan, wajah kecil satu baris menandai siapa yang bicara, seperti di
-aplikasi ponsel: layar `>_<` robot dengan SEEKER, atau wajah orang dengan YOU; keduanya berkedip.
-`/config` → `animation` untuk mematikannya.
+Robot di header berkedip dan melirik; `/config` → `animation` untuk mematikannya. Di percakapan, pesan yang kamu
+ketik diberi garis cyan di tepi kirinya, dan tiap jawaban dibuka dengan `✦ seeker · <model> · <jam>`.
 
 `seeker doctor` memeriksa apa yang dibutuhkan SEEKER di mesin ini — Node, git, paket yang terpasang, siapa yang
 bisa membaca file pengaturan, apakah penyedia yang dipilih menjawab atau punya key, relay, dan daemon remote —

@@ -1202,7 +1202,7 @@ export class Agent {
     this.messages.push(message);
     this.turn.message = message;
     if (!this.review) this.turnsSinceMemory++;
-    ui.turnStart();
+    ui.turnStart({ model: this.model });
     let compactions = 0;
     // A turn that may only look (/review): tools that change something are refused until it ends.
     const lookOnly = this.lookOnlyNext ?? null;
