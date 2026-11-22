@@ -851,6 +851,7 @@ export const TOOLS = [
         prompt: { type: 'string', description: 'The full instructions for one helper' },
         agent: { type: 'string', description: 'Optional: the name of one of the agents listed under "Agents" in your instructions, to give the helper that role. Leave out for a general helper.' },
         isolation: ISOLATION,
+        look_only: { type: 'boolean', description: 'Optional, for one helper (`prompt`): it may only look — read files, search, and run commands that only read (git diff, git log). Anything that changes something is refused. For reviewers.' },
         workers: { type: 'integer', description: 'Optional: start this many workers on the task board (see the board tool) instead of giving out jobs yourself. Each takes ready tasks until none are left; `prompt`, `agent` and `isolation` then apply to every worker. Put the tasks on the board first.' },
         tasks: {
           type: 'array',
@@ -901,7 +902,9 @@ export const TOOLS = [
       }
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new ToolError('"prompt" (one helper) or "tasks" (several) is required');
       if (!ctx.delegate) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
-      const report = await ctx.delegate(args.prompt, this.summary(args), args.agent || null, { isolation: isolationOf(args.isolation) });
+      const lookOnly = args.look_only === true || args.look_only === 'true';
+      if (lookOnly && args.isolation) throw new ToolError('A helper that only looks changes nothing, so it needs no worktree: leave out "isolation".');
+      const report = await ctx.delegate(args.prompt, this.summary(args), args.agent || null, { isolation: isolationOf(args.isolation), lookOnly });
       return { output: report || '(the helper returned nothing)', note: `${report.split('\n').filter((l) => l.trim()).length} lines reported` };
     },
   },
