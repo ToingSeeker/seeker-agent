@@ -98,6 +98,7 @@ export function terminalCodes(depth) {
     bold: '1',
     accent,
     accentBold: `1;${accent}`,
+    user: fg('user', 'user'),
     userBold: `1;${fg('user', 'user')}`,
     blue: fg('blue', 'execution'),
     purple: fg('purple', 'reasoning'),
