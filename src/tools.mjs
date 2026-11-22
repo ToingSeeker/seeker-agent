@@ -108,6 +108,14 @@ function httpGet(url, { signal, headers, publicOnly }) {
 
 /** The most helpers one `task` call may start, and the most that ever run side by side. */
 export const MAX_HELPERS = 20;
+// How a helper's changes are kept apart from the folder and from other helpers (src/worktree.mjs).
+const ISOLATION = { type: 'string', enum: ['worktree'], description: 'Optional: "worktree" gives the helper its own git worktree on a new branch, for work that changes files. Leave out for work that only reads.' };
+/** "worktree", or null when it was left out; anything else is the model's mistake to correct. */
+function isolationOf(value) {
+  if (value == null || value === '' || value === 'none') return null;
+  if (value === 'worktree') return 'worktree';
+  throw new ToolError(`isolation must be "worktree" or left out, not ${JSON.stringify(value)}.`);
+}
 const MAX_OUTPUT = 24_000;
 // Files read_file hands to extract.mjs instead of showing as text.
 const DOCUMENT_LIKE = /\.(ipynb|docx?|rtf|odt|pdf|xlsx|db|sqlite3?)$/i;
@@ -834,19 +842,20 @@ export const TOOLS = [
   {
     name: 'task',
     risk: 'read',
-    description: 'Hand self-contained work to helper agents that each start with an empty context and have the same tools. Use it for searches and investigations that would fill your own context with file contents, and for independent pieces of work that can go on side by side: you get back only each helper\'s report. One helper: pass `prompt`. Several at once (up to 3): pass `tasks`. A helper knows nothing of this conversation, so each prompt must say everything it needs — the goal, where to look, what to return. A report is a self-report, not a verified fact: check what matters (a file it says it wrote, a test it says passes) before telling the user.',
+    description: 'Hand self-contained work to helper agents that each start with an empty context and have the same tools. Use it for searches and investigations that would fill your own context with file contents, and for independent pieces of work that can go on side by side: you get back only each helper\'s report. One helper: pass `prompt`. Several at once (up to 3): pass `tasks`. A helper knows nothing of this conversation, so each prompt must say everything it needs — the goal, where to look, what to return. A report is a self-report, not a verified fact: check what matters (a file it says it wrote, a test it says passes) before telling the user. Helpers that change files side by side should each get `isolation: "worktree"`: a helper then works in its own git worktree on a new branch, made from the last commit, so they cannot overwrite each other or your folder; you are told the branch and what changed, and bringing it into the folder is for the user to approve.',
     parameters: {
       type: 'object',
       properties: {
         description: { type: 'string', description: 'Three to five words naming the job' },
         prompt: { type: 'string', description: 'The full instructions for one helper' },
         agent: { type: 'string', description: 'Optional: the name of one of the agents listed under "Agents" in your instructions, to give the helper that role. Leave out for a general helper.' },
+        isolation: ISOLATION,
         tasks: {
           type: 'array',
           description: `Several jobs to run side by side, up to ${MAX_HELPERS}. Each helper sees only its own prompt — repeat shared background in every one that needs it. Each has a context of its own to fill, so use as many as the work has independent parts, not more.`,
           items: {
             type: 'object',
-            properties: { description: { type: 'string', description: 'Three to five words naming the job' }, prompt: { type: 'string', description: 'The full instructions for this helper' }, agent: { type: 'string', description: 'Optional: the name of an agent to give this helper its role' } },
+            properties: { description: { type: 'string', description: 'Three to five words naming the job' }, prompt: { type: 'string', description: 'The full instructions for this helper' }, agent: { type: 'string', description: 'Optional: the name of an agent to give this helper its role' }, isolation: ISOLATION },
             required: ['prompt'],
           },
         },
@@ -866,7 +875,7 @@ export const TOOLS = [
       if (Array.isArray(tasks) && tasks.length) {
         if (!ctx.delegateMany) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
         if (tasks.length > MAX_HELPERS) throw new ToolError(`At most ${MAX_HELPERS} helpers can be given work in one call; ${tasks.length} were asked for. Send them in batches.`);
-        const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : ''), agent: t?.agent || null }));
+        const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : ''), agent: t?.agent || null, isolation: isolationOf(t?.isolation) }));
         if (jobs.some((j) => !j.prompt.trim())) throw new ToolError('Every task needs a "prompt".');
         const results = await ctx.delegateMany(jobs);
         const output = results.map((r, i) => `## Helper ${i + 1}: ${r.description} — ${r.status}\n${r.report || '(it returned nothing)'}`).join('\n\n');
@@ -874,7 +883,7 @@ export const TOOLS = [
       }
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new ToolError('"prompt" (one helper) or "tasks" (several) is required');
       if (!ctx.delegate) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
-      const report = await ctx.delegate(args.prompt, this.summary(args), args.agent || null);
+      const report = await ctx.delegate(args.prompt, this.summary(args), args.agent || null, { isolation: isolationOf(args.isolation) });
       return { output: report || '(the helper returned nothing)', note: `${report.split('\n').filter((l) => l.trim()).length} lines reported` };
     },
   },

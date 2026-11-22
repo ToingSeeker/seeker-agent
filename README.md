@@ -418,6 +418,13 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   are put one at a time. Every helper fills a context of its own, so twenty cost about twenty times one:
   lower `maxHelpers` for a local model or a provider with tight rate limits. `/config subagentModel <model>` runs them on a
   cheaper model than the conversation.
+- **Helpers that change files, kept apart.** Given `isolation: "worktree"`, a helper works in a git worktree of
+  its own (`~/.seeker/worktrees/`) on a new branch `seeker/<job>-<id>`, made from the last commit. Helpers
+  writing side by side cannot overwrite one another, and nothing reaches your folder on its own. A copy the
+  helper left unchanged is removed with its branch; a changed one is kept, uncommitted, and the report says
+  where it is and what changed. Merging it is for you to approve. Files git does not track (`node_modules`,
+  `.env`) are not in the copy, and neither are your uncommitted changes. The folder must be a git repository
+  with at least one commit.
 
 - **Agents of your own.** A helper can be given a role, and optionally a model and a set of tools, in a file:
   `~/.seeker/agents/<name>.md` (yours, in every project) or `.seeker/agents/<name>.md` (this project's; one of
