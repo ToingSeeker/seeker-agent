@@ -433,6 +433,13 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   each and what came of them; the board lasts for the conversation and `/clear` empties it. Workers can also
   take `isolation: "worktree"`, but each then has its own copy: a task sees the *results* of the tasks before
   it, not their files.
+- **`/swarm <goal>`: big work by a team, step by step.** SEEKER turns plan mode on, looks around and proposes
+  the work as tasks for the board, how many workers, and whether they use worktrees; nothing is changed.
+  `/swarm go` (or `/plan go`) approves it: the tasks go on the board, the workers do them, then one reviewer
+  that may only look (`task` with `look_only: true`: edits and commands that change something are refused)
+  checks the result against the goal, and SEEKER verifies what matters and reports what was done, what
+  failed, what the reviewer found and what nobody checked. `/swarm off` cancels before it starts. Worktree
+  branches are left for you to merge.
 
 - **Agents of your own.** A helper can be given a role, and optionally a model and a set of tools, in a file:
   `~/.seeker/agents/<name>.md` (yours, in every project) or `.seeker/agents/<name>.md` (this project's; one of

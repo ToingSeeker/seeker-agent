@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
 import { decide, fallbackChain, reasonText } from './failover.mjs';
-import { PLAN_NOTE } from './permissions.mjs';
+import { LOOKING, PLAN_NOTE } from './permissions.mjs';
 import { findSecrets, keyHint, redactSecrets, secretKind } from './secrets.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
@@ -96,6 +96,8 @@ export class Agent {
     this.board = new Board();
     // The name this agent goes by on the board: null for the lead, "helper" or "worker 2" for a helper.
     this.boardActor = null;
+    // The goal of a /swarm being planned (src/swarm.mjs), until its plan is approved or cancelled.
+    this.swarm = null;
     this.controller = null;
     this.usedTokens = 0;
     this.lastStats = null;
@@ -632,7 +634,7 @@ export class Agent {
    * `subagentModel` names another); its
    * steps appear in the tree, its thinking and answer text do not.
    */
-  async #delegate(prompt, label, agentName, { isolation = null } = {}) {
+  async #delegate(prompt, label, agentName, { isolation = null, lookOnly = false } = {}) {
     const { ui } = this;
     const role = this.#agentNamed(agentName);
     const [tree] = await this.#worktrees([{ description: label, isolation }]);
@@ -666,6 +668,8 @@ export class Agent {
     helper.allowReview = false; // the conversation that learns is the user's, not a helper's
     this.#applyRole(helper, role);
     helper.boardActor = 'helper';
+    // A reviewer's turn may only look: what changes something is refused, whatever the approval mode.
+    if (lookOnly) helper.lookOnlyNext = LOOKING;
     this.helper = helper;
     this.#observe('subagent_start', { agent: role?.name ?? null, description: label });
     let note = '';

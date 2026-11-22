@@ -637,6 +637,13 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   bukan ditunggu selamanya. `/board` menampilkan tugas, siapa yang mengerjakan, dan hasilnya; papan berlaku
   selama percakapan dan dikosongkan oleh `/clear`. Worker juga bisa memakai `isolation: "worktree"`, tapi
   masing-masing lalu punya salinan sendiri: sebuah tugas melihat *hasil* tugas sebelumnya, bukan file-nya.
+- **`/swarm <tujuan>`: pekerjaan besar oleh satu tim, bertahap.** SEEKER menyalakan plan mode, melihat-lihat,
+  lalu mengusulkan pekerjaannya sebagai tugas untuk papan, berapa worker, dan apakah memakai worktree; tidak
+  ada yang diubah. `/swarm go` (atau `/plan go`) menyetujuinya: tugas masuk ke papan, worker mengerjakannya,
+  lalu satu reviewer yang hanya boleh melihat (`task` dengan `look_only: true`: edit dan perintah yang mengubah
+  sesuatu ditolak) memeriksa hasilnya terhadap tujuan, dan SEEKER memverifikasi yang penting lalu melaporkan
+  apa yang selesai, apa yang gagal, temuan reviewer, dan apa yang belum dicek siapa pun. `/swarm off`
+  membatalkan sebelum mulai. Branch worktree dibiarkan untuk kamu merge.
 
 - **Agent buatan sendiri.** Pembantu bisa diberi peran, dan kalau mau model serta daftar tool sendiri, lewat sebuah
   file: `~/.seeker/agents/<nama>.md` (milikmu, di semua proyek) atau `.seeker/agents/<nama>.md` (milik proyek ini;

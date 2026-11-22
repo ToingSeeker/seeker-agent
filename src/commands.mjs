@@ -34,6 +34,7 @@ export const COMMANDS = [
   ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
   ['/agents', 'Agents of your own: helpers with a role, a model and a set of tools'],
   ['/board', 'The task board SEEKER shares with its workers: tasks, who is on each, results'],
+  ['/swarm', 'Big work by a team: /swarm <goal> plans tasks · /swarm go runs workers, a reviewer, a report'],
   ['/sandbox', 'Run shell commands in a sandbox that writes only in the project: on · off'],
   ['/backend', 'Where shell commands run: local · docker:<image> · ssh:<host>[:<folder>]'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
@@ -299,6 +300,7 @@ export async function runCommand(input, ctx) {
       agent.messages = [];
       agent.state.todos = [];
       agent.board.clear();
+      agent.swarm = null;
       agent.usedTokens = 0;
       session.startNew();
       ui.notice('  Started a new conversation.');
@@ -520,13 +522,39 @@ export async function runCommand(input, ctx) {
       if (['go', 'run', 'approve', 'yes'].includes(word)) {
         if (!permissions.planning) return ui.notice('  Plan mode is off. /plan turns it on.');
         permissions.planning = false;
+        // A plan made by /swarm is carried out the swarm's way: workers, a reviewer, a report.
+        if (agent.swarm) return runSwarm(ctx);
         ui.notice('  Plan approved: SEEKER carries it out now, asking as usual.');
         return { prompt: 'The plan is approved. Carry it out now.' };
       }
       permissions.planning = word === 'off' ? false : word === 'on' ? true : !permissions.planning;
+      if (!permissions.planning) agent.swarm = null;
       ui.notice(permissions.planning ? '  Plan mode on: SEEKER looks and proposes; nothing is changed or run. /plan go carries the plan out, /plan off leaves.' : '  Plan mode off.');
       ui.screen?.render();
       return;
+    }
+
+    case 'swarm': {
+      const word = (rest[0] ?? '').toLowerCase();
+      const { SWARM_HELP, swarmPlanPrompt } = await import('./swarm.mjs');
+      if (!arg) return ui.notice(agent.swarm ? `  Planning a swarm for: ${agent.swarm.goal}\n${SWARM_HELP}` : SWARM_HELP);
+      if (rest.length === 1 && ['go', 'run', 'approve', 'yes'].includes(word)) {
+        if (!agent.swarm || !permissions.planning) return ui.notice('  No swarm plan to approve. /swarm <goal> makes one.');
+        permissions.planning = false;
+        return runSwarm(ctx);
+      }
+      if (rest.length === 1 && ['off', 'cancel', 'stop'].includes(word)) {
+        if (!agent.swarm) return ui.notice('  No swarm is being planned.');
+        agent.swarm = null;
+        permissions.planning = false;
+        ui.screen?.render();
+        return ui.notice('  Swarm cancelled; plan mode off. Nothing was changed.');
+      }
+      agent.swarm = { goal: arg };
+      permissions.planning = true;
+      ui.screen?.render();
+      ui.notice('  Swarm: SEEKER plans the tasks and changes nothing. /swarm go starts the workers, /swarm off cancels.');
+      return { prompt: swarmPlanPrompt(arg), label: `/swarm ${arg}` };
     }
 
     case 'yolo':
@@ -886,6 +914,15 @@ async function modsCommand(arg, ctx) {
 // (/model, /new, the settings tab). And a phone may be lost or borrowed: nothing here approves
 // code to run (shell hooks, a project's MCP server), restores files, runs a shell line or quits.
 
+/** The approved swarm plan, set going: the prompt that has the model carry it out. */
+async function runSwarm({ agent, ui }) {
+  const { swarmRunPrompt } = await import('./swarm.mjs');
+  const { goal } = agent.swarm;
+  agent.swarm = null;
+  ui.notice('  Swarm plan approved: SEEKER puts the tasks on the board, starts the workers, has the result reviewed and reports. /board shows the progress.');
+  return { prompt: swarmRunPrompt(goal), label: '/swarm go' };
+}
+
 /** A /command or /skill, not a message that merely starts with a path such as /Users/me/shot.png. */
 export const isSlashCommand = (text) => /^\/[^\s/]+(\s|$)/.test(text);
 
@@ -894,6 +931,7 @@ export const PHONE_COMMANDS = [
   ['/plan', 'Plan first, change nothing: /plan · /plan go carries it out · /plan off'],
   ['/status', 'Show model, context and approval mode'],
   ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
+  ['/swarm', 'Big work by a team: /swarm <goal> plans · /swarm go runs it · /swarm off'],
   ['/context', 'What fills the context, part by part'],
   ['/usage', 'Tokens used: total, cached share, the last 7 days'],
   ['/compact', 'Summarise the conversation to free up context'],
@@ -910,7 +948,7 @@ export const PHONE_COMMANDS = [
   ['/help', 'Show the commands that work from the phone'],
 ];
 
-const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage', 'agents', 'review']);
+const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage', 'agents', 'review', 'swarm']);
 const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
 const PHONE_ELSEWHERE = {
   model: 'Type /model on its own: the app opens its model list.',
@@ -919,7 +957,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-export const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'mods', 'undo', 'rollback', 'memory', 'curator', 'restart']);
+export const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'swarm', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'mods', 'undo', 'rollback', 'memory', 'curator', 'restart']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).

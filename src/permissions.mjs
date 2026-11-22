@@ -118,6 +118,8 @@ export function bashPrefix(command) {
 
 export const PLANNING = 'Not run: plan mode is on, so nothing is changed or executed yet. Finish looking with the read-only tools, then give the plan and stop. The user approves it before any change.';
 
+export const LOOKING = 'Not run: you are a helper that may only look. Read, search and run commands that only read; report what you found instead of changing it.';
+
 /** What the model is told with each message while plan mode is on. */
 export const PLAN_NOTE = '[Plan mode is on. Look at what you need with the read-only tools, then answer with a plan: the steps in order, the files each one touches, and how the result will be checked. Do not change files or run commands that change anything; those are refused until the user approves the plan.]';
 
