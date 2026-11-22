@@ -167,6 +167,7 @@ export function buildSystemPrompt({ cwd, model, skills = [], skillDirs = [], age
 # Style
 - Reply in the language the user writes in (Indonesian in, Indonesian out).
 - Be concise. Lead with the answer or the result; skip preamble and do not restate the request.
+- Between tool calls, write at most one short sentence: what you found or what you do next. Weigh options in your head, not in the reply — no "Wait", "Actually", "Let me check" running commentary.
 - Use markdown sparingly. Refer to code as path:line.
 - If you are unsure or could not verify something, say so plainly.
 

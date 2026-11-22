@@ -100,9 +100,11 @@ export class UI {
     this.stopSpinner();
     if (!this.screen && !this.activity.isTTY) return;
     const started = Date.now();
-    const text = truncate(label.replace(/\s+/g, ' '), Math.max(10, this.cols() - visibleLength(prefix) - 12));
+    // A function label is read again on every frame, so the row can follow what is happening.
+    const fit = (s) => truncate(s.replace(/\s+/g, ' '), Math.max(10, this.cols() - visibleLength(prefix) - 12));
     let frame = 0;
     const draw = () => {
+      const text = fit(typeof label === 'function' ? label() : label);
       const secs = Math.floor((Date.now() - started) / 1000);
       const row = `${prefix}${this.c[tone](SPINNER[frame++ % SPINNER.length])} ${text}… ${this.c.dim(`${secs}s`)}`;
       if (this.screen) this.screen.setLive([row]);
@@ -295,21 +297,48 @@ export class UI {
     this.last = 'text';
   }
 
+  // Reasoning is folded: while it streams, the live row shows its latest line; when it ends, one
+  // line stays ("◇ thought for 12s") and the full text waits for /think show.
+
   thinkStart() {
     if (!this.marked) this.#mark(false);
     this.ensureNewline();
-    if (this.showThinking) this.line(`  ${this.c.purple('◇')} ${this.c.dim('thinking')}`);
-    else this.startSpinner('Thinking', '  ', 'purple');
+    this.thought = '';
+    this.thinkSince = Date.now();
+    this.startSpinner(() => (this.showThinking && this.#thoughtTail()) || 'Thinking', '  ', 'purple');
     this.last = 'think';
   }
 
   thinkChunk(text) {
-    if (this.showThinking) this.write(this.c.dim(text));
+    if (this.thinkSince) this.thought += text;
   }
 
   thinkEnd() {
-    if (!this.showThinking) return this.stopSpinner();
+    if (!this.thinkSince) return;
+    this.stopSpinner();
+    const secs = Math.max(1, Math.round((Date.now() - this.thinkSince) / 1000));
+    this.thinkSince = null;
+    const said = this.thought.trim();
+    if (said) this.lastThought = said;
+    if (!this.showThinking) return;
+    // The way back to the full text is named once, the first time there is any.
+    const hint = said && !this.thinkHinted ? ` · /think show` : '';
+    if (hint) this.thinkHinted = true;
+    this.line(`  ${this.c.purple('◇')} ${this.c.dim(`thought for ${secs}s${hint}`)}`);
+  }
+
+  /** The last line of reasoning written so far, for the live row. */
+  #thoughtTail() {
+    const lines = this.thought.split('\n').map((l) => l.trim()).filter(Boolean);
+    return lines.length ? `Thinking · ${lines[lines.length - 1]}` : '';
+  }
+
+  /** The reasoning behind the last reply, in full (for /think show). */
+  showLastThought() {
+    if (!this.lastThought) return false;
     this.ensureNewline();
+    for (const row of this.lastThought.split('\n')) this.line(`  ${this.c.dim(row)}`);
+    return true;
   }
 
   // ── Tool steps, drawn as a tree under the SEEKER mark ─────────────────────

@@ -40,7 +40,7 @@ export const COMMANDS = [
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
   ['/context', 'What fills the context: instructions, tools, messages, tool results'],
   ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
-  ['/think', 'Toggle thinking mode'],
+  ['/think', 'Toggle thinking mode · /think show prints the last reasoning in full'],
   ['/yolo', 'Toggle running edits and commands without asking'],
   ['/plan', 'Plan first: SEEKER looks and proposes, changes nothing (/plan go carries it out · /plan off)'],
   ['/help', 'Show this help'],
@@ -341,6 +341,10 @@ export async function runCommand(input, ctx) {
     }
 
     case 'think':
+      if (arg === 'show') {
+        if (!ui.showLastThought?.()) ui.notice('  No reasoning to show yet: the model has not written any in this session.');
+        return;
+      }
       if (!agent.caps.thinking) return ui.warn(`  ${agent.model} has no thinking mode`);
       await apply('think', !config.think);
       ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
@@ -1028,6 +1032,7 @@ export async function runPhoneCommand(input, ctx) {
       );
     }
     if (name === 'think') {
+      if (arg === 'show') return ui.warn('  The reasoning is not kept on the phone; /think show works in the terminal.');
       if (!agent.caps.thinking) return ui.warn(`  ${agent.model} has no thinking mode`);
       ctx.configure('think', String(!config.think));
       return ui.notice(`  Thinking mode ${config.think ? 'on' : 'off'}.`);
