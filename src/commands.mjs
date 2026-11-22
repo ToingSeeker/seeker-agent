@@ -932,6 +932,7 @@ export const PHONE_COMMANDS = [
   ['/status', 'Show model, context and approval mode'],
   ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
   ['/swarm', 'Big work by a team: /swarm <goal> plans · /swarm go runs it · /swarm off'],
+  ['/board', 'The task board: tasks, who is on each, results'],
   ['/context', 'What fills the context, part by part'],
   ['/usage', 'Tokens used: total, cached share, the last 7 days'],
   ['/compact', 'Summarise the conversation to free up context'],
