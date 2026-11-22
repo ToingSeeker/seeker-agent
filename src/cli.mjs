@@ -540,17 +540,19 @@ export async function main(argv) {
   ui.attach(screen);
   screen.start();
   ui.startMascot();
-  ui.welcome({
+  // The panel reads the agent at every paint, so /model and a growing conversation show up in it.
+  const git = gitInfo(cwd);
+  ui.welcome(() => ({
     cwd,
-    model: config.model,
+    model: agent.model,
     limit: agent.contextLimit(),
     provider: agent.provider,
     used: agent.contextTokens(),
-    git: gitInfo(cwd),
+    git,
     instructionFiles: agent.instructionFiles,
     skillCount: agent.skills.length,
     yolo: permissions.mode === 'auto',
-  });
+  }));
   if (!agent.caps.tools) ui.warn(`  ⚠ ${config.model} cannot call tools — it can only chat. Switch with /model.`);
   if (opts.continue && agent.messages.length) ui.notice(`  Continuing the previous conversation (${agent.messages.length} messages).`);
 

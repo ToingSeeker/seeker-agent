@@ -29,6 +29,7 @@ export class Screen {
     this.out = out;
     this.header = header;
     this.c = colors;
+    this.intro = null; // (width) => rows drawn above the conversation at every paint (the welcome panel)
     this.rows = []; // finished conversation rows, oldest first
     this.top = null; // the first row shown while scrolled back; null while following the newest
     this.partial = ''; // the line still being written
@@ -87,8 +88,10 @@ export class Screen {
 
   /** Every conversation row, the unfinished line and the live rows, as they would be shown. */
   #all() {
-    const partial = visibleLength(this.partial) ? wrapAnsi(this.partial, this.width) : [];
-    return [...this.rows, ...partial, ...this.live];
+    const width = this.width;
+    const partial = visibleLength(this.partial) ? wrapAnsi(this.partial, width) : [];
+    const intro = this.intro ? this.intro(width).flatMap((row) => wrapAnsi(row, width)) : [];
+    return [...intro, ...this.rows, ...partial, ...this.live];
   }
 
   /** Moves the view `lines` rows back (positive) or forward (negative). At the newest rows it follows again. */
@@ -131,6 +134,12 @@ export class Screen {
       current += segment;
     });
     this.partial = current;
+    this.render();
+  }
+
+  /** Rows at the very top of the conversation, built afresh at every paint so what they show stays current. */
+  setIntro(rows) {
+    this.intro = rows;
     this.render();
   }
 
