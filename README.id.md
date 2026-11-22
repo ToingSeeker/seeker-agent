@@ -629,6 +629,14 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   commit), dan laporannya menyebut letaknya dan apa yang berubah. Menggabungkannya menunggu persetujuanmu. File yang
   tidak dilacak git (`node_modules`, `.env`) tidak ikut tersalin, begitu juga perubahanmu yang belum di-commit.
   Foldernya harus repositori git dengan minimal satu commit.
+- **Papan tugas untuk pekerjaan besar.** SEEKER bisa memecah pekerjaan menjadi tugas di papan yang dibagi dengan
+  pembantunya, masing-masing menyebut tugas mana yang harus selesai lebih dulu, lalu menjalankan worker (`task`
+  dengan `workers: <n>`) yang mengambil tugas yang siap satu per satu sampai habis. Worker menerima hasil
+  tugas-tugas yang ditunggu tugasnya, dan bisa meninggalkan catatan untuk worker lain. Tugas yang ditinggal
+  worker-nya tanpa ditutup ditandai gagal, dan tugas yang menunggu tugas gagal ditampilkan sebagai terblokir,
+  bukan ditunggu selamanya. `/board` menampilkan tugas, siapa yang mengerjakan, dan hasilnya; papan berlaku
+  selama percakapan dan dikosongkan oleh `/clear`. Worker juga bisa memakai `isolation: "worktree"`, tapi
+  masing-masing lalu punya salinan sendiri: sebuah tugas melihat *hasil* tugas sebelumnya, bukan file-nya.
 
 - **Agent buatan sendiri.** Pembantu bisa diberi peran, dan kalau mau model serta daftar tool sendiri, lewat sebuah
   file: `~/.seeker/agents/<nama>.md` (milikmu, di semua proyek) atau `.seeker/agents/<nama>.md` (milik proyek ini;

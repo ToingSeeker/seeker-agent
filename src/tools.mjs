@@ -15,6 +15,7 @@ import zlib from 'node:zlib';
 import os from 'node:os';
 import path from 'node:path';
 import { renderSkill } from './skills.mjs';
+import { workerPrompt } from './board.mjs';
 
 import { imageType, kilobytes, loadImage } from './images.mjs';
 
@@ -850,6 +851,7 @@ export const TOOLS = [
         prompt: { type: 'string', description: 'The full instructions for one helper' },
         agent: { type: 'string', description: 'Optional: the name of one of the agents listed under "Agents" in your instructions, to give the helper that role. Leave out for a general helper.' },
         isolation: ISOLATION,
+        workers: { type: 'integer', description: 'Optional: start this many workers on the task board (see the board tool) instead of giving out jobs yourself. Each takes ready tasks until none are left; `prompt`, `agent` and `isolation` then apply to every worker. Put the tasks on the board first.' },
         tasks: {
           type: 'array',
           description: `Several jobs to run side by side, up to ${MAX_HELPERS}. Each helper sees only its own prompt — repeat shared background in every one that needs it. Each has a context of its own to fill, so use as many as the work has independent parts, not more.`,
@@ -862,8 +864,24 @@ export const TOOLS = [
       },
     },
     verbs: ['Delegating', 'Delegated'],
-    summary: (a) => (Array.isArray(a.tasks) && a.tasks.length ? `${a.tasks.length} tasks in parallel` : `${a.agent ? `${a.agent}: ` : ''}${a.description ?? String(a.prompt ?? '').slice(0, 60)}`),
+    summary: (a) => (a.workers ? `${a.workers} worker(s) on the board` : Array.isArray(a.tasks) && a.tasks.length ? `${a.tasks.length} tasks in parallel` : `${a.agent ? `${a.agent}: ` : ''}${a.description ?? String(a.prompt ?? '').slice(0, 60)}`),
     async run(args, ctx) {
+      if (args.workers != null && args.workers !== '') {
+        const count = Math.floor(Number(args.workers));
+        if (!ctx.delegateMany) throw new ToolError('A helper cannot start workers. Take tasks from the board yourself.');
+        if (!(count >= 1 && count <= MAX_HELPERS)) throw new ToolError(`"workers" must be between 1 and ${MAX_HELPERS}.`);
+        if (args.tasks) throw new ToolError('Give either "workers" (they take tasks from the board) or "tasks", not both.');
+        const board = ctx.board;
+        const left = board ? board.counts() : null;
+        if (!left || left.pending <= 0) throw new ToolError('The board has no task a worker could take. Put tasks on it first with the board tool, action "add".');
+        const isolation = isolationOf(args.isolation);
+        const shared = typeof args.prompt === 'string' ? args.prompt.trim() : '';
+        const jobs = Array.from({ length: count }, (_, i) => ({ description: `worker ${i + 1}`, prompt: workerPrompt(i + 1, count, shared), agent: args.agent || null, isolation, worker: `worker ${i + 1}` }));
+        const results = await ctx.delegateMany(jobs);
+        const reports = results.map((r, i) => `## Worker ${i + 1} — ${r.status}\n${r.report || '(it returned nothing)'}`).join('\n\n');
+        const c = board.counts();
+        return { output: `${reports}\n\n## The board now\n${board.render()}`, note: `${c.done}/${board.tasks.length} tasks done${c.failed ? `, ${c.failed} failed` : ''}` };
+      }
       let tasks = args.tasks;
       if (typeof tasks === 'string') {
         try {
@@ -885,6 +903,87 @@ export const TOOLS = [
       if (!ctx.delegate) throw new ToolError('A helper cannot start another helper. Do this part yourself.');
       const report = await ctx.delegate(args.prompt, this.summary(args), args.agent || null, { isolation: isolationOf(args.isolation) });
       return { output: report || '(the helper returned nothing)', note: `${report.split('\n').filter((l) => l.trim()).length} lines reported` };
+    },
+  },
+  {
+    name: 'board',
+    // It changes only SEEKER's own list for this conversation, never a file.
+    risk: 'read',
+    description:
+      'A task board shared with your helpers, for work big enough to split into several tasks, some of which must wait for others. You: "add" tasks (title, detail, and depends_on with the ids of tasks that must be done first), then start workers with the task tool\'s `workers`; they take ready tasks one by one until none are left. "list" shows the board with every result; "clear" empties it. A worker: "next" takes a task, "done" or "fail" closes it with a result, "note" leaves something for the others. A result is a self-report: check what matters before telling the user.',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['add', 'list', 'next', 'done', 'fail', 'note', 'clear'] },
+        tasks: {
+          type: 'array',
+          description: 'For "add": the tasks, in order. A task may depend only on tasks added before it.',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Optional short id (t1, t2, … when left out)' },
+              title: { type: 'string', description: 'What to do, in a line' },
+              detail: { type: 'string', description: 'Everything a worker needs: it knows nothing of this conversation' },
+              depends_on: { type: 'array', items: { type: 'string' }, description: 'Ids of tasks that must be done first' },
+            },
+            required: ['title'],
+          },
+        },
+        id: { type: 'string', description: 'For "done" and "fail": the task' },
+        result: { type: 'string', description: 'For "done": what you did, what changed, what you checked. For "fail": why' },
+        text: { type: 'string', description: 'For "note"' },
+      },
+      required: ['action'],
+    },
+    brief: 'Shared task board. Lead: "add" tasks (title, detail, depends_on), then task tool `workers: n`; "list", "clear". Worker: "next" takes a task, "done"/"fail" with id + result, "note" with text.',
+    verbs: ['Updating board', 'Updated board'],
+    summary: (a) => [a.action, a.id, Array.isArray(a.tasks) ? `${a.tasks.length} task(s)` : ''].filter(Boolean).join(' '),
+    async run(args, ctx) {
+      const board = ctx.board;
+      if (!board) throw new ToolError('There is no task board here.');
+      const actor = ctx.boardActor ?? 'lead';
+      const lead = !ctx.boardActor;
+      let tasks = args.tasks;
+      if (typeof tasks === 'string') {
+        try {
+          tasks = JSON.parse(tasks);
+        } catch {
+          throw new ToolError('"tasks" must be a list of { title, detail, depends_on }.');
+        }
+      }
+      try {
+        switch (String(args.action ?? '').toLowerCase()) {
+          case 'add': {
+            const ids = board.add(tasks, actor);
+            return { output: `Added ${ids.join(', ')}.\n\n${board.render({ results: false })}`, display: board.render({ results: false }), displayLines: 30 };
+          }
+          case 'list':
+            return { output: board.render(), display: board.render({ results: false }), displayLines: 30 };
+          case 'next': {
+            if (lead) throw new ToolError('Workers take tasks; you start them with the task tool\'s `workers`.');
+            const task = await board.next(actor, ctx.signal);
+            if (!task) return { output: 'No tasks are left for you. Stop and reply with a short summary of the tasks you did.', note: 'none left' };
+            return { output: board.brief(task), note: `took ${task.id}` };
+          }
+          case 'done':
+          case 'fail': {
+            const ok = args.action === 'done';
+            const task = board.finish(args.id, actor, ok, args.result);
+            return { output: `${task.id} marked ${task.status}. Call "next" for another task.`, note: `${task.id} ${task.status}` };
+          }
+          case 'note':
+            board.note(actor, args.text);
+            return { output: 'Noted on the board.' };
+          case 'clear':
+            if (!lead) throw new ToolError('Only the lead clears the board.');
+            board.clear();
+            return { output: 'The board is empty.' };
+          default:
+            throw new ToolError('"action" must be add, list, next, done, fail, note or clear.');
+        }
+      } catch (err) {
+        throw err instanceof ToolError ? err : new ToolError(err.message);
+      }
     },
   },
   {

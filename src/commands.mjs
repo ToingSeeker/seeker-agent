@@ -33,6 +33,7 @@ export const COMMANDS = [
   ['/status', 'Show model and context usage'],
   ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
   ['/agents', 'Agents of your own: helpers with a role, a model and a set of tools'],
+  ['/board', 'The task board SEEKER shares with its workers: tasks, who is on each, results'],
   ['/sandbox', 'Run shell commands in a sandbox that writes only in the project: on · off'],
   ['/backend', 'Where shell commands run: local · docker:<image> · ssh:<host>[:<folder>]'],
   ['/effort', 'How hard the model works on a reply: low … max (Anthropic models)'],
@@ -297,6 +298,7 @@ export async function runCommand(input, ctx) {
     case 'new':
       agent.messages = [];
       agent.state.todos = [];
+      agent.board.clear();
       agent.usedTokens = 0;
       session.startNew();
       ui.notice('  Started a new conversation.');
@@ -374,6 +376,22 @@ export async function runCommand(input, ctx) {
         ui.line(`  ${' '.repeat(wide)}  ${c.dim([a.source === 'project' ? 'this project' : 'yours', a.model ? `model ${a.model}` : 'the model helpers run on', a.tools ? `tools: ${a.tools.join(', ')}` : 'all tools a helper has'].join(' · '))}`);
       }
       ui.line(`  ${c.dim('SEEKER hands work to one through its task tool. Ask for it by name: "have the reviewer look at this change".')}`);
+      return;
+    }
+
+    case 'board': {
+      const { BOARD_MARK } = await import('./board.mjs');
+      const board = agent.board;
+      if (board.empty) return ui.notice('  The board is empty. SEEKER puts tasks on it when it splits big work between workers ("split this into tasks and use workers").');
+      const counts = board.counts();
+      ui.line(`  ${c.dim(Object.entries(counts).filter(([, n]) => n).map(([s, n]) => `${n} ${s}`).join(' · '))}`);
+      for (const t of board.tasks) {
+        const status = board.statusOf(t);
+        const mark = status === 'done' ? c.green(BOARD_MARK[status]) : status === 'failed' || status === 'blocked' ? c.yellow(BOARD_MARK[status]) : BOARD_MARK[status];
+        ui.line(`  ${mark} ${c.accent(t.id)} ${t.title}${t.deps.length ? c.dim(` (after ${t.deps.join(', ')})`) : ''}${t.owner ? c.dim(` — ${t.owner}`) : ''}`);
+        if (t.result) ui.line(`      ${c.dim(t.result.split('\n')[0].slice(0, 160))}`);
+      }
+      if (board.notes.length) ui.line(`  ${c.dim(`${board.notes.length} note(s); SEEKER sees them with the tasks.`)}`);
       return;
     }
 

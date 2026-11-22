@@ -425,6 +425,14 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   where it is and what changed. Merging it is for you to approve. Files git does not track (`node_modules`,
   `.env`) are not in the copy, and neither are your uncommitted changes. The folder must be a git repository
   with at least one commit.
+- **A task board for bigger work.** SEEKER can split work into tasks on a board shared with its helpers, each
+  task saying which others must be done first, and start workers (`task` with `workers: <n>`) that take ready
+  tasks one by one until none are left. A worker gets the results of the tasks its task waited for, and can
+  leave notes for the others. A task whose worker stopped without closing it is marked failed, and what waited
+  for a failed task is shown as blocked rather than waited for forever. `/board` shows the tasks, who is on
+  each and what came of them; the board lasts for the conversation and `/clear` empties it. Workers can also
+  take `isolation: "worktree"`, but each then has its own copy: a task sees the *results* of the tasks before
+  it, not their files.
 
 - **Agents of your own.** A helper can be given a role, and optionally a model and a set of tools, in a file:
   `~/.seeker/agents/<name>.md` (yours, in every project) or `.seeker/agents/<name>.md` (this project's; one of
