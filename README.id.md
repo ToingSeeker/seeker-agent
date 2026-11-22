@@ -650,7 +650,8 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   lalu satu reviewer yang hanya boleh melihat (`task` dengan `look_only: true`: edit dan perintah yang mengubah
   sesuatu ditolak) memeriksa hasilnya terhadap tujuan, dan SEEKER memverifikasi yang penting lalu melaporkan
   apa yang selesai, apa yang gagal, temuan reviewer, dan apa yang belum dicek siapa pun. `/swarm off`
-  membatalkan sebelum mulai. Branch worktree dibiarkan untuk kamu merge.
+  membatalkan sebelum mulai. Branch worktree dibiarkan untuk kamu merge. Di HP, `/swarm`, `/swarm go` dan
+  `/board` ada di menu `/` aplikasinya.
 - **Memantau para pembantu.** Selama pembantu bekerja, panel di atas kotak input menampilkan masing-masing:
   apa yang sedang dikerjakannya (tugas worker di papan), berapa yang sudah dipakai dan sudah berapa lama, dan
   bagaimana akhirnya. Di HP daftar yang sama muncul sebagai kartu di timeline sesi, dengan tombol **Stop**

@@ -445,7 +445,7 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   that may only look (`task` with `look_only: true`: edits and commands that change something are refused)
   checks the result against the goal, and SEEKER verifies what matters and reports what was done, what
   failed, what the reviewer found and what nobody checked. `/swarm off` cancels before it starts. Worktree
-  branches are left for you to merge.
+  branches are left for you to merge. On the phone, `/swarm`, `/swarm go` and `/board` are in the app's `/` menu.
 - **Watching the helpers.** While helpers work, a panel above the input box lists each one: what it is on
   (a worker's task on the board), what it has spent and for how long, and how it ended. On the phone the
   same list is a card in the session's timeline, with a **Stop** button per running helper: it stops that

@@ -69,6 +69,28 @@ test('/swarm <goal> plans in plan mode; /swarm go approves it with the swarm ste
   assert.equal((await runPhoneCommand('/swarm go', ctx)).prompt, swarmRunPrompt('tidy the docs'));
 });
 
+test('the phone: /swarm, /swarm go and /board are in its / menu, /board shows the board, /help names it', async () => {
+  const app = fs.readFileSync(new URL('../remote-server/public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /name: '\/swarm', about: [^\n]*run: fill\('\/swarm'\)/, '/swarm waits for the goal to be typed');
+  assert.match(app, /name: '\/swarm go', about: [^\n]*run: run\('\/swarm go'\)/);
+  assert.match(app, /name: '\/board', about: [^\n]*run: run\('\/board'\)/);
+
+  const { Board } = await import('../src/board.mjs');
+  const shown = [];
+  const ui = new Proxy({}, { get: (_, key) => (key === 'notice' || key === 'line' ? (text) => shown.push(text) : key === 'c' ? new Proxy({}, { get: () => (x) => String(x) }) : () => {}) });
+  const agent = { board: new Board() };
+  const ctx = { agent, ui, term: null, config: { ...DEFAULTS }, permissions: new Permissions({ mode: 'ask', cwd: tmp(), ask: null }), session: null, hub: null };
+  await runPhoneCommand('/board', ctx);
+  assert.match(shown.at(-1), /The board is empty/);
+  agent.board.add([{ title: 'write the schema' }], 'lead');
+  await runPhoneCommand('/board', ctx);
+  assert.ok(shown.some((text) => /t1 write the schema/.test(text)), 'the task reaches the phone');
+
+  shown.length = 0;
+  await runPhoneCommand('/help', ctx);
+  for (const name of ['/swarm', '/board']) assert.ok(shown.some((text) => text.trim().startsWith(name)), `${name} is in the phone's /help`);
+});
+
 test('task look_only: the reviewer cannot change anything, even in auto mode, and the lead can again after', async () => {
   const cwd = tmp();
   fs.writeFileSync(path.join(cwd, 'a.txt'), 'one\n');
