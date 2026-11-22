@@ -21,6 +21,7 @@ import { redactSecrets } from './secrets.mjs';
 import { TOOL_BY_NAME } from './tools.mjs';
 import { ANSI } from './text.mjs';
 import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, cardFacts, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
+import { crewMeta } from './crew.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -373,6 +374,7 @@ export class Workspace {
     this.agent = built.agent;
     this.session = built.session;
     this.agent.hooks.askUser = (request) => this.#question(request);
+    this.agent.onCrew = () => this.crewChanged();
     this.git = gitInfo(this.cwd);
   }
 
@@ -407,6 +409,8 @@ export class Workspace {
       limit: agent.contextLimit(),
       vision: Boolean(agent.caps.vision || agent.provider.ownTools),
       progress: todos.length ? { done, total: todos.length, current } : null,
+      // The helpers at work for this message, each with a stop of its own (src/crew.mjs).
+      crew: crewMeta(agent),
       ...(this.terminal ? { terminal: true } : {}),
       // Chose its own model on the phone, instead of following the default.
       ...(this.ownModel ? { ownModel: true } : {}),
@@ -604,6 +608,21 @@ export class Workspace {
     this.daemon.settled?.(this, this.stopped ? 'stopped' : 'completed', []);
   }
 
+  /** The helpers changed: the phone hears of it at most twice a second, the last change always. */
+  crewChanged() {
+    if (this.crewTimer) return;
+    this.crewTimer = setTimeout(() => {
+      this.crewTimer = null;
+      this.touch();
+    }, 500);
+    this.crewTimer.unref?.();
+  }
+
+  /** Stops one of the helpers at work, leaving the rest. False when it has already finished. */
+  stopHelper(id) {
+    return this.agent?.stopHelper(id) ?? false;
+  }
+
   stop() {
     if (this.status !== 'idle' && !this.stopping) {
       this.stopped = true;
@@ -700,6 +719,11 @@ class LinkedWorkspace {
 
   stop() {
     writeLine(this.socket, { t: 'stop' });
+  }
+
+  stopHelper(id) {
+    writeLine(this.socket, { t: 'stop_helper', helper: id });
+    return true;
   }
 }
 
@@ -1459,6 +1483,11 @@ export class RemoteDaemon {
           // Anything it was waiting on is answered "no" so the turn can end.
           for (const [id, entry] of this.approvals) if (entry.approval.ws === workspace.id) this.#settle(id, null);
           return;
+        case 'stop_helper':
+          // One helper, and nothing else: the lead and the other helpers go on.
+          if (!workspace || typeof command.helper !== 'string') return;
+          if (!workspace.stopHelper(command.helper)) return this.send({ t: 'toast', text: 'That helper has already finished.' });
+          return this.log(`${workspace.name}: a helper was stopped from the phone`);
         case 'approve': {
           const answer = command.decision === 'allow' ? 'y' : command.decision === 'always' ? 'a' : String(command.note ?? '').trim() || 'n';
           return this.#answer(command.id_approval, answer);

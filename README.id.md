@@ -192,6 +192,13 @@ terbaru dan permintaanmu disimpan kata demi kata. Ubah pengaturan ini dengan `/c
 - `cacheTtl` (`1h`) — berapa lama Anthropic menyimpan cache percakapan di antara permintaan: `5m` atau `1h`,
   hanya dua itu yang tersedia. Satu jam lebih mahal saat ditulis dan bertahan melewati jeda — membaca jawaban,
   izin yang menunggumu. `5m` lebih murah kalau kamu tidak pernah berhenti lebih lama dari itu.
+- `swarmBudget` (kosong) — batas belanja para pembantu (`task`: pembantu, worker, reviewer, seperti di `/swarm`)
+  selama SEEKER menjawab satu pesan: token (`500k`, `2m`) atau dolar (`$2`). Begitu terlewati, pembantu yang
+  sedang jalan dihentikan, tidak ada yang baru dimulai, dan SEEKER menjawab dengan apa yang sudah selesai;
+  tugas yang dipegang worker yang dihentikan ditandai gagal di papan. Balasan SEEKER sendiri tidak dihitung,
+  jadi ia selalu bisa melapor. Dolar hanya menghitung balasan yang harganya diketahui (model lokal gratis,
+  model yang harganya tidak dikenal tidak terhitung), jadi pakai token untuk itu. Laporan tiap pembantu
+  menyebut berapa yang dipakainya. Kosong atau `off`: tanpa batas.
 
 Gambar dari giliran sebelumnya dikeluarkan dari percakapan setelah cache habis, atau saat percakapan
 diringkas. Lebih cepat dari itu justru lebih mahal: percakapan yang diubah dibaca dengan harga penuh mulai
@@ -644,6 +651,12 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   sesuatu ditolak) memeriksa hasilnya terhadap tujuan, dan SEEKER memverifikasi yang penting lalu melaporkan
   apa yang selesai, apa yang gagal, temuan reviewer, dan apa yang belum dicek siapa pun. `/swarm off`
   membatalkan sebelum mulai. Branch worktree dibiarkan untuk kamu merge.
+- **Memantau para pembantu.** Selama pembantu bekerja, panel di atas kotak input menampilkan masing-masing:
+  apa yang sedang dikerjakannya (tugas worker di papan), berapa yang sudah dipakai dan sudah berapa lama, dan
+  bagaimana akhirnya. Di HP daftar yang sama muncul sebagai kartu di timeline sesi, dengan tombol **Stop**
+  untuk tiap pembantu yang masih jalan: hanya pembantu itu yang berhenti, tugasnya di papan ditandai gagal
+  beserta alasannya, dan SEEKER serta pembantu lain tetap jalan. `swarmBudget` (di "Menekan biaya sesi panjang") membatasi total
+  belanja mereka.
 
 - **Agent buatan sendiri.** Pembantu bisa diberi peran, dan kalau mau model serta daftar tool sendiri, lewat sebuah
   file: `~/.seeker/agents/<nama>.md` (milikmu, di semua proyek) atau `.seeker/agents/<nama>.md` (milik proyek ini;

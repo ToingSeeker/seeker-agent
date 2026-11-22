@@ -123,12 +123,13 @@ export class TerminalLink {
    * @param {() => void} [opts.onStop]
    * @param {number} [opts.retry]  milliseconds between attempts to find a daemon
    */
-  constructor({ file = LINK_FILE, info = null, notifyAfter = 30_000, onMessage = () => {}, onStop = () => {}, onHandoff = () => {}, retry = 5000 } = {}) {
+  constructor({ file = LINK_FILE, info = null, notifyAfter = 30_000, onMessage = () => {}, onStop = () => {}, onStopHelper = () => {}, onHandoff = () => {}, retry = 5000 } = {}) {
     this.file = file;
     this.info = info;
     this.notifyAfter = notifyAfter;
     this.onMessage = onMessage;
     this.onStop = onStop;
+    this.onStopHelper = onStopHelper; // (id) the phone stopped one helper
     this.onHandoff = onHandoff;
     this.retry = retry;
     this.socket = null;
@@ -172,6 +173,7 @@ export class TerminalLink {
     readLines(socket, (message) => {
       if (message.t === 'message') this.onMessage({ text: typeof message.text === 'string' ? message.text : '', images: Array.isArray(message.images) ? message.images : [], locked: message.locked === true });
       else if (message.t === 'stop') this.onStop();
+      else if (message.t === 'stop_helper') this.onStopHelper(String(message.helper ?? ''));
       else if (message.t === 'answer') this.#answered(message.id, message.answer);
       else if (message.t === 'handoff') {
         // Still at work on the phone: that copy keeps the conversation, and this session must not claim it again later.

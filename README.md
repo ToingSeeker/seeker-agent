@@ -297,6 +297,12 @@ Change these with `/config <name> <value>`:
 - `cacheTtl` (`1h`) — how long Anthropic keeps the conversation cached between requests: `5m` or `1h`, the
   two it offers. An hour costs more to write and survives a pause — reading an answer, an approval that
   waits for you. `5m` is cheaper if you never stop for longer than that.
+- `swarmBudget` (empty) — the most the helpers (`task`: helpers, workers, a reviewer, as in `/swarm`) may
+  spend while SEEKER answers one message: tokens (`500k`, `2m`) or dollars (`$2`). When they pass it, the
+  running helpers are stopped, no new ones start, and SEEKER answers with what was done; tasks a stopped
+  worker held are marked failed on the board. SEEKER's own replies do not count, so it can always report.
+  Dollars count only replies with a known price (a local model costs nothing, an unknown model is left
+  out), so use tokens for those. Each helper's report says what it used. Empty or `off`: no limit.
 
 Pictures from earlier turns are taken out of the conversation once the cache has run out, or when it is
 summarised. Sooner would cost more than it saves: a changed conversation is read at full price from the
@@ -440,6 +446,11 @@ are not restored. Switch it off with `--no-checkpoints` or `/config checkpoints 
   checks the result against the goal, and SEEKER verifies what matters and reports what was done, what
   failed, what the reviewer found and what nobody checked. `/swarm off` cancels before it starts. Worktree
   branches are left for you to merge.
+- **Watching the helpers.** While helpers work, a panel above the input box lists each one: what it is on
+  (a worker's task on the board), what it has spent and for how long, and how it ended. On the phone the
+  same list is a card in the session's timeline, with a **Stop** button per running helper: it stops that
+  one only, its task on the board is failed with the reason, and SEEKER and the other helpers go on.
+  `swarmBudget` (under "Keeping the cost of a long session down") limits what they may spend together.
 
 - **Agents of your own.** A helper can be given a role, and optionally a model and a set of tools, in a file:
   `~/.seeker/agents/<name>.md` (yours, in every project) or `.seeker/agents/<name>.md` (this project's; one of

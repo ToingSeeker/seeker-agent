@@ -175,7 +175,7 @@ test('parallel helpers in worktrees cannot overwrite each other; one that change
   assert.equal(kept.length, 2);
   assert.equal(fs.readFileSync(path.join(kept[0][1], 'app.txt'), 'utf8'), 'A\n');
   assert.equal(fs.readFileSync(path.join(kept[1][1], 'app.txt'), 'utf8'), 'B\n');
-  assert.match(result, /## Helper 3: just look — completed\nNothing to change\.\n\n\[Isolated worktree: the helper changed nothing, so it was removed\.\]/);
+  assert.match(result, /## Helper 3: just look — completed · \d+ tokens\nNothing to change\.\n\n\[Isolated worktree: the helper changed nothing, so it was removed\.\]/);
   assert.equal(branches(dir).length, 3, 'main and the two kept branches; the unchanged one was deleted');
   assert.equal(fs.readFileSync(path.join(dir, 'app.txt'), 'utf8'), 'one\n');
 });
