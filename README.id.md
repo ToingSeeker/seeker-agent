@@ -622,6 +622,13 @@ Matikan dengan `--no-checkpoints` atau `/config checkpoints off`.
   Pertanyaan izin diajukan satu per satu. Tiap pembantu mengisi konteksnya sendiri, jadi dua puluh pembantu memakan
   kira-kira dua puluh kali biaya satu: turunkan `maxHelpers` untuk model lokal atau penyedia dengan batas laju ketat. `/config subagentModel <model>` menjalankannya
   di model yang lebih murah daripada percakapan.
+- **Pembantu yang mengubah file, dipisahkan.** Dengan `isolation: "worktree"`, pembantu bekerja di git worktree
+  sendiri (`~/.seeker/worktrees/`) pada branch baru `seeker/<pekerjaan>-<id>`, dibuat dari commit terakhir.
+  Pembantu yang menulis berdampingan tidak bisa saling menimpa, dan tidak ada yang masuk ke foldermu dengan
+  sendirinya. Salinan yang tidak diubah dihapus beserta branch-nya; salinan yang berubah disimpan apa adanya (tanpa
+  commit), dan laporannya menyebut letaknya dan apa yang berubah. Menggabungkannya menunggu persetujuanmu. File yang
+  tidak dilacak git (`node_modules`, `.env`) tidak ikut tersalin, begitu juga perubahanmu yang belum di-commit.
+  Foldernya harus repositori git dengan minimal satu commit.
 
 - **Agent buatan sendiri.** Pembantu bisa diberi peran, dan kalau mau model serta daftar tool sendiri, lewat sebuah
   file: `~/.seeker/agents/<nama>.md` (milikmu, di semua proyek) atau `.seeker/agents/<nama>.md` (milik proyek ini;

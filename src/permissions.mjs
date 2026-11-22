@@ -176,18 +176,18 @@ export class Permissions {
     return commands.every((words) => isSafeCommand(words) || covered(words));
   }
 
-  #insideCwd(file) {
-    const r = path.relative(this.cwd, file);
+  #insideCwd(file, cwd = this.cwd) {
+    const r = path.relative(cwd, file);
     return !r.startsWith('..') && !path.isAbsolute(r);
   }
 
   /** The secret file a tool call would touch: `{ kind, file }` (src/secrets.mjs), or null. */
-  #secret(tool, args) {
-    if (tool.risk === 'exec') return secretInCommand(args?.command, this.cwd);
+  #secret(tool, args, cwd = this.cwd) {
+    if (tool.risk === 'exec') return secretInCommand(args?.command, cwd);
     if (tool.risk !== 'read' && tool.risk !== 'write') return null;
     let file = null;
     try {
-      file = tool.targetPath?.(args ?? {}, this.cwd) ?? null;
+      file = tool.targetPath?.(args ?? {}, cwd) ?? null;
     } catch {
       return null; // no usable path: the tool itself reports that
     }
@@ -195,11 +195,15 @@ export class Permissions {
     return kind ? { kind, file } : null;
   }
 
-  /** @returns {Promise<{ ok: true } | { ok: false, reason: string }>} */
-  async check(tool, args) {
+  /**
+   * `cwd` is the folder the asking agent works in, when that is not the session's own (a helper in
+   * an isolated worktree): paths are resolved, and "inside the working folder" judged, against it.
+   * @returns {Promise<{ ok: true } | { ok: false, reason: string }>}
+   */
+  async check(tool, args, { cwd = this.cwd } = {}) {
     // SEEKER's own key files are refused in every mode; other secrets are asked about even in --yolo,
     // since what is read goes to the model provider and can be sent on from there.
-    const secret = this.#secret(tool, args);
+    const secret = this.#secret(tool, args, cwd);
     if (secret?.kind === 'seeker') return { ok: false, reason: SEEKER_SECRET };
     const secretWarning = secret && `${path.basename(secret.file)} looks like it holds secrets (keys, passwords); what is read goes to the model provider.`;
     if (tool.risk === 'read') return secret ? this.#confirm(tool, args, secretWarning, null) : { ok: true };
@@ -227,7 +231,7 @@ export class Permissions {
         always = { label: `always allow \`${prefix} …\``, apply: () => this.bashPrefixes.add(prefix) };
       }
     } else if (tool.risk === 'write') {
-      const inside = this.#insideCwd(tool.targetPath(args, this.cwd));
+      const inside = this.#insideCwd(tool.targetPath(args, cwd), cwd);
       if (!inside) warning = 'This file is outside the working folder.';
       else if (secret) warning = `${path.basename(secret.file)} looks like it holds secrets (keys, passwords).`;
       else if (this.mode === 'auto' || this.allowWrites) return { ok: true };

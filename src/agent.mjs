@@ -13,6 +13,7 @@ import { loadSkills } from './skills.mjs';
 import { backendOf } from './backend.mjs';
 import { loadAgents, roleText } from './agents.mjs';
 import { recordUsage } from './usage.mjs';
+import { createWorktree, finishWorktree, worktreeBrief, worktreeNote } from './worktree.mjs';
 import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
 // The answers offered when a typed message holds an API key (see #checkKeys).
@@ -610,7 +611,7 @@ export class Agent {
     const target = path.resolve(this.cwd, about.path ?? '.');
     const risk = about.risk ?? (about.path && secretKind(target) ? 'read' : 'other');
     const tool = { name, risk, targetPath: () => target };
-    const verdict = await this.permissions.check(tool, { command: about.command, url: about.url });
+    const verdict = await this.permissions.check(tool, { command: about.command, url: about.url }, { cwd: this.cwd });
     if (!verdict.ok) {
       ui.toolFail('not run');
       entry.finished = true;
@@ -626,10 +627,12 @@ export class Agent {
    * `subagentModel` names another); its
    * steps appear in the tree, its thinking and answer text do not.
    */
-  async #delegate(prompt, label, agentName) {
+  async #delegate(prompt, label, agentName, { isolation = null } = {}) {
     const { ui } = this;
     const role = this.#agentNamed(agentName);
+    const [tree] = await this.#worktrees([{ description: label, isolation }]);
     ui.toolOpen(); // keep the "Delegating …" line; the helper's steps follow under it
+    if (tree) ui.toolLine(ui.c.dim(`isolated in ${tree.dir} (${tree.branch})`));
     const pass = new Set(['toolStart', 'toolOpen', 'toolRunning', 'toolDone', 'toolFail', 'toolLine', 'diff', 'startSpinner', 'stopSpinner', 'warn', 'error', 'ensureNewline']);
     const quiet = new Proxy(
       {},
@@ -642,8 +645,14 @@ export class Agent {
         },
       },
     );
-    const on = await this.#targetFor(role);
-    const helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions: this.permissions, provider: on.provider, info: on.info, cwd: this.cwd });
+    let helper;
+    try {
+      const on = await this.#targetFor(role);
+      helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30), ...(tree && { checkpoints: false }) }, ui: quiet, permissions: this.permissions, provider: on.provider, info: on.info, cwd: tree?.cwd ?? this.cwd });
+    } catch (err) {
+      if (tree) await finishWorktree(tree);
+      throw err;
+    }
     helper.extraTools = this.extraTools;
     // A helper never gets a tool its parent was denied (API server, scheduled job), and does not write memory, skills or jobs.
     helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
@@ -653,16 +662,35 @@ export class Agent {
     this.#applyRole(helper, role);
     this.helper = helper;
     this.#observe('subagent_start', { agent: role?.name ?? null, description: label });
+    let note = '';
     try {
-      await helper.runTurn(prompt);
+      await helper.runTurn(tree ? worktreeBrief(tree) + prompt : prompt);
     } finally {
       this.helper = null;
+      // Whatever happened, a copy left unchanged goes and a changed one is accounted for.
+      if (tree) note = worktreeNote(tree, await finishWorktree(tree));
     }
     const report = [...helper.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '';
     this.#observe('subagent_stop', { agent: role?.name ?? null, description: label, status: helper.interrupted ? 'interrupted' : 'completed', report: report.slice(0, 4000) });
     // The helper's lines replaced this one as the current step; restore it so it can be closed.
     ui.toolStart('Delegating', 'Delegated', label);
-    return report.trim();
+    return report.trim() + note;
+  }
+
+  /**
+   * A worktree for each task that asked for one (null for the rest), made one after another
+   * before any helper starts. If one cannot be made, those already made are removed and the
+   * reason is the tool's error: no helper runs on a half-prepared set.
+   */
+  async #worktrees(tasks) {
+    const trees = [];
+    try {
+      for (const task of tasks) trees.push(task.isolation === 'worktree' ? await createWorktree(this.cwd, task.description) : null);
+    } catch (err) {
+      for (const tree of trees) if (tree) await finishWorktree(tree);
+      throw new ToolError(err.message);
+    }
+    return trees;
   }
 
   /**
@@ -679,25 +707,27 @@ export class Agent {
     let queue = Promise.resolve();
     // Every name is checked before any helper starts: one wrong name should not leave the others running.
     const roles = tasks.map((task) => this.#agentNamed(task.agent));
+    const trees = await this.#worktrees(tasks);
     const run = async (task, index) => {
       const role = roles[index];
+      const tree = trees[index];
       const on = await this.#targetFor(role);
       const tag = `helper ${index + 1}`;
       const quiet = new Proxy({}, { get: (_, key) => (key === 'answerStream' ? () => ({ push() {}, flush() {} }) : key === 'c' ? ui.c : key === 'error' || key === 'warn' ? (text) => ui.toolLine(ui.c.dim(`${tag}: ${String(text).trim()}`)) : () => {}) });
       // One question on screen at a time, and it says whose it is.
       const permissions = {
         mayLearn: () => false,
-        check: (tool, args) => {
+        check: (tool, args, opts) => {
           if (tool.risk === 'read') return Promise.resolve({ ok: true });
           const asked = queue.then(() => {
             ui.toolLine(`${ui.c.dim(`${tag}:`)} ${tool.verbs?.[0] ?? tool.name} ${String(tool.summary?.(args) ?? '').slice(0, 120)}`);
-            return this.permissions.check(tool, args);
+            return this.permissions.check(tool, args, opts);
           });
           queue = asked.catch(() => {});
           return asked;
         },
       };
-      const helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30) }, ui: quiet, permissions, provider: on.provider, info: on.info, cwd: this.cwd });
+      const helper = new Agent({ config: { ...this.config, agents: false, model: on.model, maxSteps: Math.min(this.config.maxSteps, 30), ...(tree && { checkpoints: false }) }, ui: quiet, permissions, provider: on.provider, info: on.info, cwd: tree?.cwd ?? this.cwd });
       helper.extraTools = this.extraTools;
       helper.withheld = new Set([...this.withheld, 'task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']);
       helper.parent = this;
@@ -709,7 +739,8 @@ export class Agent {
       const started = Date.now();
       let status = 'completed';
       try {
-        await helper.runTurn(task.prompt);
+        if (tree) ui.toolLine(ui.c.dim(`${tag}: isolated in ${tree.dir} (${tree.branch})`));
+        await helper.runTurn(tree ? worktreeBrief(tree) + task.prompt : task.prompt);
         if (helper.interrupted) status = 'interrupted';
       } catch {
         status = 'failed';
@@ -733,9 +764,16 @@ export class Agent {
         results[index] = await run(tasks[index], index);
       }
     };
-    await Promise.all(Array.from({ length: atOnce }, worker));
+    try {
+      await Promise.all(Array.from({ length: atOnce }, worker));
+    } catch (err) {
+      for (const tree of trees) if (tree) await finishWorktree(tree);
+      throw err;
+    }
     // A task the user interrupted before it could start is said to be that, not left out.
     for (let i = 0; i < tasks.length; i++) results[i] ??= { description: tasks[i].description, status: 'interrupted', report: '' };
+    // Each copy is settled once its helper is done or was never started: unchanged ones go.
+    for (let i = 0; i < tasks.length; i++) if (trees[i]) results[i].report += worktreeNote(trees[i], await finishWorktree(trees[i]));
     ui.toolStart('Delegating', 'Delegated', `${tasks.length} tasks in parallel`);
     return results;
   }
@@ -769,7 +807,7 @@ export class Agent {
       backend: this.#backend(),
       vision: this.caps.vision,
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
-      delegate: this.withheld.has('task') ? null : (prompt, label, agent) => this.#delegate(prompt, label, agent),
+      delegate: this.withheld.has('task') ? null : (prompt, label, agent, opts) => this.#delegate(prompt, label, agent, opts),
       delegateMany: this.withheld.has('task') ? null : (tasks) => this.#delegateMany(tasks),
       turn: this.turn,
       review: this.review,
@@ -795,7 +833,7 @@ export class Agent {
         if (hooked.args) args = hooked.args;
       }
       if (tool.preview) ui.diff(tool.preview(args, ctx));
-      const verdict = await this.permissions.check(tool, args);
+      const verdict = await this.permissions.check(tool, args, { cwd: this.cwd });
       if (!verdict.ok) {
         ui.toolFail('not run');
         return verdict.reason;
