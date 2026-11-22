@@ -228,6 +228,37 @@ test('header: rows never exceed the window, wide or narrow', async () => {
   }
 });
 
+test('the welcome panel follows /model instead of keeping the startup model', async () => {
+  const { UI } = await import('../src/ui.mjs');
+  const { out, screen } = makeScreen(100, 40);
+  const ui = new UI();
+  ui.attach(screen);
+  const agent = { model: 'opus', provider: { local: false, label: 'Claude Code' }, used: 13_900 };
+  ui.welcome(() => ({
+    cwd: '/tmp/project',
+    model: agent.model,
+    limit: 200_000,
+    used: agent.used,
+    provider: agent.provider,
+    git: null,
+    instructionFiles: [],
+    skillCount: 0,
+    yolo: false,
+  }));
+  ui.line('Model: deepseek-v4-pro via DeepSeek');
+  assert.ok(out.lines().some((l) => /│\s+opus$/.test(l)));
+
+  // The switch lands after the panel was drawn; the next paint shows it.
+  Object.assign(agent, { model: 'deepseek-v4-pro', provider: { local: false, label: 'DeepSeek' }, used: 2_000 });
+  ui.line('next');
+  const shown = out.lines();
+  assert.ok(shown.some((l) => /│\s+deepseek-v4-pro$/.test(l)), 'the new model is shown');
+  assert.ok(shown.some((l) => /│\s+DeepSeek • connected$/.test(l)), 'with its provider');
+  assert.ok(shown.some((l) => /│\s+Context\s+2\.0k \/ 200k$/.test(l)), 'and its context');
+  assert.ok(!shown.some((l) => /opus|Claude Code/.test(l)), 'the old model is gone');
+  assert.ok(shown.indexOf('Model: deepseek-v4-pro via DeepSeek') > shown.findIndex((l) => l.includes('MODEL')), 'the panel stays above the conversation');
+});
+
 test('the conversation marks who speaks with a cyan bar and a quiet SEEKER line, no faces', async () => {
   const { UI } = await import('../src/ui.mjs');
   const { terminalPalette, terminalCodes } = await import('../src/theme.mjs');

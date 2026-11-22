@@ -168,9 +168,24 @@ export class UI {
     return rows;
   }
 
-  welcome({ cwd, model, limit, used, provider, git, instructionFiles, skillCount, yolo }) {
+  /**
+   * The welcome panel. `info` is the panel's facts, or a function returning them: on the full screen the
+   * panel is drawn from that function at every paint, so the model, provider and context it shows follow
+   * /model instead of keeping what was true at startup.
+   */
+  welcome(info) {
+    const facts = typeof info === 'function' ? info : () => info;
+    if (this.screen) {
+      this.ensureNewline();
+      this.screen.setIntro((width) => this.welcomeRows(width, facts()));
+      return;
+    }
+    for (const row of this.welcomeRows(this.cols() - 1, facts())) this.line(row);
+  }
+
+  /** The welcome panel's rows, ending with a rule, for a screen `width` columns wide. */
+  welcomeRows(width, { cwd, model, limit, used, provider, git, instructionFiles, skillCount, yolo }) {
     const { c } = this;
-    const width = this.cols() - 1;
     const twoColumns = width >= 86;
     const leftWidth = twoColumns ? Math.floor(width * 0.6) : width - 2;
     const rightWidth = twoColumns ? width - leftWidth - 5 : width - 2;
@@ -208,15 +223,17 @@ export class UI {
       `[${(used / limit > 0.8 ? c.yellow : c.accent)('•'.repeat(filled))}${c.dim('.'.repeat(barWidth - filled))}]`,
     ];
 
+    const rows = [];
     if (twoColumns) {
       for (let i = 0; i < Math.max(left.length, right.length); i++) {
-        this.line(` ${padEnd(left[i] ?? '', leftWidth)} ${c.dim('│')}  ${right[i] ?? ''}`);
+        rows.push(` ${padEnd(left[i] ?? '', leftWidth)} ${c.dim('│')}  ${right[i] ?? ''}`);
       }
     } else {
-      for (const row of left) this.line(` ${row}`);
-      for (const row of right) this.line(` ${row}`);
+      for (const row of left) rows.push(` ${row}`);
+      for (const row of right) rows.push(` ${row}`);
     }
-    this.rule();
+    rows.push(c.dim('─'.repeat(width)));
+    return rows;
   }
 
   // ── Conversation ─────────────────────────────────────────────────────────
