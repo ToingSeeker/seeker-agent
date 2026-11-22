@@ -14,6 +14,7 @@ import { backendOf } from './backend.mjs';
 import { loadAgents, roleText } from './agents.mjs';
 import { recordUsage } from './usage.mjs';
 import { createWorktree, finishWorktree, worktreeBrief, worktreeNote } from './worktree.mjs';
+import { Board } from './board.mjs';
 import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
 // The answers offered when a typed message holds an API key (see #checkKeys).
@@ -91,6 +92,10 @@ export class Agent {
     this.cwd = cwd;
     this.messages = [];
     this.state = { todos: [] };
+    // The task board this conversation shares with its helpers (src/board.mjs); a helper uses its parent's.
+    this.board = new Board();
+    // The name this agent goes by on the board: null for the lead, "helper" or "worker 2" for a helper.
+    this.boardActor = null;
     this.controller = null;
     this.usedTokens = 0;
     this.lastStats = null;
@@ -660,6 +665,7 @@ export class Agent {
     helper.shellHooks = this.shellHooks;
     helper.allowReview = false; // the conversation that learns is the user's, not a helper's
     this.#applyRole(helper, role);
+    helper.boardActor = 'helper';
     this.helper = helper;
     this.#observe('subagent_start', { agent: role?.name ?? null, description: label });
     let note = '';
@@ -667,6 +673,7 @@ export class Agent {
       await helper.runTurn(tree ? worktreeBrief(tree) + prompt : prompt);
     } finally {
       this.helper = null;
+      this.board.release('helper', 'The helper stopped without closing this task.');
       // Whatever happened, a copy left unchanged goes and a changed one is accounted for.
       if (tree) note = worktreeNote(tree, await finishWorktree(tree));
     }
@@ -734,6 +741,9 @@ export class Agent {
       helper.shellHooks = this.shellHooks;
       helper.allowReview = false;
       this.#applyRole(helper, role);
+      helper.boardActor = task.worker ?? tag;
+      // A worker's whole job is the board: a role that lists its tools does not take that away.
+      if (task.worker) helper.withheld.delete('board');
       this.helpers.add(helper);
       this.#observe('subagent_start', { agent: role?.name ?? null, description: task.description });
       const started = Date.now();
@@ -746,6 +756,7 @@ export class Agent {
         status = 'failed';
       } finally {
         this.helpers.delete(helper);
+        this.board.release(helper.boardActor, status === 'completed' ? `${helper.boardActor} stopped without closing this task.` : `${helper.boardActor} was ${status} before it finished this task.`);
       }
       const report = ([...helper.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '').trim();
       this.#observe('subagent_stop', { agent: role?.name ?? null, description: task.description, status, report: report.slice(0, 4000) });
@@ -774,7 +785,7 @@ export class Agent {
     for (let i = 0; i < tasks.length; i++) results[i] ??= { description: tasks[i].description, status: 'interrupted', report: '' };
     // Each copy is settled once its helper is done or was never started: unchanged ones go.
     for (let i = 0; i < tasks.length; i++) if (trees[i]) results[i].report += worktreeNote(trees[i], await finishWorktree(trees[i]));
-    ui.toolStart('Delegating', 'Delegated', `${tasks.length} tasks in parallel`);
+    ui.toolStart('Delegating', 'Delegated', tasks[0]?.worker ? `${tasks.length} worker(s) on the board` : `${tasks.length} tasks in parallel`);
     return results;
   }
 
@@ -809,6 +820,8 @@ export class Agent {
       askUser: this.withheld.has('ask_user') ? null : this.hooks.askUser,
       delegate: this.withheld.has('task') ? null : (prompt, label, agent, opts) => this.#delegate(prompt, label, agent, opts),
       delegateMany: this.withheld.has('task') ? null : (tasks) => this.#delegateMany(tasks),
+      board: (this.parent ?? this).board,
+      boardActor: this.boardActor,
       turn: this.turn,
       review: this.review,
       cronRun: this.hooks.cronRun ?? null,
