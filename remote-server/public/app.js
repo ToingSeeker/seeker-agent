@@ -2566,6 +2566,42 @@ function workingEntry(meta) {
   return h('li', { class: `ev now-step ${st.tone}` }, h('span', { class: 'node', icon: thinking ? 'brain' : 'bolt' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'title' }, thinking ? 'Reasoning' : 'Responding', runningDots())), h('span', { class: 'sub' }, what)));
 }
 
+/**
+ * The helpers at work for this message (meta.crew, from the Mac): each with what it is on, what it has
+ * spent, and — while it runs — a stop of its own that leaves the others and the main agent working.
+ */
+function crewEntry(meta) {
+  const crew = meta.crew;
+  if (!crew?.helpers?.length) return null;
+  const up = state.linked && state.online;
+  const running = crew.helpers.filter((x) => x.status === 'running').length;
+  const time = (s) => (s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
+  return h(
+    'li',
+    { class: 'ev crew' },
+    h('span', { class: 'node', icon: 'layers' }),
+    h(
+      'div',
+      { class: 'body' },
+      h('div', { class: 'headline' }, h('span', { class: 'title' }, `Helpers · ${running} running`, running > 0 && runningDots())),
+      h('span', { class: 'sub' }, crew.spent, crew.budget && ` · budget ${crew.budget}`),
+      crew.stopped && h('span', { class: 'sub warn' }, crew.stopped),
+      h(
+        'ul',
+        { class: 'crew-list' },
+        crew.helpers.map((x) =>
+          h(
+            'li',
+            { class: `crew-row ${x.status === 'running' ? 'running' : x.status === 'completed' ? 'done' : 'ended'}`, 'data-key': `crew-${meta.id}-${x.id}` },
+            h('span', { class: 'grow' }, h('b', {}, x.name), ' ', x.doing, h('span', { class: 'muted small line' }, `${x.status === 'running' ? 'running' : x.status} · ${x.spent} · ${time(x.seconds)}`)),
+            x.status === 'running' && h('button', { class: 'btn small', type: 'button', disabled: !up, 'aria-label': `Stop ${x.name}`, onclick: (event) => ((event.currentTarget.disabled = true), command('stop_helper', { ws: meta.id, helper: x.id })) }, 'Stop'),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /** What waits for the task in progress to end, at the foot of the timeline. */
 function queuedEntry(queue) {
   if (!queue?.items.length) return null;
@@ -2645,7 +2681,7 @@ function session(ws) {
             ),
           ]
         : items.length || pending || st.busy || ws.queue?.items.length
-          ? timeline(ws, items, [pending ? waitingEntry(pending) : workingEntry(meta), queuedEntry(ws.queue)])
+          ? timeline(ws, items, [pending ? waitingEntry(pending) : workingEntry(meta), crewEntry(meta), queuedEntry(ws.queue)])
           : [h('div', { class: 'empty' }, 'Nothing has happened in this conversation yet.')];
   // The head stays where it is while the body below it scrolls: see draw().
   const head = [

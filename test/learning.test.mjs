@@ -218,7 +218,7 @@ test('several helpers run side by side and each report comes back', async () => 
   await agent.runTurn('bandingkan dua file');
   server.close();
   const report = agent.messages.find((m) => m.role === 'tool').content;
-  assert.equal(report, '## Helper 1: read a — completed\nIt says: alpha\n\n## Helper 2: read b — completed\nIt says: beta');
+  assert.equal(report, '## Helper 1: read a — completed · 120 tokens\nIt says: alpha\n\n## Helper 2: read b — completed · 120 tokens\nIt says: beta');
   assert.equal(agent.messages.at(-1).content, 'Keduanya berbeda.');
   const helperTools = requests.find((r) => r.messages[1].content.includes('a.txt')).tools.map((t) => t.function.name);
   for (const withheld of ['task', 'ask_user', 'memory', 'skill_manage', 'cronjob_manage']) assert.ok(!helperTools.includes(withheld), withheld);

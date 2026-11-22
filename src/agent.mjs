@@ -15,6 +15,7 @@ import { loadAgents, roleText } from './agents.mjs';
 import { recordUsage } from './usage.mjs';
 import { createWorktree, finishWorktree, worktreeBrief, worktreeNote } from './worktree.mjs';
 import { Board } from './board.mjs';
+import { addSpent, blankSpent, describeBudget, describeSpent, overBudget, parseBudget, replyCost } from './budget.mjs';
 import { MAX_IMAGES_PER_MESSAGE, draggedFilesIn, imagePathsIn, kilobytes, loadImage, messageChars, saveImages, withoutImages } from './images.mjs';
 
 // The answers offered when a typed message holds an API key (see #checkKeys).
@@ -98,6 +99,20 @@ export class Agent {
     this.boardActor = null;
     // The goal of a /swarm being planned (src/swarm.mjs), until its plan is approved or cancelled.
     this.swarm = null;
+    // What this agent's replies have cost (src/budget.mjs), and — for the lead — what its helpers
+    // have cost while it answers the current message, with why they were stopped if the budget ran out.
+    this.spent = blankSpent();
+    this.helperSpent = blankSpent();
+    this.budgetStop = null;
+    // A helper whose spend counts against its parent's swarmBudget (not the unattended review).
+    this.budgeted = false;
+    // The lead's helpers for the message it is answering, for the panel in the terminal and the card
+    // on the phone: { id, name, description, status, spent, startedAt, endedAt }. `onCrew` is told of
+    // every change (a helper started, replied, finished); `crewAgents` maps an id to its running helper.
+    this.crew = [];
+    this.crewAgents = new Map();
+    this.onCrew = null;
+    this.crewCount = 0;
     this.controller = null;
     this.usedTokens = 0;
     this.lastStats = null;
@@ -217,6 +232,57 @@ export class Agent {
       this.messages.push({ role: 'user', content: `[Sent by the user while you were working — take it into account from here on]\n${text}` });
       onDelivered();
     }
+    return true;
+  }
+
+  /** A helper's reply, added to what this agent's helpers spent; past `swarmBudget`, they are all stopped. */
+  chargeHelper(cost) {
+    addSpent(this.helperSpent, cost);
+    this.#crewChanged();
+    const budget = parseBudget(this.config.swarmBudget);
+    if (this.budgetStop || !overBudget(this.helperSpent, budget)) return;
+    this.budgetStop = `The helpers' budget for this message ran out: they used ${describeSpent(this.helperSpent)} of the ${describeBudget(budget)} allowed (swarmBudget). Running helpers were stopped and no new ones start.`;
+    this.ui.warn(`  ⚠ ${this.budgetStop}`);
+    this.helper?.interrupt();
+    for (const helper of this.helpers) helper.interrupt();
+  }
+
+  #crewChanged() {
+    try {
+      this.onCrew?.();
+    } catch {
+      // a display that failed must not break the work
+    }
+  }
+
+  /** A helper joins the crew shown to the user; returns its entry. */
+  #joinCrew(helper, name, description) {
+    const entry = { id: `h${++this.crewCount}`, name, description: String(description ?? '').slice(0, 120), status: 'running', spent: helper.spent, startedAt: Date.now(), endedAt: null };
+    this.crew.push(entry);
+    this.crewAgents.set(entry.id, helper);
+    this.#crewChanged();
+    return entry;
+  }
+
+  #leaveCrew(entry, status) {
+    entry.status = entry.stoppedByUser ? 'stopped by you' : status;
+    entry.endedAt = Date.now();
+    this.crewAgents.delete(entry.id);
+    this.#crewChanged();
+  }
+
+  /**
+   * Stops one helper, leaving the others and the lead working: its task on the board is failed with
+   * the reason and its report says so. False when no running helper has that id.
+   */
+  stopHelper(id) {
+    const helper = this.crewAgents.get(String(id));
+    const entry = this.crew.find((e) => e.id === String(id));
+    if (!helper || !entry || entry.status !== 'running') return false;
+    entry.stoppedByUser = true;
+    helper.stoppedByUser = true;
+    helper.interrupt();
+    this.#crewChanged();
     return true;
   }
 
@@ -533,7 +599,11 @@ export class Agent {
             this.usage = { input, output, totalInput: this.usage.totalInput + input, totalOutput: this.usage.totalOutput + output, known: true };
             // The ledger on this machine. A provider that ran several steps in one reply says what they added up to.
             const spent = chunk.spent ?? { input, output };
-            recordUsage(spent, { provider: this.provider.id, model: this.model, local: Boolean(this.provider.local) && !/[-:]cloud\b/.test(this.model ?? ''), models: spent.models });
+            const local = Boolean(this.provider.local) && !/[-:]cloud\b/.test(this.model ?? '');
+            recordUsage(spent, { provider: this.provider.id, model: this.model, local, models: spent.models });
+            const cost = replyCost(spent, { provider: this.provider.id, model: this.model, local });
+            addSpent(this.spent, cost);
+            if (this.budgeted) this.parent?.chargeHelper(cost);
           }
           this.lastStats = {
             tokensPerSecond: chunk.eval_duration ? (chunk.eval_count / chunk.eval_duration) * 1e9 : 0,
@@ -636,6 +706,7 @@ export class Agent {
    */
   async #delegate(prompt, label, agentName, { isolation = null, lookOnly = false } = {}) {
     const { ui } = this;
+    if (this.budgetStop) throw new ToolError(`${this.budgetStop} Answer with what is done instead.`);
     const role = this.#agentNamed(agentName);
     const [tree] = await this.#worktrees([{ description: label, isolation }]);
     ui.toolOpen(); // keep the "Delegating …" line; the helper's steps follow under it
@@ -668,6 +739,8 @@ export class Agent {
     helper.allowReview = false; // the conversation that learns is the user's, not a helper's
     this.#applyRole(helper, role);
     helper.boardActor = 'helper';
+    helper.budgeted = true;
+    const member = this.#joinCrew(helper, role?.name ?? 'helper', label);
     // A reviewer's turn may only look: what changes something is refused, whatever the approval mode.
     if (lookOnly) helper.lookOnlyNext = LOOKING;
     this.helper = helper;
@@ -677,7 +750,8 @@ export class Agent {
       await helper.runTurn(tree ? worktreeBrief(tree) + prompt : prompt);
     } finally {
       this.helper = null;
-      this.board.release('helper', 'The helper stopped without closing this task.');
+      this.board.release('helper', helper.stoppedByUser ? 'Stopped by the user.' : this.budgetStop && helper.interrupted ? 'Stopped: the helpers\' budget ran out.' : 'The helper stopped without closing this task.');
+      this.#leaveCrew(member, helper.interrupted ? (this.budgetStop ? 'stopped' : 'interrupted') : 'completed');
       // Whatever happened, a copy left unchanged goes and a changed one is accounted for.
       if (tree) note = worktreeNote(tree, await finishWorktree(tree));
     }
@@ -685,7 +759,9 @@ export class Agent {
     this.#observe('subagent_stop', { agent: role?.name ?? null, description: label, status: helper.interrupted ? 'interrupted' : 'completed', report: report.slice(0, 4000) });
     // The helper's lines replaced this one as the current step; restore it so it can be closed.
     ui.toolStart('Delegating', 'Delegated', label);
-    return report.trim() + note;
+    const stopped = helper.stoppedByUser ? '\n\n[The user stopped this helper before it finished. Do not start it again unless they ask.]' : this.budgetStop && helper.interrupted ? `\n\n[${this.budgetStop}]` : '';
+    const used = helper.spent.tokens ? `\n\n(This helper used ${describeSpent(helper.spent)}.)` : '';
+    return `${report.trim()}${note}${used}${stopped}`;
   }
 
   /**
@@ -714,6 +790,7 @@ export class Agent {
    */
   async #delegateMany(tasks) {
     const { ui } = this;
+    if (this.budgetStop) throw new ToolError(`${this.budgetStop} Answer with what is done instead.`);
     ui.toolOpen();
     let queue = Promise.resolve();
     // Every name is checked before any helper starts: one wrong name should not leave the others running.
@@ -746,26 +823,29 @@ export class Agent {
       helper.allowReview = false;
       this.#applyRole(helper, role);
       helper.boardActor = task.worker ?? tag;
+      helper.budgeted = true;
       // A worker's whole job is the board: a role that lists its tools does not take that away.
       if (task.worker) helper.withheld.delete('board');
       this.helpers.add(helper);
       this.#observe('subagent_start', { agent: role?.name ?? null, description: task.description });
       const started = Date.now();
+      const member = this.#joinCrew(helper, task.worker ?? tag, task.description);
       let status = 'completed';
       try {
         if (tree) ui.toolLine(ui.c.dim(`${tag}: isolated in ${tree.dir} (${tree.branch})`));
         await helper.runTurn(tree ? worktreeBrief(tree) + task.prompt : task.prompt);
-        if (helper.interrupted) status = 'interrupted';
+        if (helper.interrupted) status = helper.stoppedByUser ? 'stopped by the user' : this.budgetStop ? 'stopped' : 'interrupted';
       } catch {
         status = 'failed';
       } finally {
         this.helpers.delete(helper);
-        this.board.release(helper.boardActor, status === 'completed' ? `${helper.boardActor} stopped without closing this task.` : `${helper.boardActor} was ${status} before it finished this task.`);
+        this.#leaveCrew(member, status);
+        this.board.release(helper.boardActor, status === 'stopped by the user' ? `${helper.boardActor} was stopped by the user.` : status === 'completed' ? `${helper.boardActor} stopped without closing this task.` : status === 'stopped' ? `${helper.boardActor} was stopped: the helpers' budget ran out.` : `${helper.boardActor} was ${status} before it finished this task.`);
       }
       const report = ([...helper.messages].reverse().find((m) => m.role === 'assistant' && m.content?.trim())?.content ?? '').trim();
       this.#observe('subagent_stop', { agent: role?.name ?? null, description: task.description, status, report: report.slice(0, 4000) });
-      ui.toolLine(`${status === 'completed' ? ui.c.green('✓') : ui.c.yellow('!')} ${tag} ${status} in ${Math.round((Date.now() - started) / 1000)}s — ${task.description}`);
-      return { description: task.description, status: report ? status : status === 'completed' ? 'failed' : status, report };
+      ui.toolLine(`${status === 'completed' ? ui.c.green('✓') : ui.c.yellow('!')} ${tag} ${status} in ${Math.round((Date.now() - started) / 1000)}s, ${describeSpent(helper.spent)} — ${task.description}`);
+      return { description: task.description, status: report ? status : status === 'completed' ? 'failed' : status, report, spent: helper.spent };
     };
     // As many at once as `maxHelpers` allows; the rest start as places come free. The reports
     // come back in the order the tasks were given, whichever finished first.
@@ -774,7 +854,7 @@ export class Agent {
     const results = new Array(tasks.length);
     let next = 0;
     const worker = async () => {
-      while (next < tasks.length && !this.controller?.signal.aborted) {
+      while (next < tasks.length && !this.controller?.signal.aborted && !this.budgetStop) {
         const index = next++;
         results[index] = await run(tasks[index], index);
       }
@@ -785,8 +865,9 @@ export class Agent {
       for (const tree of trees) if (tree) await finishWorktree(tree);
       throw err;
     }
-    // A task the user interrupted before it could start is said to be that, not left out.
-    for (let i = 0; i < tasks.length; i++) results[i] ??= { description: tasks[i].description, status: 'interrupted', report: '' };
+    // A task the user interrupted (or the budget stopped) before it could start is said to be that, not left out.
+    for (let i = 0; i < tasks.length; i++) results[i] ??= { description: tasks[i].description, status: this.budgetStop ? 'not started' : 'interrupted', report: '', spent: blankSpent() };
+    results.budgetStop = this.budgetStop;
     // Each copy is settled once its helper is done or was never started: unchanged ones go.
     for (let i = 0; i < tasks.length; i++) if (trees[i]) results[i].report += worktreeNote(trees[i], await finishWorktree(trees[i]));
     ui.toolStart('Delegating', 'Delegated', tasks[0]?.worker ? `${tasks.length} worker(s) on the board` : `${tasks.length} tasks in parallel`);
@@ -1076,6 +1157,15 @@ export class Agent {
     this.interrupted = false;
     const { signal } = this.controller;
     this.turn = {};
+    // A helper's budget is per message of the user's: a new one starts with nothing spent.
+    if (!this.parent) {
+      this.helperSpent = blankSpent();
+      this.budgetStop = null;
+      if (this.crew.length) {
+        this.crew = [];
+        this.#crewChanged();
+      }
+    }
     this.#restorePrimary();
     if (references && !this.review && !this.parent) {
       const checked = await this.#checkKeys(userText);

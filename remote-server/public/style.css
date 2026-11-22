@@ -2160,6 +2160,40 @@ button.stat:active {
   animation: pulse 1.8s ease-in-out infinite;
   animation-delay: var(--t, 0s);
 }
+/* The helpers at work: one row each, with a stop for the ones still running. */
+.ev.crew .node {
+  color: var(--sk-execution);
+  background-image: linear-gradient(var(--sk-execution-soft), var(--sk-execution-soft));
+}
+.ev.crew .title {
+  color: var(--sk-execution);
+}
+.ev.crew .sub.warn {
+  color: var(--sk-warning);
+}
+.crew-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.crew-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.crew-row .grow {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.crew-row .line {
+  display: block;
+}
+.crew-row.ended b {
+  color: var(--sk-warning);
+}
 .ev.queued .node {
   color: var(--sk-primary);
   background-image: linear-gradient(var(--sk-primary-soft), var(--sk-primary-soft));

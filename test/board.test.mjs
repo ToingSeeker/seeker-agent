@@ -168,7 +168,7 @@ test('workers started by the task tool take every task, in dependency order, sid
   assert.match(apiBrief.content, /Result of t1 \(schema\), by worker \d:\nschema finished/);
 
   const result = agent.messages.find((m) => m.role === 'tool' && /## Worker 1/.test(m.content)).content;
-  assert.match(result, /## Worker 1 — completed\nWorked through the board\./);
+  assert.match(result, /## Worker 1 — completed · 15 tokens\nWorked through the board\./);
   assert.match(result, /## The board now\n3 task\(s\): 3 done/);
   assert.equal(agent.messages.at(-1).content, 'All done.');
 

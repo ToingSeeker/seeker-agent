@@ -13,6 +13,7 @@ export const CHOICES = {
   maxHelpers: [1, 3, 5, 10, 20],
   compactAt: [0, 150_000, 300_000, 500_000],
   cacheTtl: ['5m', '1h'],
+  swarmBudget: ['', '200k', '1m', '$1', '$5'],
   keepAlive: ['5m', '30m', '2h', '24h'],
 };
 

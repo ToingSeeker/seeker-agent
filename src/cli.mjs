@@ -621,7 +621,13 @@ export async function main(argv) {
     height: () => screen.height,
     reserved: new Set([...BUILT_IN, ...COMMANDS.map(([name]) => name.slice(1))]),
   });
-  screen.setFooter({ panel: (width) => mods.panelRows(width), band: (width) => mods.bandRows(width) });
+  const { crewRows } = await import('./crew.mjs');
+  screen.setFooter({ panel: (width) => [...crewRows(agent, width, ui.c), ...mods.panelRows(width)], band: (width) => mods.bandRows(width) });
+  // The helpers' panel moves with them, and the phone's copy of it too.
+  agent.onCrew = () => {
+    screen.render();
+    mirror?.crewChanged();
+  };
   {
     const report = await mods.loadAll();
     if (report.loaded.length) ui.notice(`  Mods on: ${report.loaded.join(', ')}`);
@@ -648,6 +654,7 @@ export async function main(argv) {
   // From the phone. A picture by itself goes into the message being typed here, as a path, the way
   // a dragged file would; a message with words is a turn of its own, if the terminal is free for one.
   port.onStop = () => agent.busy && mirror.stop();
+  port.onStopHelper = (id) => agent.stopHelper(id);
   port.onMessage = ({ text, images, locked }) => {
     if (!text) {
       if (!images.length) return;

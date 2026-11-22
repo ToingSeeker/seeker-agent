@@ -1715,3 +1715,65 @@ test('a file the phone named with a made-up id is kept as image, video or file, 
   ]);
   assert.deepEqual(files.map((f) => f.name), ['video.mov', 'file.pdf', 'file.zip', 'Proposal final.pdf']);
 });
+
+test('remote: the phone sees the helpers at work and stops one of them, leaving the rest', async (t) => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const secret = 'a-long-secret-for-the-helper-stop-test';
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  let releaseFast;
+  const fastMayAnswer = new Promise((resolve) => (releaseFast = resolve));
+  const lead = [
+    [{ message: { content: '', tool_calls: [{ function: { name: 'task', arguments: { tasks: [{ description: 'slow job', prompt: 'SLOW: take your time.' }, { description: 'fast job', prompt: 'FAST: answer at once.' }] } } }] } }, { done: true, prompt_eval_count: 10, eval_count: 5 }],
+    [done('One helper was stopped from the phone.')],
+  ];
+  const model = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d)).on('end', async () => {
+      const last = JSON.parse(body).messages.at(-1)?.content ?? '';
+      const reply = (chunks) => res.writeHead(200, { 'content-type': 'application/x-ndjson' }).end(chunks.map((c) => JSON.stringify(c)).join('\n'));
+      if (last.includes('SLOW:')) return void res.writeHead(200, { 'content-type': 'application/x-ndjson' }).write(`${JSON.stringify({ message: { content: '…' } })}\n`);
+      if (last.includes('FAST:')) {
+        await fastMayAnswer;
+        return reply([done('Fast job done.')]);
+      }
+      reply(lead.shift());
+    });
+  });
+  const config = { ...DEFAULTS, host: await listen(model), review: false, bundledSkills: false, maxHelpers: 2, remote: { url, secret } };
+  const build = async (folder, ui, asker, info) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'auto', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, info: { tools: true, thinking: false, context: null }, remember: false, queueFile: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-queue-')), 'queue.json') });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  t.after(async () => {
+    me.close();
+    await daemon.stop();
+    for (const server of [relay, model]) {
+      server.close();
+      server.closeAllConnections();
+    }
+  });
+  await until(() => me.state.online && me.state.workspaces.size === 1);
+  const [{ id }] = [...me.state.workspaces.values()];
+  const meta = () => me.state.workspaces.get(id);
+  assert.equal(meta().crew, null, 'no helpers, no card');
+
+  await me.send('message', { ws: id, text: 'do the slow job and the fast job' });
+  await until(() => meta().crew?.helpers.length === 2);
+  const slow = meta().crew.helpers.find((x) => x.doing === 'slow job');
+  assert.equal(slow.status, 'running');
+  await me.send('stop_helper', { ws: id, helper: slow.id });
+  await until(() => meta().crew?.helpers.find((x) => x.id === slow.id)?.status === 'stopped by you');
+  assert.equal(meta().status, 'working', 'the rest goes on');
+  releaseFast();
+  await until(() => meta().status === 'idle');
+  assert.equal(meta().outcome, 'completed');
+  assert.match(meta().items.at(-1).text, /One helper was stopped from the phone\./);
+  // Stopping a helper that has finished is said to be too late, not done again.
+  await me.send('stop_helper', { ws: id, helper: slow.id });
+  await until(() => me.state.events.some((e) => e.t === 'toast' && /already finished/.test(e.text)));
+  void running;
+});

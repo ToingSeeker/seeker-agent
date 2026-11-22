@@ -86,7 +86,7 @@ test('agents: the task tool gives a helper the role, the model and only the tool
   assert.doesNotMatch(helper.messages[0].content, /# Agents\n/, 'a helper is not offered agents: it cannot start one');
   assert.deepEqual(helper.tools.map((t) => t.function.name).sort(), ['grep', 'read_file']);
   assert.equal(helper.messages.at(-1).content, 'Review a.js.');
-  assert.equal(agent.messages.find((m) => m.role === 'tool').content, 'No bugs.');
+  assert.equal(agent.messages.find((m) => m.role === 'tool').content, 'No bugs.\n\n(This helper used 15 tokens.)');
 });
 
 test('agents: a name that does not exist is an error the model can act on, before any helper starts', async () => {
@@ -189,7 +189,7 @@ test('helpers: up to 20 jobs in one call, no more than maxHelpers at once, repor
   assert.equal(started.length, 20, 'every job was given to a helper');
   assert.equal(most, 5, 'five at a time, as the setting says');
   const output = agent.messages.find((m) => m.role === 'tool').content;
-  const order = [...output.matchAll(/^## Helper (\d+): part (\d+) — completed\nreport (\d+)$/gm)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])]);
+  const order = [...output.matchAll(/^## Helper (\d+): part (\d+) — completed(?: · [^\n]*)?\nreport (\d+)$/gm)].map((m) => [Number(m[1]), Number(m[2]), Number(m[3])]);
   assert.deepEqual(order, Array.from({ length: 20 }, (_, n) => [n + 1, n, n]), 'each report sits with its own task, in the order the tasks were given');
   assert.equal(agent.helpers.size, 0);
 

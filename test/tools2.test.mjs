@@ -100,7 +100,7 @@ test('the task tool runs a helper with its own conversation and returns only its
   ollama.close();
 
   assert.deepEqual(agent.messages.map((m) => m.role), ['user', 'assistant', 'tool', 'assistant']);
-  assert.equal(agent.messages[2].content, 'The secret is 42.', 'only the report comes back, not the file the helper read');
+  assert.equal(agent.messages[2].content, 'The secret is 42.\n\n(This helper used 15 tokens.)', 'only the report (and what the helper used) comes back, not the file the helper read');
   assert.equal(agent.messages[3].content, 'It is 42.');
 
   const helperRequest = ollama.requests[1];

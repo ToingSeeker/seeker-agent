@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { renderSkill } from './skills.mjs';
 import { workerPrompt } from './board.mjs';
+import { describeSpent } from './budget.mjs';
 
 import { imageType, kilobytes, loadImage } from './images.mjs';
 
@@ -112,6 +113,10 @@ export const MAX_HELPERS = 20;
 // How a helper's changes are kept apart from the folder and from other helpers (src/worktree.mjs).
 const ISOLATION = { type: 'string', enum: ['worktree'], description: 'Optional: "worktree" gives the helper its own git worktree on a new branch, for work that changes files. Leave out for work that only reads.' };
 /** "worktree", or null when it was left out; anything else is the model's mistake to correct. */
+// A helper's spend after its status, and why the helpers stopped when the budget ran out.
+const spentOf = (r) => (r.spent?.tokens ? ` · ${describeSpent(r.spent)}` : '');
+const stoppedBy = (results) => (results.budgetStop ? `\n\n## Budget\n${results.budgetStop} Report what is done and what is left; do not start more helpers in this message.` : '');
+
 function isolationOf(value) {
   if (value == null || value === '' || value === 'none') return null;
   if (value === 'worktree') return 'worktree';
@@ -879,9 +884,9 @@ export const TOOLS = [
         const shared = typeof args.prompt === 'string' ? args.prompt.trim() : '';
         const jobs = Array.from({ length: count }, (_, i) => ({ description: `worker ${i + 1}`, prompt: workerPrompt(i + 1, count, shared), agent: args.agent || null, isolation, worker: `worker ${i + 1}` }));
         const results = await ctx.delegateMany(jobs);
-        const reports = results.map((r, i) => `## Worker ${i + 1} — ${r.status}\n${r.report || '(it returned nothing)'}`).join('\n\n');
+        const reports = results.map((r, i) => `## Worker ${i + 1} — ${r.status}${spentOf(r)}\n${r.report || '(it returned nothing)'}`).join('\n\n');
         const c = board.counts();
-        return { output: `${reports}\n\n## The board now\n${board.render()}`, note: `${c.done}/${board.tasks.length} tasks done${c.failed ? `, ${c.failed} failed` : ''}` };
+        return { output: `${reports}\n\n## The board now\n${board.render()}${stoppedBy(results)}`, note: `${c.done}/${board.tasks.length} tasks done${c.failed ? `, ${c.failed} failed` : ''}${results.budgetStop ? ', budget ran out' : ''}` };
       }
       let tasks = args.tasks;
       if (typeof tasks === 'string') {
@@ -897,8 +902,8 @@ export const TOOLS = [
         const jobs = tasks.map((t, i) => ({ description: String(t?.description ?? t?.goal ?? `task ${i + 1}`).slice(0, 80), prompt: String(t?.prompt ?? t?.goal ?? '') + (t?.context ? `\n\nCONTEXT:\n${t.context}` : ''), agent: t?.agent || null, isolation: isolationOf(t?.isolation) }));
         if (jobs.some((j) => !j.prompt.trim())) throw new ToolError('Every task needs a "prompt".');
         const results = await ctx.delegateMany(jobs);
-        const output = results.map((r, i) => `## Helper ${i + 1}: ${r.description} — ${r.status}\n${r.report || '(it returned nothing)'}`).join('\n\n');
-        return { output, note: `${results.filter((r) => r.status === 'completed').length}/${results.length} completed` };
+        const output = results.map((r, i) => `## Helper ${i + 1}: ${r.description} — ${r.status}${spentOf(r)}\n${r.report || '(it returned nothing)'}`).join('\n\n') + stoppedBy(results);
+        return { output, note: `${results.filter((r) => r.status === 'completed').length}/${results.length} completed${results.budgetStop ? ', budget ran out' : ''}` };
       }
       if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new ToolError('"prompt" (one helper) or "tasks" (several) is required');
       if (!ctx.delegate) throw new ToolError('A helper cannot start another helper. Do this part yourself.');

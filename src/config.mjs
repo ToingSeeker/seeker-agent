@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { parseBackend, parseExclude } from './backend.mjs';
+import { budgetSetting } from './budget.mjs';
 
 export const VERSION = '0.4.0';
 // Under `node --test` with no SEEKER_HOME given, a scratch folder stands in: a test run must
@@ -71,6 +72,10 @@ export const DEFAULTS = {
   // How long a provider that caches the conversation keeps it between requests (Anthropic): '5m' or '1h'.
   // An hour costs more to write and survives a pause — reading an answer, waiting for an approval.
   cacheTtl: '1h',
+  // The most the helpers (task tool: helpers, workers, a reviewer) may spend while SEEKER answers one
+  // message: tokens ('500k', '2m') or dollars ('$2'). When they pass it, they are stopped and SEEKER
+  // reports what was done. Dollars count only replies with a known price. Empty: no limit.
+  swarmBudget: '',
 };
 
 /** Settings `/config` may change, with how to read each from text. Returns undefined when the text is invalid. */
@@ -98,6 +103,7 @@ export const SETTINGS = {
   subagentModel: { parse: (v) => (['same', 'none', 'off', '-'].includes(v.toLowerCase()) ? '' : v), help: 'model for helper agents and the review: "model" or "provider:model" ("same" to clear)' },
   compactAt: { parse: int(0), help: 'summarise the conversation at this many tokens (0: only when the window is full)' },
   cacheTtl: { parse: (v) => (['5m', '1h'].includes(v) ? v : undefined), help: 'how long Anthropic keeps the conversation cached: 5m or 1h' },
+  swarmBudget: { parse: (v) => budgetSetting(v), help: 'most the helpers may spend per message: tokens (500k, 2m) or dollars ($2); "off" for no limit' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },
   host: {
     parse: (v) => {
