@@ -37,10 +37,11 @@ seeker "fix the login bug"   # start with a first message
 seeker -c                    # continue the last conversation in this folder
 seeker -p "explain the repo" # answer once and exit; can be piped
 seeker --yolo                # no permission prompts (dangerous commands are still asked about)
+seeker --full-access         # nothing is asked at all, dangerous commands and secret files included
 ```
 
 Inside a session: `/init`, `/model`, `/key`, `/resume`, `/paste`, `/config`, `/skills`, `/mcp`, `/clear`, `/compact`,
-`/status`, `/think`, `/yolo`, `/help`, `/exit`, and `!command`.
+`/status`, `/think`, `/yolo`, `/full`, `/help`, `/exit`, and `!command`.
 A model's reasoning is folded to one line ("◇ thought for 12s"); `/think show` prints the last one in full.
 Type `/` for the list of commands and skills: ↑↓ move through it, Tab completes the highlighted one, Enter runs it,
 Esc closes the list. Typing narrows it (`/rev` also finds `/code-review`). Alt+Enter starts a new line; with no list
@@ -179,6 +180,12 @@ the header changes from `LOCAL • PRIVATE` to `CLOUD • <NAME>`.
 Reading is free. Edits, shell commands and network access ask first; "always" answers are remembered as
 rules. A short list of harmless shell commands runs without asking, and commands matching the dangerous
 patterns are asked about even with `--yolo`.
+
+**Full access.** `seeker --full-access`, `/full` (on/off), `/config permissionMode full`, or the Full access
+switch in the phone app's settings: nothing is asked any more. Dangerous commands, files outside the working
+folder, secret files and scheduled jobs that may change files all run without a question. `--yolo` is
+unchanged. Refusals still hold, since they are not approvals: SEEKER's own key files, stopping `seeker remote`
+from inside it, plan mode and look-only helpers. The status bar shows `FULL ACCESS` in red while it is on.
 
 **Secrets.** Files that hold secrets are the exception to free reading. SEEKER's own key files (`config.json`,
 `remote.sock.key` and `push.json` in `~/.seeker`) are refused to the agent in every mode, for reading, writing

@@ -42,6 +42,7 @@ export const COMMANDS = [
   ['/usage', 'Tokens used: total, new and cached input, output, the last 7 days'],
   ['/think', 'Toggle thinking mode · /think show prints the last reasoning in full'],
   ['/yolo', 'Toggle running edits and commands without asking'],
+  ['/full', 'Toggle full access: nothing is asked, not even risky commands'],
   ['/plan', 'Plan first: SEEKER looks and proposes, changes nothing (/plan go carries it out · /plan off)'],
   ['/help', 'Show this help'],
   ['/exit', 'Quit'],
@@ -325,7 +326,7 @@ export async function runCommand(input, ctx) {
       ui.line(`  ${c.dim('context ')} ${kilo(used)} / ${contextSize(limit)} tokens (${Math.round((used / limit) * 100)}%)`);
       ui.line(`  ${c.dim('thinking')} ${config.think && agent.caps.thinking ? 'on' : 'off'}`);
       ui.line(`  ${c.dim('images  ')} ${agent.provider.ownTools || agent.caps.vision ? 'yes' : 'no, this model cannot see images'}`);
-      ui.line(`  ${c.dim('approval')} ${permissions.planning ? 'plan mode: nothing is changed until /plan go' : permissions.mode === 'auto' ? 'automatic (YOLO)' : 'ask first'}`);
+      ui.line(`  ${c.dim('approval')} ${permissions.planning ? 'plan mode: nothing is changed until /plan go' : permissions.mode === 'full' ? 'full access: nothing is asked' : permissions.mode === 'auto' ? 'automatic (YOLO)' : 'ask first'}`);
       {
         const { fallbackChain } = await import('./failover.mjs');
         const chain = fallbackChain(config);
@@ -568,6 +569,13 @@ export async function runCommand(input, ctx) {
           ? '  YOLO on: edits and commands run without asking (risky commands are still confirmed).'
           : '  YOLO off: SEEKER asks before editing files or running commands.',
       );
+      return;
+
+    case 'full':
+      permissions.mode = permissions.mode === 'full' ? 'ask' : 'full';
+      ui.screen?.render();
+      if (permissions.mode === 'full') ui.warn('  Full access on: nothing is asked any more — risky commands, files outside the project and secret files run too. /full again turns it off.');
+      else ui.notice('  Full access off: SEEKER asks before editing files or running commands.');
       return;
 
     case 'init':
@@ -932,6 +940,7 @@ export const isSlashCommand = (text) => /^\/[^\s/]+(\s|$)/.test(text);
 
 export const PHONE_COMMANDS = [
   ['/yolo', 'Toggle running edits and commands without asking'],
+  ['/full', 'Toggle full access: nothing is asked, not even risky commands'],
   ['/plan', 'Plan first, change nothing: /plan · /plan go carries it out · /plan off'],
   ['/status', 'Show model, context and approval mode'],
   ['/review', 'Review a change without touching it: /review · staged · commit <sha> · <branch>'],
@@ -954,7 +963,7 @@ export const PHONE_COMMANDS = [
 ];
 
 const PHONE_SAFE = new Set(['init', 'status', 'compact', 'memory', 'cron', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'plan', 'context', 'usage', 'agents', 'review', 'swarm']);
-const PHONE_SETTINGS = new Set(['yolo', 'think', 'config', 'configure', 'settings', 'ctx']);
+const PHONE_SETTINGS = new Set(['yolo', 'full', 'think', 'config', 'configure', 'settings', 'ctx']);
 const PHONE_ELSEWHERE = {
   model: 'Type /model on its own: the app opens its model list.',
   provider: 'Type /model on its own: the app opens its model list.',
@@ -962,7 +971,7 @@ const PHONE_ELSEWHERE = {
   new: 'Type /new on its own.',
   clear: 'Type /new on its own.',
 };
-export const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'swarm', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'mods', 'undo', 'rollback', 'memory', 'curator', 'restart']);
+export const BUILT_IN = new Set(['help', '?', 'exit', 'quit', 'q', 'clear', 'new', 'compact', 'ctx', 'status', 'think', 'yolo', 'full', 'plan', 'context', 'usage', 'effort', 'sandbox', 'backend', 'agents', 'review', 'swarm', 'init', 'paste', 'provider', 'model', 'key', 'resume', 'mcp', 'skill', 'skills', 'configure', 'settings', 'config', 'goal', 'loop', 'proactive', 'hb', 'heartbeat', 'cron', 'hooks', 'mods', 'undo', 'rollback', 'memory', 'curator', 'restart']);
 
 /**
  * A /command or /skill typed on the phone. Returns what runCommand returns (`prompt`: run it as a message).
@@ -1030,6 +1039,13 @@ export async function runPhoneCommand(input, ctx) {
           ? '  YOLO on for the projects opened from the phone, and saved: edits and commands run without asking (risky commands are still confirmed).'
           : '  YOLO off: SEEKER asks before editing files or running commands.',
       );
+    }
+    if (name === 'full') {
+      const mode = permissions.mode === 'full' ? 'ask' : 'full';
+      ctx.configure('permissionMode', mode);
+      return mode === 'full'
+        ? ui.warn('  Full access on for the projects opened from the phone, and saved: nothing is asked any more — risky commands, files outside the project and secret files run too. /full again turns it off.')
+        : ui.notice('  Full access off: SEEKER asks before editing files or running commands.');
     }
     if (name === 'think') {
       if (arg === 'show') return ui.warn('  The reasoning is not kept on the phone; /think show works in the terminal.');

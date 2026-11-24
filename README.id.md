@@ -36,11 +36,18 @@ seeker "perbaiki bug login"  # langsung dengan pesan pertama
 seeker -c                    # lanjutkan percakapan terakhir di folder ini
 seeker -p "jelaskan repo"    # sekali jawab, bisa di-pipe
 seeker --yolo                # tanpa tanya izin (perintah berbahaya tetap ditanyakan)
+seeker --full-access         # tidak ada yang ditanyakan sama sekali, termasuk perintah berbahaya dan file rahasia
 seeker --plan                # mulai di mode rencana: melihat dan mengusulkan, tidak mengubah apa pun
 ```
 
-Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/plan`, `/help`, `/exit`, dan `!perintah`.
+Di dalam sesi: `/init`, `/model`, `/resume`, `/paste`, `/config`, `/skills`, `/clear`, `/compact`, `/status`, `/think`, `/yolo`, `/full`, `/plan`, `/help`, `/exit`, dan `!perintah`.
 Reasoning model dilipat jadi satu baris ("◇ thought for 12s"); `/think show` menampilkan yang terakhir secara lengkap.
+
+**Akses penuh.** `seeker --full-access`, `/full` (nyala/mati), `/config permissionMode full`, atau sakelar Full
+access di setelan aplikasi HP: tidak ada lagi yang ditanyakan. Perintah berbahaya, file di luar folder kerja, file
+rahasia, dan jadwal yang boleh mengubah file semuanya jalan tanpa ditanya. `--yolo` tidak berubah. Penolakan tetap
+berlaku karena bukan soal izin: file key milik SEEKER, menghentikan `seeker remote` dari dalamnya, plan mode, dan
+helper yang hanya boleh melihat. Selama aktif, status bar menampilkan `FULL ACCESS` berwarna merah.
 
 **Rahasia.** File yang menyimpan rahasia tidak ikut bebas dibaca. File key milik SEEKER sendiri (`config.json`,
 `remote.sock.key`, dan `push.json` di `~/.seeker`) selalu ditolak untuk agen di semua mode, baik dibaca, ditulis,

@@ -25,7 +25,7 @@ export const DEFAULTS = {
   think: true,
   showThinking: true,
   animation: true, // the robot in the header blinks
-  permissionMode: 'ask', // 'ask' | 'auto'
+  permissionMode: 'ask', // 'ask' | 'auto' (YOLO) | 'full' (full access: nothing is asked)
   maxSteps: 60,
   keepAlive: '30m',
   // Extra folders to load skills from, besides ~/.seeker/skills and <project>/.seeker/skills.
@@ -87,7 +87,7 @@ export const SETTINGS = {
   think: { parse: bool, help: 'let the model reason before answering' },
   showThinking: { parse: bool, help: 'show a one-line "thought for Ns" after reasoning (full text: /think show)' },
   animation: { parse: bool, help: 'animate the robot in the header' },
-  permissionMode: { parse: (v) => (['ask', 'auto'].includes(v) ? v : undefined), help: 'ask before edits and commands, or run them' },
+  permissionMode: { parse: (v) => (['ask', 'auto', 'full'].includes(v) ? v : undefined), help: 'ask before edits and commands, run them (auto), or ask about nothing (full)' },
   maxSteps: { parse: int(1), help: 'tool steps allowed per message' },
   checkpoints: { parse: bool, help: 'snapshot files before changing them, for /rollback' },
   autoLearn: { parse: bool, help: 'save memory and skills without asking' },

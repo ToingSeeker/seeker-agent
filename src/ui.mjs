@@ -186,7 +186,7 @@ export class UI {
   }
 
   /** The welcome panel's rows, ending with a rule, for a screen `width` columns wide. */
-  welcomeRows(width, { cwd, model, limit, used, provider, git, instructionFiles, skillCount, yolo }) {
+  welcomeRows(width, { cwd, model, limit, used, provider, git, instructionFiles, skillCount, yolo, full }) {
     const { c } = this;
     const twoColumns = width >= 86;
     const leftWidth = twoColumns ? Math.floor(width * 0.6) : width - 2;
@@ -197,7 +197,7 @@ export class UI {
     const extras = [
       instructionFiles.length ? `Loaded ${instructionFiles.join(', ')}` : null,
       skillCount ? `${skillCount} skill${skillCount > 1 ? 's' : ''} available · /skills` : null,
-      yolo ? 'YOLO: edits and commands run without asking' : null,
+      full ? 'FULL ACCESS: nothing is asked, not even risky commands' : yolo ? 'YOLO: edits and commands run without asking' : null,
     ].filter(Boolean);
     const left = [
       c.bold('Build something remarkable.'),
@@ -481,15 +481,15 @@ export class UI {
     return padEnd(c.dim(left.replace(ANSI, '')), width - visibleLength(right)) + right;
   }
 
-  statusBar(width, { model, cwd, used, limit, provider, tokensPerSecond, yolo, plan }) {
+  statusBar(width, { model, cwd, used, limit, provider, tokensPerSecond, yolo, full, plan }) {
     const { c } = this;
     const speed = tokensPerSecond ? ` • ${Math.round(tokensPerSecond)} tok/s` : '';
     const right = `${kilo(used)} tokens • ${contextSize(limit)} context${speed}`;
     const online = `● ${provider.label}${provider.local ? ' online' : ''}`;
-    const mode = plan ? '   PLAN' : yolo ? '   YOLO' : '';
+    const mode = plan ? '   PLAN' : full ? '   FULL ACCESS' : yolo ? '   YOLO' : '';
     const fixed = 1 + online.length + 3 + model.length + mode.length + 3 + 2 + right.length;
     const path = truncateStart(tildify(cwd), Math.max(0, width - fixed));
-    const left = ` ${c.green(online)}   ${model}${c.yellow(mode)}   ${c.dim(path)}`;
+    const left = ` ${c.green(online)}   ${model}${(full && !plan ? c.red : c.yellow)(mode)}   ${c.dim(path)}`;
     if (visibleLength(left) + 2 + right.length > width) return ` ${c.green(online)}   ${truncate(model, Math.max(4, width - online.length - 5))}`;
     return padEnd(left, width - right.length) + right;
   }

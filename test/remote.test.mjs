@@ -1519,6 +1519,14 @@ test('remote: /commands and /skills typed on the phone run on the Mac, not as me
   assert.equal(me.state.approvals.length, 0);
   await me.send('message', { ws, text: '/config permissionMode ask' });
   await until(() => me.state.device.settings.permissionMode === 'ask');
+  // /full is its own switch: saved, in force at once, and /full again goes back to asking.
+  await me.send('message', { ws, text: '/full' });
+  await until(() => me.state.device.settings.permissionMode === 'full');
+  assert.equal(agent.permissions.mode, 'full');
+  await said(/Full access on/);
+  await me.send('message', { ws, text: '/full' });
+  await until(() => me.state.device.settings.permissionMode === 'ask');
+  assert.equal(agent.permissions.mode, 'ask');
   await me.send('message', { ws, text: '/config numCtx 12' });
   await said(/Not a valid value for numCtx/);
 
@@ -1546,10 +1554,10 @@ test('remote: in a session that runs in a terminal, the phone cannot change its 
   const config = { ...DEFAULTS };
   let configured = 0;
   const ctx = { agent: { skills: [], caps: {}, model: 'm' }, ui, term: null, config, permissions, terminal: true, configure: () => configured++ };
-  for (const text of ['/yolo', '/config permissionMode auto', '/think']) await runPhoneCommand(text, ctx);
+  for (const text of ['/yolo', '/full', '/config permissionMode full', '/think']) await runPhoneCommand(text, ctx);
   assert.equal(permissions.mode, 'ask');
   assert.equal(configured, 0);
-  assert.equal(notes.filter(([kind, x]) => kind === 'warn' && /runs in a terminal/.test(x)).length, 3);
+  assert.equal(notes.filter(([kind, x]) => kind === 'warn' && /runs in a terminal/.test(x)).length, 4);
 });
 
 test('phone transcript: parallel provider tools each end on their own row, and an interrupted one is not left running', async () => {
