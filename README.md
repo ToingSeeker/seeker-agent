@@ -600,6 +600,21 @@ check it; it then looks at frames of the result before telling you it is done.
 It needs `ffmpeg` and `python3`; captions and titles also need Pillow (`pip install pillow`). Drag the file
 into the terminal to name it. For planning a video from a brief, there is the `video-production` skill.
 
+## Analysing the crypto market
+
+The bundled `crypto-market-analysis` skill (`/crypto-market-analysis SOL`, or just ask: "how does ETH look this
+week?") reads a coin, or the market as a whole, on three layers. Technical: trend, momentum, volatility and
+support/resistance on two timeframes, plus perp funding, open interest and long/short. Fundamental: supply and
+dilution, valuation, TVL, fees and revenue for protocol tokens, unlocks and recent news. Macro: the dollar, the
+10-year yield, US stocks, VIX and gold, how closely the coin has moved with each, and the dates of the next Fed
+and inflation releases. It ends with bull, base and bear scenarios, each with a trigger level and the level that
+would prove it wrong.
+
+The numbers come from a script in the skill (`scripts/market.mjs`, Node only, no API keys) that pulls free public
+data (Binance with OKX as fallback, CoinGecko, DefiLlama, alternative.me, Yahoo Finance) and computes the
+indicators from closed candles only. A source that fails is reported as a gap, never estimated. It is analysis,
+not financial advice, and it never touches an exchange account.
+
 ## Reading and checking files
 
 `read_file` also reads PDFs (needs `pdftotext`), Word and OpenDocument files, `.xlsx`, notebooks and SQLite

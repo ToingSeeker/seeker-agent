@@ -809,6 +809,21 @@ supaya SEEKER bisa memeriksanya; setelah itu SEEKER melihat frame hasilnya sebel
 Butuh `ffmpeg` dan `python3`; subtitle dan judul juga butuh Pillow (`pip install pillow`). Drag file ke terminal
 untuk menyebutkannya. Untuk merencanakan video dari sebuah brief, ada skill `video-production`.
 
+## Menganalisa market crypto
+
+Skill bawaan `crypto-market-analysis` (`/crypto-market-analysis SOL`, atau cukup minta: "gimana ETH minggu ini?")
+membaca satu koin, atau market secara keseluruhan, dari tiga lapis. Teknikal: tren, momentum, volatilitas, dan
+support/resistance di dua timeframe, plus funding perp, open interest, dan long/short. Fundamental: suplai dan
+dilusi, valuasi, TVL, fee dan revenue untuk token protokol, unlock, dan berita terbaru. Makro: dolar, yield 10
+tahun, saham AS, VIX dan emas, seberapa erat koin itu bergerak bersama masing-masing, serta tanggal rapat Fed dan
+rilis inflasi berikutnya. Hasilnya diakhiri skenario bull, base, dan bear, masing-masing dengan level pemicu dan
+level yang membuktikannya salah.
+
+Angkanya berasal dari skrip di dalam skill (`scripts/market.mjs`, cukup Node, tanpa API key) yang menarik data
+publik gratis (Binance dengan OKX sebagai cadangan, CoinGecko, DefiLlama, alternative.me, Yahoo Finance) dan
+menghitung indikator hanya dari candle yang sudah tutup. Sumber yang gagal dilaporkan sebagai celah, tidak pernah
+ditaksir. Ini analisa, bukan saran keuangan, dan skill ini tidak pernah menyentuh akun exchange.
+
 ## Membaca dan memeriksa file
 
 `read_file` juga membaca PDF (butuh `pdftotext`), file Word dan OpenDocument, `.xlsx`, notebook, dan database SQLite
