@@ -112,6 +112,63 @@ test('permissions: yolo still asks about dangerous commands; print mode denies',
   assert.match((await headless.check(bash, { command: 'npm test' })).reason, /--yolo/);
 });
 
+test('permissions: full access asks about nothing, yet its refusals still hold', async () => {
+  const { configPath } = await import('../src/config.mjs');
+  const cwd = tmp();
+  fs.writeFileSync(path.join(cwd, '.env'), 'OPENAI_API_KEY=sk-test\n');
+  const tool = (name) => TOOL_BY_NAME.get(name);
+  let asked = 0;
+  // Nobody is there to answer: anything that would still be a question is refused, so `ok` proves none was asked.
+  const full = new Permissions({ mode: 'full', cwd, ask: null, daemonPid: 4242 });
+  for (const [name, args] of [
+    ['bash', { command: 'rm -rf build' }],
+    ['bash', { command: 'git push --force origin main' }],
+    ['bash', { command: 'sudo ls' }],
+    ['bash', { command: 'cat .env' }],
+    ['read_file', { path: '.env' }],
+    ['write_file', { path: '../outside.txt', content: '' }],
+    ['web_fetch', { url: 'https://example.com' }],
+    ['web_search', { query: 'x' }],
+    ['memory', { action: 'add', content: 'x' }],
+    ['cronjob_manage', { action: 'create', allow_changes: true }],
+  ]) assert.deepEqual(await full.check(tool(name), args), { ok: true }, `${name} ${JSON.stringify(args)}`);
+  assert.equal(full.mayLearn('memory'), true);
+
+  // Refusals are not approvals: SEEKER's own keys, stopping `seeker remote` from inside it, plan mode.
+  assert.equal((await full.check(tool('read_file'), { path: configPath() })).ok, false, "SEEKER's own key file");
+  assert.equal((await full.check(tool('bash'), { command: 'kill 4242' })).ok, false, 'the daemon it runs in');
+  full.planning = true;
+  assert.equal((await full.check(tool('write_file'), { path: 'a.txt', content: '' })).ok, false, 'plan mode');
+
+  // /full switches it on and off in the terminal; /yolo from full access goes to YOLO, which asks about risky commands again.
+  const { runCommand } = await import('../src/commands.mjs');
+  const { DEFAULTS } = await import('../src/config.mjs');
+  const said = [];
+  const ui = new Proxy({}, { get: (_, key) => (key === 'notice' || key === 'warn' ? (text) => said.push(text) : key === 'c' ? new Proxy({}, { get: () => (x) => String(x) }) : key === 'screen' ? undefined : () => {}) });
+  const perms = new Permissions({ mode: 'ask', cwd, ask: null });
+  const ctx = { agent: {}, ui, term: null, config: { ...DEFAULTS }, permissions: perms, session: null, hub: null };
+  await runCommand('/full', ctx);
+  assert.equal(perms.mode, 'full');
+  assert.match(said.at(-1), /Full access on/);
+  await runCommand('/full', ctx);
+  assert.equal(perms.mode, 'ask');
+  await runCommand('/full', ctx);
+  await runCommand('/yolo', ctx);
+  assert.equal(perms.mode, 'auto');
+
+  // The status bar says which mode is on.
+  const { UI } = await import('../src/ui.mjs');
+  const bar = (flags) => new UI().statusBar(160, { model: 'm', cwd, used: 0, limit: 32768, provider: { label: 'Ollama', local: true }, ...flags });
+  assert.match(bar({ full: true }), /FULL ACCESS/);
+  assert.match(bar({ yolo: true }), /YOLO/);
+  assert.doesNotMatch(bar({ yolo: true }), /FULL/);
+
+  // --yolo is unchanged: the same risky command is still asked about there.
+  const yolo = new Permissions({ mode: 'auto', cwd, ask: async () => (asked++, 'n') });
+  assert.equal((await yolo.check(tool('bash'), { command: 'rm -rf build' })).ok, false);
+  assert.equal(asked, 1);
+});
+
 test('markdown stream renders the same text regardless of chunking', () => {
   const source = '# Title\n\nSome **bold** and `code` text.\n- item one\n\n```js\nconst a = 1;\n```\ndone';
   const render = (chunks) => {

@@ -1,7 +1,12 @@
 // Decides whether a tool call may run. Reads are free; writes, shell commands
 // and network requests need the user's approval unless a rule already covers them.
 // Files that hold secrets are the exception (src/secrets.mjs): SEEKER's own are refused,
-// others are asked about in every mode.
+// others are asked about in every mode but full access.
+//
+// The modes: 'ask' asks first; 'auto' (--yolo) runs edits and commands but still asks about risky
+// commands, files outside the working folder and secrets; 'full' (--full-access) asks about nothing.
+// Refusals are not approvals and hold in every mode: SEEKER's own key files, stopping `seeker remote`
+// from inside it, and anything plan mode or a look-only helper may not do.
 import path from 'node:path';
 import { secretInCommand, secretKind } from './secrets.mjs';
 
@@ -143,7 +148,7 @@ const STOPS_DAEMON =
 
 export class Permissions {
   /**
-   * @param {{ mode: 'ask'|'auto', cwd: string, ask: null | ((q: object) => Promise<string|null>) }} opts
+   * @param {{ mode: 'ask'|'auto'|'full', cwd: string, ask: null | ((q: object) => Promise<string|null>) }} opts
    *        `ask` is null when nobody is there to answer (print mode).
    */
   constructor({ mode, cwd, ask, autoLearn = false, daemonPid = null }) {
@@ -167,7 +172,7 @@ export class Permissions {
 
   /** True when `name` (memory, skill_manage) may save without the user being asked. */
   mayLearn(name) {
-    return this.mode === 'auto' || this.autoLearn || this.toolNames.has(name);
+    return this.mode === 'auto' || this.mode === 'full' || this.autoLearn || this.toolNames.has(name);
   }
 
   #bashAllowed(command) {
@@ -208,7 +213,7 @@ export class Permissions {
     const secret = this.#secret(tool, args, cwd);
     if (secret?.kind === 'seeker') return { ok: false, reason: SEEKER_SECRET };
     const secretWarning = secret && `${path.basename(secret.file)} looks like it holds secrets (keys, passwords); what is read goes to the model provider.`;
-    if (tool.risk === 'read') return secret ? this.#confirm(tool, args, secretWarning, null) : { ok: true };
+    if (tool.risk === 'read') return secret && this.mode !== 'full' ? this.#confirm(tool, args, secretWarning, null) : { ok: true };
     if (tool.risk === 'exec' && this.daemonPid && stopsDaemon(args?.command, this.daemonPid)) return { ok: false, reason: STOPS_DAEMON };
     const refusal = this.planning ? PLANNING : this.lookOnly;
     if (refusal) {
@@ -219,6 +224,9 @@ export class Permissions {
       if (!looks && tool.risk !== 'net') return { ok: false, reason: refusal };
       if (looks) return { ok: true };
     }
+    // Full access: whatever the refusals above let through runs without a question — risky commands,
+    // files outside the folder, secrets and unattended scheduled jobs included.
+    if (this.mode === 'full') return { ok: true };
 
     let always = null; // { label, apply } offered as the "always" answer
     let warning = null;

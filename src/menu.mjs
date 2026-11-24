@@ -7,7 +7,7 @@ import { truncate } from './ui.mjs';
 export const CHOICES = {
   ...Object.fromEntries(Object.keys(SETTINGS).filter((key) => typeof DEFAULTS[key] === 'boolean').map((key) => [key, [true, false]])),
   numCtx: [8192, 16384, 32768, 65536, 131072],
-  permissionMode: ['ask', 'auto'],
+  permissionMode: ['ask', 'auto', 'full'],
   maxSteps: [30, 60, 100, 200],
   effort: ['', 'low', 'medium', 'high', 'xhigh', 'max'],
   maxHelpers: [1, 3, 5, 10, 20],
@@ -22,6 +22,7 @@ const LABELS = {
   false: 'off',
   ask: 'ask first',
   auto: 'auto (YOLO)',
+  full: 'full access (asks nothing)',
   '': 'default',
 };
 

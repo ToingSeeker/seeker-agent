@@ -42,7 +42,8 @@ Options:
   -p, --print          answer once, no interactive prompt
       --output <fmt>   with -p: text (default), json (one object at the end), stream-json (one per line);
                        --json is short for --output json
-      --yolo           do not ask before editing files or running commands
+      --yolo           do not ask before editing files or running commands (risky ones still ask)
+      --full-access    ask about nothing at all: risky commands, files outside the folder, secrets
       --plan           start in plan mode: look and propose, change nothing until /plan go
       --ctx <tokens>   context window for Ollama models (default 32768)
       --no-think       turn thinking mode off
@@ -66,6 +67,7 @@ function parseArgs(argv) {
     else if (a === '--output') opts.output = value(i++, a);
     else if (a === '-c' || a === '--continue') opts.continue = true;
     else if (a === '--yolo') opts.yolo = true;
+    else if (a === '--full-access') opts.fullAccess = true;
     else if (a === '--plan') opts.plan = true;
     else if (a === '--no-think') opts.noThink = true;
     else if (a === '--no-checkpoints') opts.noCheckpoints = true;
@@ -187,6 +189,7 @@ export async function main(argv) {
   if (opts.noThink) config.think = false;
   if (opts.noCheckpoints) config.checkpoints = false;
   if (opts.yolo) config.permissionMode = 'auto';
+  if (opts.fullAccess) config.permissionMode = 'full';
 
   if (opts.prompt.length === 1 && opts.prompt[0] === 'doctor') {
     const { diagnose, report } = await import('./doctor.mjs');
@@ -534,6 +537,7 @@ export async function main(argv) {
         provider: agent.provider,
         tokensPerSecond: agent.lastStats?.tokensPerSecond,
         yolo: permissions.mode === 'auto',
+        full: permissions.mode === 'full',
         plan: permissions.planning,
       }),
   });
@@ -552,6 +556,7 @@ export async function main(argv) {
     instructionFiles: agent.instructionFiles,
     skillCount: agent.skills.length,
     yolo: permissions.mode === 'auto',
+    full: permissions.mode === 'full',
   }));
   if (!agent.caps.tools) ui.warn(`  ⚠ ${config.model} cannot call tools — it can only chat. Switch with /model.`);
   if (opts.continue && agent.messages.length) ui.notice(`  Continuing the previous conversation (${agent.messages.length} messages).`);
@@ -671,7 +676,7 @@ export async function main(argv) {
       return port.toast(term.reading ? `${what} in the message being typed in the terminal.` : `${what} waiting in the terminal's message box.`);
     }
     // A phone may be lost or borrowed: work that runs without asking is taken only from one behind its app lock.
-    if (permissions.mode === 'auto' && !locked) return port.toast('This terminal session runs without asking (--yolo). Turn on the app lock (Settings → App lock) to give it tasks from the phone.');
+    if (permissions.mode !== 'ask' && !locked) return port.toast(`This terminal session runs without asking (${permissions.mode === 'full' ? '--full-access' : '--yolo'}). Turn on the app lock (Settings → App lock) to give it tasks from the phone.`);
     if (agent.busy || !term.inject({ text, images })) port.toast(`${mirror.name} is busy in the terminal. Send it again when it has finished.`);
   };
   port.onHandoff = ({ name, busy, items }) => {

@@ -18,7 +18,7 @@ const tool = (name) => TOOL_BY_NAME.get(name);
 test('plan mode: reading and commands that only look still run; anything that changes something waits', async () => {
   const cwd = tmp();
   const asked = [];
-  for (const mode of ['ask', 'auto']) {
+  for (const mode of ['ask', 'auto', 'full']) {
     const permissions = new Permissions({ mode, cwd, ask: async (q) => (asked.push(q.tool.name), 'y') });
     permissions.planning = true;
     assert.deepEqual(await permissions.check(tool('read_file'), { path: 'a.js' }), { ok: true });
@@ -28,7 +28,7 @@ test('plan mode: reading and commands that only look still run; anything that ch
       assert.deepEqual(await permissions.check(tool(name), args), { ok: false, reason: PLANNING }, `${mode}: ${name} ${JSON.stringify(args)}`);
     }
   }
-  assert.deepEqual(asked, [], 'the user is not asked about what plan mode refuses — not even in --yolo');
+  assert.deepEqual(asked, [], 'the user is not asked about what plan mode refuses — not even in --yolo or full access');
 
   // Leaving plan mode gives the usual rules back, unchanged.
   const permissions = new Permissions({ mode: 'ask', cwd, ask: async (q) => (asked.push(q.tool.name), 'y') });

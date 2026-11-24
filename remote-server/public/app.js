@@ -3055,10 +3055,16 @@ function agentSettings(up, toggle) {
   if (!cfg) return [];
   const flip = (icon, label, sub, on, action) => h('div', { class: 'row' }, h('span', { class: 'ico', icon }), h('span', { class: 'grow' }, h('span', { class: 'label' }, label), h('span', { class: 'sub' }, sub)), toggle(on, action, label, !up));
   const edit = (icon, label, value, key, current, opts) => row(icon, label, value, { onclick: up ? () => editSetting(key, label, current, opts) : null });
-  const asks = cfg.permissionMode !== 'auto';
+  const asks = cfg.permissionMode === 'ask';
+  const full = cfg.permissionMode === 'full';
   const setApproval = () => {
     if (asks && !confirm('Run edits and commands without asking?\n\nProjects opened from this app will stop asking for approval. Risky commands and files outside the project are still asked about.')) return;
     setConfig('permissionMode', asks ? 'auto' : 'ask');
+  };
+  // Full access asks about nothing at all, risky commands included: it is its own switch, and turning it on is confirmed.
+  const setFull = () => {
+    if (!full && !confirm('Give SEEKER full access?\n\nNothing is asked any more: risky commands (rm -rf, force push, sudo), files outside the project and secret files all run without approval.')) return;
+    setConfig('permissionMode', full ? 'ask' : 'full');
   };
   return [
     section('AGENT'),
@@ -3066,7 +3072,8 @@ function agentSettings(up, toggle) {
       'div',
       { class: 'group' },
       flip('brain', 'Thinking', 'The model reasons before it answers, when it can', cfg.think, () => setConfig('think', !cfg.think)),
-      flip('shield', 'Ask before edits and commands', asks ? 'Each one waits for your approval' : 'Off: they run without asking. Risky ones still ask.', asks, setApproval),
+      flip('shield', 'Ask before edits and commands', asks ? 'Each one waits for your approval' : full ? 'Off: full access is on' : 'Off: they run without asking. Risky ones still ask.', asks, setApproval),
+      flip('alert', 'Full access', full ? 'On: nothing is asked, not even risky commands' : 'Asks about nothing at all, risky commands included', full, setFull),
       edit('layers', 'Context window', cfg.context ? `${sizeOf(cfg.context)} tokens` : 'Model default', 'numCtx', cfg.context ?? '', { numeric: true, hint: 'In tokens, at least 2048. A larger window remembers more and needs more memory.' }),
       edit('list', 'Steps per message', String(cfg.maxSteps), 'maxSteps', cfg.maxSteps, { numeric: true, hint: 'How many tool steps the agent may take before it stops and waits for you.' }),
       edit('hourglass', 'Keep the model in memory', cfg.keepAlive, 'keepAlive', cfg.keepAlive, { hint: 'For Ollama: how long a model stays loaded after its last answer, such as 30m or 2h.' }),
@@ -3796,6 +3803,7 @@ function slashCommands() {
     { name: '/image', about: 'attach a photo, screenshot or video', off: false, run: () => $('file').click() },
     { name: '/file', about: 'send any file whole, saved on the Mac', off: false, run: () => $('anyfile').click() },
     { name: '/yolo', about: terminal ? 'changed in the terminal for this session' : 'run edits and commands without asking (on/off)', off: busy || terminal, run: run('/yolo') },
+    { name: '/full', about: terminal ? 'changed in the terminal for this session' : 'full access: nothing is asked, not even risky commands (on/off)', off: busy || terminal, run: run('/full') },
     { name: '/plan', about: 'plan first, change nothing (on/off)', off: busy, run: run('/plan') },
     { name: '/plan go', about: 'carry out the plan it proposed', off: busy, run: run('/plan go') },
     { name: '/swarm', about: 'big work by a team: type the goal, it plans the tasks', off: busy, run: fill('/swarm') },
