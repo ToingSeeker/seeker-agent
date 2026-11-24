@@ -76,12 +76,40 @@ test('crypto-market-analysis: summarize reads an uptrend as one', () => {
   const s = m.summarize(cs);
   assert.match(s.ema.stack, /bullish stack/);
   assert.ok(s.rsi14 > 50);
-  assert.ok(s.priceVsEma200Pct > 0);
+  assert.ok(s.priceVsEma50Pct > 0);
+  assert.deepEqual(Object.keys(s.ema), ['13', '21', '50', 'stack']);
   assert.equal(s.candles, 260);
   for (const l of s.support) assert.ok(l.price < s.close);
   for (const l of s.resistance) assert.ok(l.price > s.close);
-  assert.equal(m.summarize(cs.slice(0, 60)).ema.stack, 'not enough history for EMA200');
+  assert.equal(s.volume.upDownRatio20 > 1, true, 'a rising series puts its volume on up closes');
+  assert.equal(s.volume.obvTrend20, 'rising');
+  assert.ok(s.stoch.k >= 0 && s.stoch.k <= 100);
+  assert.equal(m.summarize(cs.slice(0, 40)).ema.stack, 'not enough history for EMA50');
 });
+
+test('crypto-market-analysis: stochastic, OBV and the volume profile', () => {
+  // Close at the top of a rising range reads 100; at the bottom of a falling one, 0.
+  const up = Array.from({ length: 30 }, (_, i) => ({ t: i, o: 100 + i, h: 100 + i, l: 99 + i, c: 100 + i, v: 10 }));
+  const su = m.stochastic(up);
+  assert.equal(su.k[14], null, 'no %K before period + smoothing');
+  near(su.k.at(-1), 100);
+  near(su.d.at(-1), 100);
+  const down = up.map((c, i) => ({ ...c, h: 200 - i + 1, l: 200 - i, c: 200 - i }));
+  near(m.stochastic(down).k.at(-1), 0);
+  const flat = Array.from({ length: 20 }, (_, i) => candle(i, 50, 0));
+  assert.equal(m.stochastic(flat).k.at(-1), 50, 'a flat window reads 50');
+
+  const cs = [candle(0, 10), { ...candle(1, 11), v: 5 }, { ...candle(2, 9), v: 3 }, { ...candle(3, 9), v: 7 }];
+  assert.deepEqual(m.obv(cs), [0, 5, 2, 2]);
+
+  const mixed = Array.from({ length: 25 }, (_, i) => ({ ...candle(i, i % 2 ? 101 : 100), v: i % 2 ? 30 : 10, tb: i % 2 ? 20 : 4 }));
+  const vp = m.volumeProfile(mixed);
+  assert.equal(vp.upDownRatio20, 3, 'up closes carry 30, down closes 10');
+  assert.equal(vp.lastVsAvg20, round2(10 / 20));
+  near(vp.takerBuyPct20, (10 * 20 + 10 * 4) / (10 * 30 + 10 * 10) * 100, 0.01);
+  assert.equal(m.volumeProfile(mixed.map(({ tb, ...c }) => c)).takerBuyPct20, null, 'no taker data, no taker share');
+});
+const round2 = (x) => Math.round(x * 100) / 100;
 
 test('crypto-market-analysis: symbols become exchange pairs', () => {
   assert.equal(m.pair('btc'), 'BTCUSDT');
