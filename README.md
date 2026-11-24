@@ -615,6 +615,21 @@ data (Binance with OKX as fallback, CoinGecko, DefiLlama, alternative.me, Yahoo 
 indicators from closed candles only. A source that fails is reported as a gap, never estimated. It is analysis,
 not financial advice, and it never touches an exchange account.
 
+## Security testing your own projects
+
+Two bundled skills, one for code and one for a running app. `security-audit` reviews source you own — authz,
+injection, secrets, SSRF, unsafe deserialization, dependencies — with an exploit path and a fix for each
+finding. `pentest` is the live companion (`/pentest`, or "pentest my staging"): it drives a *running* instance
+you own and tests auth, authz/IDOR, injection, SSRF and business logic by hand, and reproduces each finding
+against the target. It only tests what you own or are authorised to assess, prefers staging over production,
+and stays non-destructive unless you approve a specific action.
+
+Its recon starts from a bundled script (`scripts/probe.mjs`, Node only, no keys) that sends only GET / HEAD /
+OPTIONS and reports real response data: TLS and HSTS, missing or weak security headers, stack-leaking headers,
+cookie flags, CORS reflection with credentials, allowed methods, and sensitive paths — classified by
+content-type, so an SPA's `200 text/html` for a missing file isn't mistaken for an exposed one. The hard bugs
+(auth, IDOR, logic) are then tested by hand against your target.
+
 ## Reading and checking files
 
 `read_file` also reads PDFs (needs `pdftotext`), Word and OpenDocument files, `.xlsx`, notebooks and SQLite

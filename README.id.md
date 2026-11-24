@@ -824,6 +824,22 @@ publik gratis (Binance dengan OKX sebagai cadangan, CoinGecko, DefiLlama, altern
 menghitung indikator hanya dari candle yang sudah tutup. Sumber yang gagal dilaporkan sebagai celah, tidak pernah
 ditaksir. Ini analisa, bukan saran keuangan, dan skill ini tidak pernah menyentuh akun exchange.
 
+## Menguji keamanan project sendiri
+
+Dua skill bawaan, satu untuk kode dan satu untuk aplikasi yang sedang berjalan. `security-audit` mereview kode
+yang kamu miliki — authz, injection, secret, SSRF, deserialisasi tak aman, dependensi — dengan jalur eksploit
+dan perbaikan untuk tiap temuan. `pentest` adalah pendampingnya untuk versi hidup (`/pentest`, atau "pentest
+staging-ku"): ia menggerakkan instance yang *berjalan* milikmu dan menguji auth, authz/IDOR, injection, SSRF,
+dan logika bisnis secara manual, lalu mereproduksi tiap temuan terhadap target. Skill ini hanya menguji yang
+kamu miliki atau boleh kamu uji, lebih memilih staging daripada produksi, dan tetap non-destruktif kecuali kamu
+menyetujui satu tindakan tertentu.
+
+Reconnya diawali skrip bawaan (`scripts/probe.mjs`, cukup Node, tanpa key) yang hanya mengirim GET / HEAD /
+OPTIONS dan melaporkan data respons nyata: TLS dan HSTS, header keamanan yang hilang atau lemah, header yang
+membocorkan stack, flag cookie, pantulan CORS dengan kredensial, metode yang diizinkan, dan path sensitif —
+diklasifikasikan berdasarkan content-type, sehingga `200 text/html` dari SPA untuk file yang tidak ada tidak
+dikira file yang bocor. Bug yang berat (auth, IDOR, logika) lalu diuji manual terhadap targetmu.
+
 ## Membaca dan memeriksa file
 
 `read_file` juga membaca PDF (butuh `pdftotext`), file Word dan OpenDocument, `.xlsx`, notebook, dan database SQLite
