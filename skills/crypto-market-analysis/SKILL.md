@@ -36,11 +36,16 @@ Sub-commands for a narrower question: `ta <SYMBOL> --tf 1w,1d`, `derivs <SYMBOL>
 
 ### 2. Technical
 Read the higher timeframe first, then the lower one for timing.
-- **Trend**: EMA stack and price vs EMA200, swing `structure`. Higher-timeframe trend wins ties.
+- **Trend**: EMA 13/21/50 stack and `priceVsEma50Pct`, swing `structure`. EMA13/21 are the fast pair (a 13/21 cross is the early turn), EMA50 the trend line. Higher-timeframe trend wins ties; for a long-term view read the 1w (or 1d) EMA50.
 - **Momentum**: RSI14 (above 50 favours bulls; below 30/above 70 is stretched, not a reversal signal by itself), MACD histogram direction.
+- **Stochastic (14,3,3)**: `stoch.k`/`stoch.d`, `zone` (>=80 overbought, <=20 oversold) and `cross` on the last closed bar. Use it for timing inside the trend: in a downtrend, a bearish %K/%D cross from overbought is the short trigger; in an uptrend, a bullish cross from oversold is the long trigger. Against the higher-timeframe trend it often stays pinned in the extreme, so an oversold reading alone is not a long.
 - **Volatility**: ATR% (sets realistic stop distance and target size), Bollinger width (a squeeze often precedes expansion, direction unknown).
 - **Levels**: `support`/`resistance` are clustered swing points; more `touches` = stronger. Use them for triggers and invalidation.
-- **Volume**: `volumeVs20Avg` above ~1.5 on a breakout gives it weight; a breakout on low volume is suspect.
+- **Volume** (`volume`, quote-currency units):
+  - `lastVsAvg20` above ~1.5 on a breakout gives it weight; a breakout below ~1 is suspect. `avg5VsAvg20` shows whether participation is building or drying up.
+  - `upDownRatio20` (volume on up closes ÷ down closes, last 20 bars): above 1 means buyers have carried more volume, below 1 sellers.
+  - `obvTrend20`: OBV rising while price falls is accumulation (bullish divergence); OBV falling while price rises is distribution.
+  - `takerBuyPct20` (Binance only, null on OKX): share of volume from aggressive buyers; persistently under ~48% means market sellers are in control.
 - **Derivatives positioning**: funding strongly positive + OI rising into resistance = crowded longs, squeeze risk down; negative funding + rising OI while price holds = short-squeeze fuel. OI falling with price falling = deleveraging, often near exhaustion. The all-accounts long/short ratio is retail-heavy; read it contrarian at extremes.
 
 ### 3. Fundamental

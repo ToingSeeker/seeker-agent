@@ -88,6 +88,68 @@ export function macd(closes, fast = 12, slow = 26, signal = 9) {
   return { line, signal: sig, hist: line.map((v, i) => (v == null || sig[i] == null ? null : v - sig[i])) };
 }
 
+/**
+ * Slow stochastic (14,3,3 by default): raw %K over `period` bars, smoothed by an SMA of `smoothK`,
+ * and %D as an SMA of `d` over the smoothed %K. A flat window (high == low) reads 50.
+ */
+export function stochastic(candles, period = 14, smoothK = 3, d = 3) {
+  const raw = candles.map((c, i) => {
+    if (i < period - 1) return null;
+    const win = candles.slice(i - period + 1, i + 1);
+    const hi = Math.max(...win.map((x) => x.h));
+    const lo = Math.min(...win.map((x) => x.l));
+    return hi === lo ? 50 : ((c.c - lo) / (hi - lo)) * 100;
+  });
+  const smooth = (series, n) => {
+    const start = series.findIndex((v) => v != null);
+    const out = new Array(series.length).fill(null);
+    if (start < 0) return out;
+    sma(series.slice(start), n).forEach((v, j) => (out[start + j] = v));
+    return out;
+  };
+  const k = smooth(raw, smoothK);
+  return { k, d: smooth(k, d) };
+}
+
+/** On-balance volume: add the bar's volume on an up close, subtract it on a down close. */
+export function obv(candles) {
+  let run = 0;
+  return candles.map((c, i) => {
+    if (i > 0) run += c.c > candles[i - 1].c ? c.v : c.c < candles[i - 1].c ? -c.v : 0;
+    return run;
+  });
+}
+
+/** Volume read over the last `n` bars: relative size, up/down split, OBV direction and taker-buy share. */
+export function volumeProfile(candles, n = 20) {
+  const vols = candles.map((c) => c.v);
+  const avg = last(sma(vols, n));
+  const avg5 = last(sma(vols, 5));
+  const win = candles.slice(-n);
+  let up = 0;
+  let down = 0;
+  win.forEach((c, j) => {
+    const prev = j === 0 ? candles[candles.length - n - 1] : win[j - 1];
+    if (!prev) return;
+    if (c.c > prev.c) up += c.v;
+    else if (c.c < prev.c) down += c.v;
+  });
+  const o = obv(candles);
+  const obvChange = candles.length > n ? last(o) - o[o.length - 1 - n] : null;
+  const withTaker = win.filter((c) => Number.isFinite(c.tb) && c.v > 0);
+  return {
+    last: round(last(vols), 2),
+    avg20: round(avg, 2),
+    lastVsAvg20: round(avg ? last(vols) / avg : null, 2),
+    avg5VsAvg20: round(avg ? avg5 / avg : null, 2),
+    upDownRatio20: round(down ? up / down : null, 2),
+    obvTrend20: obvChange == null ? null : obvChange > 0 ? 'rising' : obvChange < 0 ? 'falling' : 'flat',
+    takerBuyPct20: withTaker.length === win.length && win.length
+      ? round((withTaker.reduce((a, c) => a + c.tb, 0) / withTaker.reduce((a, c) => a + c.v, 0)) * 100, 2)
+      : null,
+  };
+}
+
 /** Wilder's average true range. */
 export function atr(candles, period = 14) {
   const out = new Array(candles.length).fill(null);
@@ -171,14 +233,13 @@ export function summarize(candles) {
   const closes = candles.map((c) => c.c);
   const close = last(closes);
   const at = (series) => last(series);
-  const e20 = at(ema(closes, 20));
+  const e13 = at(ema(closes, 13));
+  const e21 = at(ema(closes, 21));
   const e50 = at(ema(closes, 50));
-  const e200 = at(ema(closes, 200));
   const m = macd(closes);
+  const st = stochastic(candles);
   const a = at(atr(candles));
   const bb = at(bollinger(closes));
-  const vols = candles.map((c) => c.v);
-  const vAvg = at(sma(vols, 20));
   const sw = swings(candles);
   // Levels closer together than half an ATR are one zone, not two.
   const tolPct = Math.min(3, Math.max(0.5, ((a ?? 0) / close) * 50));
@@ -188,19 +249,36 @@ export function summarize(candles) {
   const ago = (n) => (closes.length > n ? round(pct(closes[closes.length - 1 - n], close), 2) : null);
   const hi = Math.max(...candles.map((c) => c.h));
   const lo = Math.min(...candles.map((c) => c.l));
-  const stack = e20 != null && e50 != null && e200 != null
-    ? close > e20 && e20 > e50 && e50 > e200 ? 'bullish stack (close > EMA20 > EMA50 > EMA200)'
-      : close < e20 && e20 < e50 && e50 < e200 ? 'bearish stack (close < EMA20 < EMA50 < EMA200)'
+  const stack = e13 != null && e21 != null && e50 != null
+    ? close > e13 && e13 > e21 && e21 > e50 ? 'bullish stack (close > EMA13 > EMA21 > EMA50)'
+      : close < e13 && e13 < e21 && e21 < e50 ? 'bearish stack (close < EMA13 < EMA21 < EMA50)'
         : 'mixed'
-    : 'not enough history for EMA200';
+    : 'not enough history for EMA50';
   const hist = m.hist.filter((v) => v != null);
+  const k = st.k.filter((v) => v != null);
+  const dd = st.d.filter((v) => v != null);
+  const sk = last(k);
+  const sd = last(dd);
+  let cross = null;
+  if (k.length > 1 && dd.length > 1) {
+    const [pk, pd] = [k[k.length - 2], dd[dd.length - 2]];
+    if (pk <= pd && sk > sd) cross = 'bullish (%K crossed above %D on the last bar)';
+    else if (pk >= pd && sk < sd) cross = 'bearish (%K crossed below %D on the last bar)';
+  }
   return {
     lastClosedCandle: last(candles).t,
     candles: candles.length,
     close: round(close, 8),
-    ema: { 20: round(e20, 8), 50: round(e50, 8), 200: round(e200, 8), stack },
-    priceVsEma200Pct: round(pct(e200, close), 2),
+    ema: { 13: round(e13, 8), 21: round(e21, 8), 50: round(e50, 8), stack },
+    priceVsEma50Pct: round(pct(e50, close), 2),
     rsi14: round(at(rsi(closes)), 2),
+    stoch: sk == null ? null : {
+      settings: '14,3,3',
+      k: round(sk, 2),
+      d: round(sd, 2),
+      zone: sk >= 80 ? 'overbought (>=80)' : sk <= 20 ? 'oversold (<=20)' : 'neutral',
+      cross,
+    },
     macd: {
       line: round(at(m.line), 8),
       signal: round(at(m.signal), 8),
@@ -210,7 +288,7 @@ export function summarize(candles) {
     atr14: round(a, 8),
     atrPct: round((a / close) * 100, 2),
     bollinger: bb && { upper: round(bb.upper, 8), mid: round(bb.mid, 8), lower: round(bb.lower, 8), widthPct: round(bb.widthPct, 2) },
-    volumeVs20Avg: round(last(vols) / vAvg, 2),
+    volume: volumeProfile(candles),
     returnsPct: { '1': ago(1), '7': ago(7), '30': ago(30), '90': ago(90) },
     range: { high: round(hi, 8), low: round(lo, 8), fromHighPct: round(pct(hi, close), 2), fromLowPct: round(pct(lo, close), 2) },
     structure: structure(sw),
@@ -242,7 +320,7 @@ export async function candles(symbol, tf = '1d', limit = 300) {
   try {
     const rows = await getJson(`https://data-api.binance.vision/api/v3/klines?symbol=${p}&interval=${tf}&limit=${limit + 1}`);
     if (!rows.length) throw new Error('no candles');
-    return { source: 'binance spot', pair: p, list: closed(rows.map((k) => ({ t: k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[7] }))) };
+    return { source: 'binance spot', pair: p, list: closed(rows.map((k) => ({ t: k[0], o: +k[1], h: +k[2], l: +k[3], c: +k[4], v: +k[7], tb: +k[10] }))) };
   } catch (binanceError) {
     const inst = p.replace(/(USDT|USDC|BTC|ETH)$/, '-$1');
     try {
