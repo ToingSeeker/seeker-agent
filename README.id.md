@@ -866,6 +866,19 @@ malware. Tiap temuan disertai `file:line`; agen lalu membaca setiap install hook
 dan memberi vonis. Teks di dalam repo diperlakukan sebagai data, jadi instruksi yang ditanam untuk agen AI
 dilaporkan, bukan diikuti. Hasil bersih berarti tidak ada tanda bahaya yang dikenal, bukan bukti aman.
 
+### Membangun ulang aplikasi
+
+`reverse-engineer` (`/reverse-engineer`, atau "bangun ulang aplikasi ini") pertama-tama memastikan aplikasi
+siapa yang dikerjakan. Untuk aplikasi milikmu atau yang kamu berhak bangun ulang (source hilang, sistem lama,
+migrasi), ia bekerja dari bukti: skrip bawaannya `scripts/surface.mjs` (cukup Node, hanya membaca file, tidak
+pernah menjalankan atau mengunduhnya) memetakan route, panggilan API, operasi GraphQL, variabel env, key
+storage, socket, dan layanan pihak ketiga dari build frontend, menandai string berbentuk kunci dalam keadaan
+tersamar, dan dengan `--recover` menulis source asli yang tertanam di source map ke folder pilihanmu. HAR dari
+sesimu sendiri dan dump skema melengkapi API dan model datanya, lalu kesetaraan dicek dengan memutar ulang
+request baca-saja dan membandingkan layar. Untuk produk orang lain ia bekerja secara clean-room: mempelajari
+produknya sebagai pengguna, menulis spesifikasi fungsional dengan kata-katanya sendiri, lalu membangun
+pesaingnya dengan kode, desain, nama, dan teksmu sendiri, tanpa menyentuh bundle atau API privat mereka.
+
 ## Membaca dan memeriksa file
 
 `read_file` juga membaca PDF (butuh `pdftotext`), file Word dan OpenDocument, `.xlsx`, notebook, dan database SQLite
