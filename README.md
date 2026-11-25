@@ -656,6 +656,18 @@ dependencies, and known advisories from OSV, including packages reported as malw
 the repo is treated as data, so instructions planted for AI agents are reported, not followed. A clean result
 means no known red flags, not proof of safety.
 
+### Rebuilding an app
+
+`reverse-engineer` (`/reverse-engineer`, or "rebuild this app") first settles whose app it is. For an app you
+own or are authorised to rebuild (lost source, a legacy system, a migration) it works from evidence: its
+bundled `scripts/surface.mjs` (Node only, reads files, never runs or fetches them) maps a built frontend's
+routes, API calls, GraphQL operations, env variables, storage keys, sockets and third-party services, flags
+key-shaped strings masked, and with `--recover` writes the original sources embedded in source maps to a
+folder of your choice. A HAR from your own session and a schema dump complete the API and data model, and
+parity is checked by replaying read-only requests and comparing screens. For someone else's product it works
+clean-room: it studies the product as a user, writes a functional spec in its own words, and builds a rival
+with your own code, design, name and copy, without touching their bundle or private API.
+
 ## Reading and checking files
 
 `read_file` also reads PDFs (needs `pdftotext`), Word and OpenDocument files, `.xlsx`, notebooks and SQLite
