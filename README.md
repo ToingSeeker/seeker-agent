@@ -600,6 +600,18 @@ check it; it then looks at frames of the result before telling you it is done.
 It needs `ffmpeg` and `python3`; captions and titles also need Pillow (`pip install pillow`). Drag the file
 into the terminal to name it. For planning a video from a brief, there is the `video-production` skill.
 
+### Editing like a pro, and matching a reference
+
+The bundled `video-editor` skill (`/video-editor`, or "edit this like that video") works as an expert editor for
+film, YouTube Shorts, Instagram Reels and TikTok: hook and pacing, cut craft, colour, loudness, captions placed
+outside each app's UI, and an export per platform. Give it a reference video and it measures the edit with a
+bundled script (`scripts/refcut.py`, Python and ffmpeg only): every cut and shot length, how much each shot moves,
+the colour look, loudness, the music's tempo and how many cuts land on a beat. It then plans the same rhythm with
+your footage, writes a `.cube` LUT that moves your colour towards the reference's look, renders frame-exact, and
+compares the result with the reference until the gaps are closed. Text, zooms and speed ramps are read from stills
+of each shot. It rebuilds the structure and style with your own footage, music and words; it does not reuse the
+reference's media.
+
 ## Analysing the crypto market
 
 The bundled `crypto-market-analysis` skill (`/crypto-market-analysis SOL`, or just ask: "how does ETH look this

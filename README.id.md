@@ -809,6 +809,18 @@ supaya SEEKER bisa memeriksanya; setelah itu SEEKER melihat frame hasilnya sebel
 Butuh `ffmpeg` dan `python3`; subtitle dan judul juga butuh Pillow (`pip install pillow`). Drag file ke terminal
 untuk menyebutkannya. Untuk merencanakan video dari sebuah brief, ada skill `video-production`.
 
+### Mengedit seperti editor profesional, dan meniru video referensi
+
+Skill bawaan `video-editor` (`/video-editor`, atau "edit seperti video ini") bekerja sebagai editor ahli untuk
+film, YouTube Shorts, Instagram Reels, dan TikTok: hook dan pacing, teknik potong, warna, loudness, caption yang
+ditempatkan di luar area UI tiap aplikasi, dan ekspor per platform. Beri video referensi, dan skrip bawaannya
+(`scripts/refcut.py`, cukup Python dan ffmpeg) mengukur editnya: setiap potongan dan panjang shot, seberapa banyak
+gerak tiap shot, tampilan warna, loudness, tempo musik, dan berapa banyak potongan yang jatuh di beat. Lalu ia
+menyusun ritme yang sama dengan footage-mu, menulis LUT `.cube` yang menggeser warnamu ke tampilan referensi,
+merender dengan presisi frame, dan membandingkan hasilnya dengan referensi sampai selisihnya tertutup. Teks, zoom,
+dan speed ramp dibaca dari still tiap shot. Yang ditiru adalah struktur dan gayanya, dengan footage, musik, dan
+kata-katamu sendiri; media milik referensi tidak dipakai ulang.
+
 ## Menganalisa market crypto
 
 Skill bawaan `crypto-market-analysis` (`/crypto-market-analysis SOL`, atau cukup minta: "gimana ETH minggu ini?")

@@ -41,7 +41,7 @@ src/                all agent code (README "How it works" maps each file to its 
   skills.mjs        skill discovery (bundled, user, project, plugin)
   commands.mjs      slash commands; menu.mjs pickers; ui/screen/input/markdown = TUI
   platforms/        telegram, discord, slack, socket for the gateway
-skills/<name>/SKILL.md   93 bundled skills (frontmatter: name, description)
+skills/<name>/SKILL.md   94 bundled skills (frontmatter: name, description)
 test/*.test.mjs     node:test suites, one per area
 remote-server/      relay server.mjs + public/ phone app (app.js, sw.js, manifest)
 docs/               README screenshots
