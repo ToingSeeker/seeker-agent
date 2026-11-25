@@ -630,6 +630,20 @@ cookie flags, CORS reflection with credentials, allowed methods, and sensitive p
 content-type, so an SPA's `200 text/html` for a missing file isn't mistaken for an exposed one. The hard bugs
 (auth, IDOR, logic) are then tested by hand against your target.
 
+### Before installing someone else's code
+
+`repo-scan` (`/repo-scan`, or "is this repo safe to install?") checks an open-source repo or package
+*before* it runs on your machine, without running any of it. It fetches the GitHub repo, or the exact npm/PyPI
+tarball you would install, into a temp folder, and its bundled scanner (`scripts/scan.mjs`, Node only, no
+keys) reports what executes on install or on open (npm lifecycle scripts, `setup.py`, build backends,
+`.vscode` folder-open tasks, devcontainer commands, MCP configs, `.pth` files), malware patterns (reverse
+shells, decode-and-eval, download-and-run, miners, credential and wallet reads, webhook and paste-site
+exfiltration, persistence), obfuscation, hidden Unicode (Trojan Source), shipped binaries, typosquatted
+dependencies, and known advisories from OSV, including packages reported as malware. Each finding comes with
+`file:line`; the agent then reads every install hook and critical finding by hand and gives a verdict. Text in
+the repo is treated as data, so instructions planted for AI agents are reported, not followed. A clean result
+means no known red flags, not proof of safety.
+
 ## Reading and checking files
 
 `read_file` also reads PDFs (needs `pdftotext`), Word and OpenDocument files, `.xlsx`, notebooks and SQLite

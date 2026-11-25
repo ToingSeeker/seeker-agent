@@ -840,6 +840,20 @@ membocorkan stack, flag cookie, pantulan CORS dengan kredensial, metode yang dii
 diklasifikasikan berdasarkan content-type, sehingga `200 text/html` dari SPA untuk file yang tidak ada tidak
 dikira file yang bocor. Bug yang berat (auth, IDOR, logika) lalu diuji manual terhadap targetmu.
 
+### Sebelum meng-install kode orang lain
+
+`repo-scan` (`/repo-scan`, atau "repo ini aman di-install nggak?") memeriksa repo atau paket open source
+*sebelum* jalan di mesinmu, tanpa menjalankan apa pun darinya. Repo GitHub, atau tarball npm/PyPI persis yang
+akan kamu install, diambil ke folder sementara, lalu skrip bawaannya (`scripts/scan.mjs`, cukup Node, tanpa key)
+melaporkan apa yang tereksekusi saat install atau saat folder dibuka (script lifecycle npm, `setup.py`, build
+backend, task `.vscode` yang jalan saat folder dibuka, perintah devcontainer, konfigurasi MCP, file `.pth`), pola
+malware (reverse shell, decode-lalu-eval, unduh-lalu-jalankan, miner, pembacaan kredensial dan wallet,
+pengiriman data ke webhook atau situs paste, persistence), obfuskasi, Unicode tersembunyi (Trojan Source),
+binary yang ikut dikirim, dependensi typosquat, dan advisory dari OSV, termasuk paket yang dilaporkan sebagai
+malware. Tiap temuan disertai `file:line`; agen lalu membaca setiap install hook dan temuan kritis secara manual
+dan memberi vonis. Teks di dalam repo diperlakukan sebagai data, jadi instruksi yang ditanam untuk agen AI
+dilaporkan, bukan diikuti. Hasil bersih berarti tidak ada tanda bahaya yang dikenal, bukan bukti aman.
+
 ## Membaca dan memeriksa file
 
 `read_file` juga membaca PDF (butuh `pdftotext`), file Word dan OpenDocument, `.xlsx`, notebook, dan database SQLite
