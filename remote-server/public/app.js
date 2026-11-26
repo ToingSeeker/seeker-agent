@@ -12,7 +12,7 @@ import { SOURCES, WORKSPACE_SORTS, activity, connection, crew, current, localFol
 import { SORTS, STATUSES, filters, queues, since, statusOf, switcher, view as sessionsView } from './sessions.js';
 import { MODEL_SLOTS, PRICES_AS_OF, RANGES, approx, chargedPart, charged, compact, costKind, dayLabel, fullDay, labelled, modelName, percent, sharePercent, shortDay, view as usageView } from './usage.js';
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
-import { gatePlan, openGate } from './jackin.js';
+import { codeRain, gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
 import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, PROJECT_CHARACTERS, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from './characters.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
@@ -51,6 +51,7 @@ const ICONS = {
   chevron: svg('<path d="M9 6l6 6-6 6"/>'),
   back: svg('<path d="M15 6l-6 6 6 6"/>'),
   down: svg('<path d="M6 9l6 6 6-6"/>'),
+  up: svg('<path d="M6 15l6-6 6 6"/>'),
   folder: svg('<path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>'),
   grid: svg('<rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/>'),
   home: svg('<path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-4v-6h-6v6H5a1 1 0 01-1-1z"/>'),
@@ -3972,6 +3973,35 @@ const voiceClock = (ms) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 
+// The talk page dresses like the Jack In gate: its code rain behind (codeRain, jackin.js), and what was said
+// typed out in green like the gate's prompt, a few letters at a time behind a blinking cursor.
+let talkRain = null;
+const typing = { shown: '', target: '', timer: 0 };
+const talkStill = () => $('talk').classList.contains('still') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** Types `target` into the talk page: on from what is shown when it carries on from it, from where they part if not. */
+function typeTalk(target) {
+  const out = $('talk').querySelector('.talk-typed');
+  const text = $('talk-text');
+  typing.target = target;
+  if (talkStill()) typing.shown = target;
+  else {
+    let same = 0;
+    while (same < typing.shown.length && typing.shown[same] === target[same]) same++;
+    typing.shown = typing.shown.slice(0, same);
+  }
+  const step = () => {
+    clearTimeout(typing.timer);
+    const left = typing.target.length - typing.shown.length;
+    if (left > 0) typing.shown = typing.target.slice(0, typing.shown.length + Math.max(1, Math.ceil(left / 40))); // a long text still lands in ~1s
+    out.textContent = typing.shown;
+    text.classList.toggle('typing', typing.shown.length < typing.target.length);
+    text.scrollTop = text.scrollHeight; // the newest words stay in sight
+    text.classList.toggle('scrolls', text.scrollHeight > text.clientHeight);
+    if (typing.shown.length < typing.target.length) typing.timer = setTimeout(step, 28);
+  };
+  step();
+}
+
 /** The talk page as the voice note stands: what was said, where it is, and what can be done now. */
 function showVoice() {
   const mic = $('mic');
@@ -3982,30 +4012,102 @@ function showVoice() {
   const page = $('talk');
   page.hidden = !voice;
   if (!voice) {
+    talkRain?.stop();
+    talkRain = null;
+    clearTimeout(typing.timer);
+    typing.shown = '';
     delete page.dataset.phase;
+    page.style.transform = page.style.opacity = page.style.transition = ''; // ready to open again where it belongs
     return $('talk-actions').replaceChildren();
   }
   const changed = page.dataset.phase !== voice.phase;
   page.dataset.phase = voice.phase;
   page.classList.toggle('still', state.device?.settings?.animation === false);
+  if (!talkRain) talkRain = codeRain($('talk-rain'), { still: talkStill() });
   const done = voice.phase === 'done';
   const said = done ? voice.text : voice.said;
   const text = $('talk-text');
-  text.textContent = said || (voice.phase === 'rec' ? 'Listening… tell SEEKER what to do.' : '');
+  const line = said || (voice.phase === 'rec' ? 'listening... tell SEEKER what to do' : '');
+  $('talk-said').textContent = said || ''; // read out whole; the typing is only for the eyes
   text.classList.toggle('hint', !said);
   text.classList.toggle('partial', Boolean(said) && !done);
-  text.scrollTop = text.scrollHeight; // the newest words stay in sight
+  typeTalk(line ? `> ${line}` : '');
   $('talk-state').textContent =
     voice.phase === 'rec' ? voiceClock(Date.now() - voice.started) : voice.phase === 'up' ? 'Sending it to your Mac…' : voice.phase === 'text' ? 'Your Mac is turning it into text…' : 'Check it, then send it.';
   if (!changed) return; // the buttons stay as they are between ticks, so a tap on one is never lost
+  // No Cancel button: the page is swiped up to throw the voice note away (or Escape on a keyboard).
+  $('talk-swipe').replaceChildren(h('span', { class: 'ico', icon: 'up' }), done ? 'Swipe up to discard' : 'Swipe up to cancel');
   const btn = (label, cls, onclick) => h('button', { class: `btn${cls ? ` ${cls}` : ''}`, type: 'button', onclick }, label);
   $('talk-actions').replaceChildren(
-    ...(voice.phase === 'rec'
-      ? [btn('Cancel', '', () => stopVoice(true)), btn('Done', 'primary', () => stopVoice(false))]
-      : done
-        ? [btn('Edit', '', () => useVoice(false)), btn('Send', 'primary', () => useVoice(true))]
-        : [btn('Cancel', '', () => endVoice())]),
+    ...(voice.phase === 'rec' ? [btn('Done', 'talk-done', () => stopVoice(false))] : done ? [btn('Edit', '', () => useVoice(false)), btn('Send', 'primary', () => useVoice(true))] : []),
   );
+}
+
+/** Throws the voice note away, wherever it is: recording, on its way, being turned into text, or shown. */
+function cancelVoice() {
+  if (!voice) return;
+  if (voice.phase === 'rec') return stopVoice(true);
+  endVoice();
+}
+
+// Swiping the talk page up cancels it. The page follows the finger; let go past a quarter of the screen (or
+// with a quick flick) and it flies off the top, otherwise it settles back. A drag starts only after the
+// finger has moved upward, so taps on Done/Edit/Send still land, and text that scrolls keeps its own scroll.
+const SWIPE_START = 10; // px of movement before the page takes the gesture
+const SWIPE_SHARE = 0.25; // of the page's height, to cancel on release
+const SWIPE_FLICK = 0.6; // px/ms upward, to cancel however short the swipe
+const SWIPE_WINDOW = 100; // ms of movement the speed is measured over
+function swipeTalk() {
+  const page = $('talk');
+  let drag = null;
+  let dragged = 0; // when the last drag ended: the click that follows it is not a tap
+  const still = () => page.classList.contains('still') || matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const place = (dy, animate) => {
+    page.style.transition = animate ? 'transform 220ms ease-out, opacity 220ms ease-out' : 'none';
+    page.style.transform = dy ? `translateY(${dy}px)` : '';
+    page.style.opacity = dy ? String(Math.max(0, 1 + dy / page.clientHeight)) : '';
+  };
+  page.addEventListener('pointerdown', (e) => {
+    if (!voice || e.button > 0) return;
+    const text = $('talk-text');
+    if (text.contains(e.target) && text.scrollHeight > text.clientHeight) return; // its own scroll comes first
+    drag = { id: e.pointerId, y: e.clientY, moves: [], on: false, mine: voice };
+  });
+  page.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dy = e.clientY - drag.y;
+    if (!drag.on) {
+      if (dy > SWIPE_START) return (drag = null); // downward: not a swipe to cancel
+      if (dy > -SWIPE_START) return;
+      drag.on = true;
+      page.setPointerCapture?.(e.pointerId);
+    }
+    drag.moves.push({ y: e.clientY, t: e.timeStamp });
+    place(Math.min(0, dy), false);
+  });
+  const release = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const { on, mine, y, moves } = drag;
+    drag = null;
+    if (!on) return;
+    dragged = e.timeStamp;
+    const up = y - e.clientY;
+    // How fast it was going over the last tenth of a second; a finger that stopped before letting go is not a flick.
+    const from = moves.find((m) => e.timeStamp - m.t <= SWIPE_WINDOW);
+    const v = from && e.timeStamp - from.t > 0 ? (from.y - e.clientY) / (e.timeStamp - from.t) : 0;
+    if (e.type === 'pointerup' && voice === mine && (up > page.clientHeight * SWIPE_SHARE || v > SWIPE_FLICK)) {
+      if (navigator.vibrate) navigator.vibrate(20);
+      if (still()) return cancelVoice();
+      place(-page.clientHeight, true);
+      return setTimeout(() => voice === mine && cancelVoice(), 220);
+    }
+    place(0, !still());
+  };
+  page.addEventListener('pointerup', release);
+  page.addEventListener('pointercancel', release);
+  // A tap that ends a drag is not also a tap on the button under the finger.
+  page.addEventListener('click', (e) => dragged && e.timeStamp - dragged < 400 && (e.stopPropagation(), e.preventDefault()), true);
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && voice && !page.hidden && cancelVoice());
 }
 
 /** Listens to the microphone for the wave. `ctx` is made during the tap (iOS starts sound only from one). */
@@ -4030,8 +4132,12 @@ function quietVoice(mine) {
   mine.audio = null;
 }
 
-const WAVE_BAR = 4; // px, and as much again between bars
-/** Draws the wave: the voice's loudness, newest on the right, while it is recorded; a line once it is not. */
+const WAVE_STRANDS = 14; // thin lines woven into the one wave
+/**
+ * Draws the wave: strands of light woven around one line, swelling where the voice was loud (the last few
+ * seconds run across it, newest on the right) and rippling with how loud it is now. Once the recording ends
+ * it settles into a calm drift, and it keeps drifting until the page closes.
+ */
 function drawWave(mine) {
   if (voice !== mine) return;
   const canvas = $('talk-wave');
@@ -4059,21 +4165,75 @@ function drawWave(mine) {
       if (a.levels.length > 120) a.levels.shift();
     }
   }
-  $('talk').style.setProperty('--lvl', mine.phase === 'rec' && a ? a.level.toFixed(3) : '0');
+  const rec = mine.phase === 'rec';
+  const level = rec && a ? a.level : 0;
+  $('talk').style.setProperty('--lvl', level.toFixed(3));
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, hgt);
-  g.fillStyle = mine.phase === 'rec' ? css.getPropertyValue('--sk-primary').trim() || '#FF8A00' : css.getPropertyValue('--sk-text-muted').trim() || '#858993';
-  const bars = Math.floor(w / (WAVE_BAR * 2));
   const levels = a?.levels ?? mine.levels ?? [];
-  for (let i = 0; i < bars; i++) {
-    const level = levels[levels.length - bars + i] ?? 0;
-    const bar = Math.max(WAVE_BAR, level * hgt);
-    const x = i * WAVE_BAR * 2 + WAVE_BAR / 2;
-    g.beginPath();
-    g.roundRect ? g.roundRect(x, (hgt - bar) / 2, WAVE_BAR, bar, WAVE_BAR / 2) : g.rect(x, (hgt - bar) / 2, WAVE_BAR, bar);
-    g.fill();
+  const n = 120; // samples across the width, as many as are kept
+  // How much the wave swells at x (0–1): the loudness there, smoothed, never quite flat.
+  const swell = (x) => {
+    const at = (x / w) * (n - 1);
+    let sum = 0;
+    let weight = 0;
+    for (let d = -6; d <= 6; d++) {
+      const k = Math.round(at) + d;
+      const lv = levels[levels.length - n + k] ?? 0;
+      const wt = Math.exp(-(d * d) / 12);
+      sum += lv * wt;
+      weight += wt;
+    }
+    return sum / weight;
+  };
+  const t = now / 1000;
+  const cy = hgt / 2;
+  const reach = hgt / 2 - 4;
+  const cyan = css.getPropertyValue('--sk-cyan').trim() || '#31D8F4';
+  const ink = rec ? cyan : css.getPropertyValue('--sk-text-muted').trim() || '#858993';
+  // Strong in the middle, fading out at both ends, like light on a line.
+  const fade = g.createLinearGradient(0, 0, w, 0);
+  fade.addColorStop(0, 'rgba(0,0,0,0)');
+  fade.addColorStop(0.15, ink);
+  fade.addColorStop(0.85, ink);
+  fade.addColorStop(1, 'rgba(0,0,0,0)');
+  const step = 3;
+  const env = [];
+  for (let x = 0; x <= w; x += step) {
+    const e = x / w;
+    const ends = Math.sin(Math.PI * e); // the wave is pinned at its two ends
+    env.push(ends * Math.min(1, 0.06 + swell(x) * 1.15 + level * 0.35 * Math.exp(-(((e - 0.62) / 0.2) ** 2))));
   }
-  if (mine.phase === 'rec') mine.frame = requestAnimationFrame(() => drawWave(mine));
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  g.strokeStyle = fade;
+  for (let s = 0; s < WAVE_STRANDS; s++) {
+    const p = s / (WAVE_STRANDS - 1);
+    const phase = p * 2.4;
+    g.globalAlpha = (rec ? 0.22 : 0.12) + 0.18 * Math.sin(Math.PI * p);
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let i = 0, x = 0; x <= w; i++, x += step) {
+      const k = x / w;
+      const y = cy + env[i] * reach * Math.sin(k * 14 + phase - t * 2.2) * Math.cos(k * 5 - phase * 0.6 + t * 0.9);
+      i ? g.lineTo(x, y) : g.moveTo(x, y);
+    }
+    g.stroke();
+  }
+  // The glowing core: one brighter line where the strands cross.
+  g.globalAlpha = rec ? 0.9 : 0.5;
+  g.lineWidth = 1.6;
+  g.shadowColor = ink;
+  g.shadowBlur = 12;
+  g.beginPath();
+  for (let i = 0, x = 0; x <= w; i++, x += step) {
+    const k = x / w;
+    const y = cy + env[i] * reach * 0.55 * Math.sin(k * 14 + 1.2 - t * 2.2) * Math.cos(k * 5 - 0.7 + t * 0.9);
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.stroke();
+  g.restore();
+  if (!talkStill()) mine.frame = requestAnimationFrame(() => drawWave(mine));
 }
 
 function endVoice() {
@@ -4263,6 +4423,7 @@ function useVoice(send) {
 if (canRecord) {
   $('mic').innerHTML = ICONS.mic;
   $('talk-bot').innerHTML = ICONS.logo;
+  swipeTalk();
   $('mic').addEventListener('click', () => (voice?.phase === 'rec' ? stopVoice(false) : startVoice()));
 }
 

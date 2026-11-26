@@ -94,20 +94,41 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   const app = read('app.js');
   const css = read('style.css');
   // The page sits outside the app, robot over wave over text, with its buttons last; the old strip is gone.
-  const page = html.slice(html.indexOf('<div id="talk"'), html.indexOf('</div>\n', html.indexOf('id="talk-actions"')));
+  const page = html.slice(html.indexOf('<div id="talk"'), html.indexOf('<div id="toast"'));
   assert.match(page, /role="dialog" aria-modal="true"/);
-  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-bot', 'talk-wave', 'talk-text', 'talk-state', 'talk-actions']);
+  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-rain', 'talk-bot', 'talk-wave', 'talk-text', 'talk-said', 'talk-state', 'talk-actions', 'talk-swipe']);
   assert.match(page, /<canvas id="talk-wave"/);
-  assert.match(page, /id="talk-text"[^>]*aria-live="polite"/);
+  // The words are typed out for the eyes; a screen reader hears them whole, once.
+  assert.match(page, /<span id="talk-said" class="sr-only" aria-live="polite"><\/span><span class="talk-typed" aria-hidden="true"><\/span><span class="talk-cur" aria-hidden="true">_<\/span>/);
   assert.ok(!html.includes('id="voice"') && !css.includes('.voice {'), 'no strip above the box any more');
   assert.match(app, /\$\('talk-bot'\)\.innerHTML = ICONS\.logo;/, 'the robot is SEEKER\'s own');
   // Over the sheet, under the toast, so what goes wrong is still read.
   assert.match(css, /\.talk \{[^}]*position: fixed;[^}]*z-index: 25;/);
-  // Each phase has its buttons: Cancel/Done while recording, Cancel while it is turned into text, Edit/Send at the end.
-  const show = app.slice(app.indexOf('function showVoice()'), app.indexOf('function listenTo('));
-  assert.match(show, /btn\('Cancel', '', \(\) => stopVoice\(true\)\), btn\('Done', 'primary', \(\) => stopVoice\(false\)\)/);
+  // Each phase has its buttons: Done while recording, none while it is turned into text, Edit/Send at the end.
+  // There is no Cancel button: the page is swiped up (or Escape) to throw the voice note away.
+  const show = app.slice(app.indexOf('function showVoice()'), app.indexOf('function cancelVoice('));
+  assert.match(show, /voice\.phase === 'rec' \? \[btn\('Done', 'talk-done', \(\) => stopVoice\(false\)\)\]/);
+  assert.match(css, /\.talk-actions \.btn\.talk-done,[^}]*background: none;[^}]*color: var\(--sk-primary\);/, 'Done is orange text, not a pill');
   assert.match(show, /btn\('Edit', '', \(\) => useVoice\(false\)\), btn\('Send', 'primary', \(\) => useVoice\(true\)\)/);
+  assert.ok(!show.includes("btn('Cancel'"), 'no Cancel button on the talk page');
+  assert.match(show, /'Swipe up to cancel'/);
   assert.match(show, /if \(!changed\) return;/, 'the buttons are not rebuilt on every tick');
+  assert.match(show, /page\.style\.transform = page\.style\.opacity = page\.style\.transition = '';/, 'a swiped page opens in place next time');
+  // Cancelling stops a recording (mic off, nothing sent) and ends the note in any other phase.
+  const cancel = app.slice(app.indexOf('function cancelVoice('), app.indexOf('const SWIPE_START'));
+  assert.match(cancel, /if \(voice\.phase === 'rec'\) return stopVoice\(true\);\s*endVoice\(\);/);
+  // The swipe: only upward, only after the finger has moved, past a share of the page or a flick; a scrolling
+  // text keeps its own scroll, the click ending a drag is swallowed, and Escape does the same on a keyboard.
+  const swipe = app.slice(app.indexOf('function swipeTalk('), app.indexOf('/** Listens to the microphone'));
+  assert.match(swipe, /if \(dy > SWIPE_START\) return \(drag = null\);/);
+  assert.match(swipe, /up > page\.clientHeight \* SWIPE_SHARE \|\| v > SWIPE_FLICK/);
+  assert.match(swipe, /e\.type === 'pointerup' && voice === mine/, 'a cancelled touch or a newer note is never thrown away');
+  assert.match(swipe, /text\.scrollHeight > text\.clientHeight\) return;/);
+  assert.match(swipe, /e\.stopPropagation\(\), e\.preventDefault\(\)/);
+  assert.match(swipe, /e\.key === 'Escape' && voice && !page\.hidden && cancelVoice\(\)/);
+  assert.match(app, /\$\('talk-bot'\)\.innerHTML = ICONS\.logo;\s*swipeTalk\(\);/);
+  assert.match(css, /\.talk \{[^}]*touch-action: none;/);
+  assert.match(css, /\.talk-text\.scrolls \{\s*touch-action: pan-y;/);
   // Previews go up one at a time, quietly, marked partial; their text is only shown, never sent or put in the box.
   const preview = app.slice(app.indexOf('function previewVoice('), app.indexOf('function stopVoice('));
   assert.match(preview, /partial: true/);
@@ -128,6 +149,16 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   assert.match(app, /page\.classList\.toggle\('still', state\.device\?\.settings\?\.animation === false\)/);
   assert.match(css, /\.talk\.still \.talk-bot,/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.talk,/);
+  // Dressed like the Jack In gate: its code rain behind, the words typed in green, stopped when the page closes.
+  assert.match(app, /import \{ codeRain, gatePlan, openGate \} from '\.\/jackin\.js';/);
+  assert.match(show, /if \(!talkRain\) talkRain = codeRain\(\$\('talk-rain'\), \{ still: talkStill\(\) \}\);/);
+  assert.match(show, /talkRain\?\.stop\(\);\s*talkRain = null;/);
+  assert.match(css, /\.talk-text \{[^}]*color: var\(--sk-success\);/);
+  assert.match(css, /\.talk-rain \{[^}]*z-index: -1;/);
+  // The wave keeps drifting while the page is open, and stops for good when the note ends or motion is off.
+  const wave = app.slice(app.indexOf('function drawWave('), app.indexOf('function endVoice('));
+  assert.match(wave, /if \(voice !== mine\) return;/);
+  assert.match(wave, /if \(!talkStill\(\)\) mine\.frame = requestAnimationFrame/);
 });
 
 test('+ offers everything that goes into a message, including files of any kind', () => {

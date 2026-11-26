@@ -3655,11 +3655,31 @@ pre {
   justify-content: center;
   gap: 18px;
   padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
-  background: radial-gradient(120% 70% at 50% 34%, var(--sk-primary-soft), transparent 60%), var(--sk-bg);
+  overflow: hidden;
+  background: var(--sk-bg);
   animation: fade var(--sk-motion-fast) ease-out;
+  touch-action: none; /* swiped up to cancel (swipeTalk in app.js), so the browser does not scroll it */
+  user-select: none;
+  -webkit-user-select: none;
 }
 .talk[hidden] {
   display: none;
+}
+/* Behind it all, the gate's code rain (codeRain in jackin.js) and its faint scanlines. */
+.talk-rain {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.talk::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 3px);
 }
 .talk-bot {
   width: 132px;
@@ -3688,26 +3708,34 @@ pre {
   animation: pulse 1s ease-in-out infinite;
 }
 .talk-wave {
-  width: min(86vw, 360px);
-  height: 84px;
+  width: 100vw;
+  max-width: 560px;
+  height: 120px;
 }
+/* What was said, typed out in green like the gate's prompt (typeTalk in app.js). */
 .talk-text {
   width: min(90vw, 440px);
   max-height: 32vh;
   margin: 0;
   overflow-y: auto;
-  font-size: 20px;
-  line-height: 1.45;
+  font: 500 16px/1.6 var(--mono);
+  letter-spacing: 0.02em;
   text-align: center;
-  color: var(--sk-text-primary);
+  color: var(--sk-success);
+  text-shadow: 0 0 8px rgba(80, 209, 95, 0.35);
   overflow-wrap: anywhere;
 }
 .talk-text.partial {
-  color: var(--sk-text-secondary);
+  opacity: 0.8;
 }
 .talk-text.hint {
-  color: var(--sk-text-muted);
-  font-size: 16px;
+  font-size: 14px;
+}
+.talk-cur {
+  animation: g-cursor 1s step-end infinite;
+}
+.talk-text.typing .talk-cur {
+  animation: none; /* solid while it types, blinking once it waits */
 }
 .talk-state {
   font: 13px/1.4 var(--mono);
@@ -3724,11 +3752,44 @@ pre {
   vertical-align: 1px;
   animation: pulse 1s ease-in-out infinite;
 }
+.talk-text.scrolls {
+  touch-action: pan-y; /* long text still scrolls; short text is part of the swipe */
+}
 .talk-actions {
   display: flex;
   gap: 12px;
   width: min(90vw, 400px);
   margin-top: auto;
+}
+.talk-actions:empty {
+  min-height: 52px; /* nothing to tap while it is turned into text; the page keeps its shape */
+}
+.talk-swipe {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--sk-text-muted);
+}
+.talk-swipe .ico {
+  display: block;
+  width: 20px;
+  height: 20px;
+  animation: talk-nudge 1.6s ease-in-out infinite;
+}
+.talk-swipe .ico svg {
+  width: 100%;
+  height: 100%;
+}
+@keyframes talk-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
 }
 .talk-actions .btn {
   flex: 1;
@@ -3736,6 +3797,19 @@ pre {
   margin: 0;
   min-height: 52px;
   border-radius: 26px;
+}
+/* Done is a word in orange, not a pill. */
+.talk-actions .btn.talk-done,
+.talk-actions .btn.talk-done:active {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  color: var(--sk-primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+.talk-actions .btn.talk-done:active {
+  opacity: 0.6;
 }
 @keyframes talk-think {
   0%,
@@ -3748,6 +3822,8 @@ pre {
 }
 .talk.still .talk-bot,
 .talk.still .talk-bot *,
+.talk.still .talk-cur,
+.talk.still .talk-swipe .ico,
 .talk.still .talk-state::before {
   animation: none;
   transform: none;
@@ -3756,6 +3832,8 @@ pre {
   .talk,
   .talk .talk-bot,
   .talk .talk-bot *,
+  .talk .talk-cur,
+  .talk .talk-swipe .ico,
   .talk .talk-state::before {
     animation: none;
   }
