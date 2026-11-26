@@ -96,7 +96,7 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   // The page sits outside the app, robot over wave over text, with its buttons last; the old strip is gone.
   const page = html.slice(html.indexOf('<div id="talk"'), html.indexOf('<div id="toast"'));
   assert.match(page, /role="dialog" aria-modal="true"/);
-  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-rain', 'talk-bot', 'talk-wave', 'talk-text', 'talk-said', 'talk-state', 'talk-actions', 'talk-swipe']);
+  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-rain', 'talk-bot', 'talk-wave', 'talk-text', 'talk-said', 'talk-edit', 'talk-state', 'talk-actions', 'talk-swipe']);
   assert.match(page, /<canvas id="talk-wave"/);
   // The words are typed out for the eyes; a screen reader hears them whole, once.
   assert.match(page, /<span id="talk-said" class="sr-only" aria-live="polite"><\/span><span class="talk-typed" aria-hidden="true"><\/span><span class="talk-cur" aria-hidden="true">_<\/span>/);
@@ -108,8 +108,35 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   // There is no Cancel button: the page is swiped up (or Escape) to throw the voice note away.
   const show = app.slice(app.indexOf('function showVoice()'), app.indexOf('function cancelVoice('));
   assert.match(show, /voice\.phase === 'rec' \? \[btn\('Done', 'talk-done', \(\) => stopVoice\(false\)\)\]/);
-  assert.match(css, /\.talk-actions \.btn\.talk-done,[^}]*background: none;[^}]*color: var\(--sk-primary\);/, 'Done is orange text, not a pill');
-  assert.match(show, /btn\('Edit', '', \(\) => useVoice\(false\)\), btn\('Send', 'primary', \(\) => useVoice\(true\)\)/);
+  assert.match(css, /#talk-actions \.btn\.talk-done,[^}]*background: none;[^}]*color: var\(--sk-primary\);/, 'Done is orange text, not a pill');
+  assert.match(css, /#talk-actions \.btn,\s*#talk-actions \.btn:active \{[^}]*border-color: transparent;[^}]*background: none;/, 'Edit, mic and Send are not pills');
+  assert.match(css, /#talk-actions \.btn\.primary \{\s*color: var\(--sk-primary\);/, 'Send is orange text');
+  // Edit fixes the words on the page itself, the mic between adds more after them, Send (with its icon) sends.
+  assert.match(show, /editing \? \[add, send\] : done \? \[btn\('Edit', '', editVoice, 'pencil'\), add, send\]/);
+  assert.match(show, /btn\('', 'talk-more', \(\) => startVoice\(true\), 'mic'/);
+  assert.match(show, /btn\('Send', 'primary', \(\) => useVoice\(true\), 'send', \{ id: 'talk-send', disabled: !voice\.text\?\.trim\(\) \}\)/);
+  assert.match(show, /text\.hidden = editing;\s*\$\('talk-edit'\)\.hidden = !editing;/);
+  assert.match(show, /: voiceTo\(voice, editing\);/, 'under the words: where Send takes them');
+  const to = app.slice(app.indexOf('function voiceTo('), app.indexOf('function editVoice('));
+  assert.match(to, /state\.view\.ws === mine\.ws/, 'says so when the note is for a project that is not open');
+  // The box to fix them in: the swipe leaves it alone, Return sends, Escape only stops fixing.
+  assert.match(page, /<textarea id="talk-edit" class="talk-edit" rows="3" enterkeyhint="send"[^>]*hidden><\/textarea>/);
+  assert.match(css, /\.talk-edit \{[^}]*font: 500 16px/, '16px, so iOS does not zoom in');
+  assert.match(css, /\.talk-edit \{[^}]*touch-action: auto;[^}]*user-select: text;/);
+  assert.match(app, /if \(e\.target === \$\('talk-edit'\)\) return;/);
+  assert.match(app, /if \(e\.key === 'Enter' && !e\.shiftKey && !e\.isComposing\) return e\.preventDefault\(\), useVoice\(true\);/);
+  assert.match(app, /if \(e\.key === 'Escape' && voice\?\.editing\) \{\s*e\.stopPropagation\(\);/);
+  // Send goes once, however often it is tapped.
+  const use = app.slice(app.indexOf('function useVoice('), app.indexOf('if (canRecord) {'));
+  assert.match(use, /if \(!text \|\| mine\.used\) return;[^\n]*\n\s*mine\.used = true;/);
+  // Adding more: what was said stays in front, and a recording that comes to nothing keeps it.
+  const start = app.slice(app.indexOf('async function startVoice('), app.indexOf('function previewVoice('));
+  assert.match(start, /const prev = more && voice\?\.phase === 'done' \? voice : null;/);
+  assert.match(start, /if \(voice !== prev \|\| prev\?\.used\) \{\s*stream\.getTracks\(\)\.forEach\(\(t\) => t\.stop\(\)\);/, 'a mic opened for a note that is gone is closed again');
+  assert.match(app, /mine\.text = joinVoice\(mine\.before, text\);/);
+  const fail = app.slice(app.indexOf('function failVoice('), app.indexOf('async function sendVoice('));
+  assert.match(fail, /if \(!mine\.before\) return endVoice\(\);/);
+  assert.match(fail, /text: mine\.before/);
   assert.ok(!show.includes("btn('Cancel'"), 'no Cancel button on the talk page');
   assert.match(show, /'Swipe up to cancel'/);
   assert.match(show, /if \(!changed\) return;/, 'the buttons are not rebuilt on every tick');
@@ -142,7 +169,6 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   const upload = app.slice(app.indexOf('async function uploadFiles('), app.indexOf('function showAttachments('));
   assert.match(upload, /if \(!quiet\) \{\s*uploading = null;/);
   // The sound graph is made before anything is awaited (iOS starts sound only inside the tap) and closed at the end.
-  const start = app.slice(app.indexOf('async function startVoice()'), app.indexOf('function previewVoice('));
   assert.ok(start.indexOf('new Ctx()') < start.indexOf('await navigator.mediaDevices.getUserMedia'));
   assert.match(app, /mine\.audio\?\.ctx\.close\?\.\(\)/);
   // The robot keeps still when animation is off or less motion is asked for.
