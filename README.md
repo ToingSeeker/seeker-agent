@@ -117,7 +117,10 @@ What turns speech into text is set by `voiceEngine` (`/config`):
   (`GROQ_API_KEY` / `OPENAI_API_KEY`, or one added in `/model`). The recording is sent to them.
 - `off`: no voice notes.
 
-`voiceLanguage` (`id`, `en`, …) tells the engine which language to expect; empty lets it tell. The mic
+`voiceLanguage` (`id`, `en`, …) tells the engine which language to expect; empty lets it tell. Several
+(`id,en`) let it tell among those only: a short note heard as some other language ("hi seeker" as
+Icelandic) is done again in the first. `voiceWords` lists words it should spell right, comma-separated
+(project names, tools); SEEKER is always one. The mic
 asks for microphone permission the first time; on an iPhone the app must be opened from the Home Screen
 or Safari over HTTPS.
 

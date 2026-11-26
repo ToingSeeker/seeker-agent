@@ -78,11 +78,13 @@ export const DEFAULTS = {
   swarmBudget: '',
   // Voice notes from the phone (src/transcribe.mjs): what turns speech into text — 'auto' (whisper.cpp on
   // this machine if it is installed, else Groq, else OpenAI, with the keys already set), 'whisper-cpp',
-  // 'groq', 'openai' or 'off'. voiceLanguage: a language code such as 'id' or 'en', or '' to let it tell.
+  // 'groq', 'openai' or 'off'. voiceLanguage: a language code such as 'id' or 'en', several ('id,en') to let
+  // it tell among those only, or '' to let it tell. voiceWords: words to spell right (SEEKER is always one).
   // voiceWhisperModel: the ggml model file for whisper.cpp ('' finds the largest in the usual folders).
   // voiceAutoSend: send the text at once instead of putting it in the box to check first.
   voiceEngine: 'auto',
   voiceLanguage: '',
+  voiceWords: '',
   voiceWhisperModel: '',
   voiceAutoSend: false,
 };
@@ -114,7 +116,15 @@ export const SETTINGS = {
   cacheTtl: { parse: (v) => (['5m', '1h'].includes(v) ? v : undefined), help: 'how long Anthropic keeps the conversation cached: 5m or 1h' },
   swarmBudget: { parse: (v) => budgetSetting(v), help: 'most the helpers may spend per message: tokens (500k, 2m) or dollars ($2); "off" for no limit' },
   voiceEngine: { parse: (v) => (['auto', 'whisper-cpp', 'groq', 'openai', 'off'].includes(v.toLowerCase()) ? v.toLowerCase() : undefined), help: 'what turns phone voice notes into text: auto, whisper-cpp, groq, openai or off' },
-  voiceLanguage: { parse: (v) => (['', 'auto', 'none', '-'].includes(v.toLowerCase()) ? '' : /^[a-z]{2,3}$/i.test(v) ? v.toLowerCase() : undefined), help: 'language of voice notes, e.g. id or en ("auto" to let it tell)' },
+  voiceLanguage: {
+    parse: (v) => {
+      if (['', 'auto', 'none', '-'].includes(v.trim().toLowerCase())) return '';
+      const codes = v.toLowerCase().split(/[\s,]+/).filter(Boolean);
+      return codes.length && codes.every((c) => /^[a-z]{2,3}$/.test(c)) ? [...new Set(codes)].join(',') : undefined;
+    },
+    help: 'language of voice notes: id or en, several to choose among (id,en), or "auto" to let it tell',
+  },
+  voiceWords: { parse: (v) => (['-', 'none'].includes(v.trim().toLowerCase()) ? '' : v.split(',').map((w) => w.trim()).filter(Boolean).join(', ')), help: 'words voice notes should spell right, comma-separated (SEEKER is always one); "-" to clear' },
   voiceWhisperModel: { parse: (v) => (['', 'auto', 'none', '-'].includes(v.toLowerCase()) ? '' : v), help: 'whisper.cpp model file for voice notes ("auto" finds the largest installed)' },
   voiceAutoSend: { parse: bool, help: 'send a voice note as soon as it is text, instead of putting it in the box to check' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },

@@ -108,18 +108,34 @@ export function chooseEngine(config = {}, { env = process.env, modelDirs = MODEL
   };
 }
 
-const run = (file, args, timeout) =>
+const run = (file, args, timeout, { both = false } = {}) =>
   new Promise((resolve, reject) =>
     execFile(file, args, { timeout, maxBuffer: 16 * 1024 * 1024 }, (err, stdout, stderr) => {
       if (err) reject(new Error(String(stderr || err.message).trim().split('\n').slice(-3).join(' ') || 'failed'));
-      else resolve(String(stdout));
+      else resolve(both ? { stdout: String(stdout), stderr: String(stderr) } : String(stdout));
     }),
   );
 
-/** The language hint: a two- or three-letter code, or null to let the engine tell. */
-const languageOf = (config) => {
-  const lang = String(config.voiceLanguage ?? '').trim().toLowerCase();
-  return /^[a-z]{2,3}$/.test(lang) ? lang : null;
+/**
+ * The languages voiceLanguage allows, as codes: [] lets the engine tell, one code is the language, and
+ * several ("id,en") let it tell among them only. A short note ("hi seeker") is easily heard as another
+ * language altogether, and then written in that language's spelling.
+ */
+export const languagesOf = (config) => [...new Set(String(config.voiceLanguage ?? '').toLowerCase().split(/[\s,]+/).filter((l) => /^[a-z]{2,3}$/.test(l)))];
+
+/**
+ * Words the engine is told to expect, so they are spelled right: SEEKER's name, then voiceWords (names
+ * of projects, tools, people), comma-separated. Given as the engine's prompt.
+ */
+export const voicePrompt = (config) => {
+  const words = ['SEEKER', ...String(config.voiceWords ?? '').split(',').map((w) => w.trim())].filter(Boolean);
+  return [...new Set(words)].join(', ').slice(0, 400);
+};
+
+/** A transcript that is only the prompt said back is the engine filling silence, not what was said. */
+const echoesPrompt = (text, prompt) => {
+  const bare = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  return Boolean(text) && bare(text) === bare(prompt);
 };
 
 /** whisper.cpp prints each segment on a line of its own; joined, they are the text. */
@@ -137,8 +153,15 @@ async function withWhisper(file, setup, config) {
   try {
     const wav = path.join(dir, 'voice.wav');
     await run(setup.ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wav], RUN_MS);
-    const out = await run(setup.whisper, ['-m', setup.model, '-f', wav, '-l', languageOf(config) ?? 'auto', '-nt', '-np'], RUN_MS);
-    return cleanTranscript(out);
+    const langs = languagesOf(config);
+    const prompt = voicePrompt(config);
+    const pass = (lang) => run(setup.whisper, ['-m', setup.model, '-f', wav, '-l', lang, '-nt', '--prompt', prompt], RUN_MS, { both: true });
+    let out = await pass(langs.length === 1 ? langs[0] : 'auto');
+    // Told among which languages to tell: heard as another one, it is done again in the first of them.
+    const heard = /auto-detected language: ([a-z]{2,3})\b/.exec(out.stderr)?.[1];
+    if (langs.length > 1 && heard && !langs.includes(heard)) out = await pass(langs[0]);
+    const text = cleanTranscript(out.stdout);
+    return echoesPrompt(text, prompt) ? '' : text;
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -149,8 +172,10 @@ async function withCloud(file, setup, engine, config, fetchImpl) {
   form.append('file', new Blob([fs.readFileSync(file)]), path.basename(file));
   form.append('model', CLOUD_MODELS[engine]);
   form.append('response_format', 'json');
-  const lang = languageOf(config);
-  if (lang) form.append('language', lang);
+  const langs = languagesOf(config);
+  if (langs.length === 1) form.append('language', langs[0]); // the services take one language, not a choice of several
+  const prompt = voicePrompt(config);
+  form.append('prompt', prompt);
   const res = await fetchImpl(`${setup.base}/audio/transcriptions`, { method: 'POST', headers: { authorization: `Bearer ${setup.key}` }, body: form, signal: AbortSignal.timeout(RUN_MS) });
   if (!res.ok) {
     let said = '';
@@ -159,7 +184,8 @@ async function withCloud(file, setup, engine, config, fetchImpl) {
     } catch {}
     throw new Error(`${engine === 'groq' ? 'Groq' : 'OpenAI'} answered ${res.status}${said ? `: ${said}` : ''}`);
   }
-  return cleanTranscript((await res.json())?.text);
+  const text = cleanTranscript((await res.json())?.text);
+  return echoesPrompt(text, prompt) ? '' : text;
 }
 
 /**
