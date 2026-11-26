@@ -460,6 +460,31 @@ langkah tool. Gambar lewat relay dalam keadaan terenkripsi, di samping log event
 dan disimpan di sana sepuluh menit. File di atas 2 MB dikirim sebagai JPEG yang lebih kecil di macOS,
 dan ditolak di sistem lain.
 
+### Voice note
+
+Selama kolom ketik kosong, tombol Send berganti jadi tombol mic (begitu ada teks, kembali jadi Send); selama agen bekerja, tempat itu diisi tombol Stop. Tombol mic merekam voice note: ketuk, bicara, lalu ketuk **Done** (atau mic lagi);
+**Cancel** membuangnya. Satu voice note paling lama lima menit. Rekamannya dikirim ke Mac terenkripsi,
+dalam potongan 2 MB yang sama seperti file, diubah jadi teks di sana, lalu dihapus. Teksnya masuk ke
+kotak pesan supaya bisa kamu cek dan betulkan dulu (nama file atau perintah yang salah dengar lebih mudah
+dibetulkan daripada dibatalkan), lalu kirim seperti biasa. Dengan `/config voiceAutoSend on`, teksnya
+langsung terkirim. Voice note tidak memulai apa pun dengan sendirinya, dan voice note yang masih direkam
+atau diproses saat agen mulai bekerja tetap memegang tombol mic sampai selesai.
+
+Yang mengubah suara jadi teks diatur lewat `voiceEngine` (`/config`):
+
+- `auto` (default): whisper.cpp di Mac kalau terpasang, kalau tidak Groq, kalau tidak OpenAI.
+- `whisper-cpp`: di Mac, offline dan gratis; rekamannya tidak pernah keluar dari Mac. Pasang dengan
+  `brew install whisper-cpp ffmpeg`, lalu taruh model di `~/.cache/whisper-cpp/` (misalnya
+  `ggml-large-v3-turbo-q5_0.bin` dari huggingface.co/ggerganov/whisper.cpp). Model terbesar di sana yang
+  dipakai, atau file yang disebut di `voiceWhisperModel`.
+- `groq` atau `openai`: API transkripsi mereka, dengan key yang sudah dimiliki SEEKER untuk provider itu
+  (`GROQ_API_KEY` / `OPENAI_API_KEY`, atau yang ditambahkan lewat `/model`). Rekamannya dikirim ke mereka.
+- `off`: voice note dimatikan.
+
+`voiceLanguage` (`id`, `en`, …) memberi tahu bahasa yang diharapkan; kosong berarti dideteksi sendiri.
+Saat pertama dipakai, mic meminta izin mikrofon; di iPhone aplikasinya harus dibuka dari Home Screen atau
+Safari lewat HTTPS.
+
 ### Video dan file utuh lainnya
 
 Tombol yang sama juga bisa melampirkan video, dan `/file` mengirim file apa pun apa adanya. Video atau

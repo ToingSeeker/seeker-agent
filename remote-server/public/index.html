@@ -28,6 +28,8 @@
         <div id="controls" class="controls" hidden></div>
         <div id="suggest" class="suggest" hidden></div>
         <div id="attachments" class="attachments" hidden></div>
+        <!-- A voice note while it is recorded, sent and turned into text on the Mac (app.js, "voice notes"). -->
+        <div id="voice" class="voice" role="status" hidden></div>
         <!-- At rest one line: +, the writing area, Send. While writing (or with something in it) two levels:
              the writing area has a row to itself; +, the context used, Stop and Send sit under it.
              + opens one sheet with everything that can be added: camera, photos, any file, a file mention, commands.
@@ -41,6 +43,7 @@
             <input id="anyfile" type="file" multiple hidden />
             <span class="grow extra"></span>
             <span id="tokens" class="tokens extra" aria-label="Context used"></span>
+            <button id="mic" class="send mic" type="button" aria-label="Record a voice note" title="Voice note" hidden></button>
             <button id="stop" class="stop-btn" type="button" aria-label="Stop current execution" title="Stop current execution" hidden></button>
             <button id="send" class="send" type="submit" aria-label="Send instruction" title="Send"></button>
           </div>

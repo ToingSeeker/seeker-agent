@@ -727,6 +727,88 @@ test('remote control: a video sent from the phone arrives whole on the Mac, and 
   model.closeAllConnections();
 });
 
+test('remote control: a voice note comes back as text, starts no turn, and leaves no recording behind', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const inbox = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-inbox-'));
+  const secret = 'test-secret-that-is-long-enough-123456';
+  const { key } = deriveKeys(secret);
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const asked = [];
+  const model = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => (body += chunk)).on('end', () => {
+      if (req.url === '/api/chat') asked.push(JSON.parse(body));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(JSON.stringify(done('ok')));
+    });
+  });
+  const host = await listen(model);
+  const config = { ...DEFAULTS, host, bundledSkills: false, voiceAutoSend: false, remote: { url, secret } };
+  const build = async (folder, ui, asker) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info: { tools: true, thinking: false, context: null }, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const heard = [];
+  let fail = null;
+  const transcriber = async (file, cfg) => {
+    heard.push({ file, bytes: fs.readFileSync(file), engine: cfg.voiceEngine });
+    if (fail) throw new Error(fail);
+    return { text: 'tolong cek README', engine: 'fake' };
+  };
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false, inbox, transcriber });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  await until(() => me.state.online && me.state.workspaces.size === 1);
+  const [ws] = [...me.state.workspaces.values()];
+
+  const upload = async (id, bytes) => {
+    for (let n = 0; n < Math.ceil(bytes.length / CHUNK_BYTES); n++) {
+      const c = sealChunk(key, id, n, bytes.subarray(n * CHUNK_BYTES, (n + 1) * CHUNK_BYTES));
+      assert.equal((await fetch(`${url}/api/chunk`, { method: 'POST', headers: me.headers, body: JSON.stringify({ id, n, c }) })).status, 200);
+    }
+  };
+  const answer = (req) => until(() => me.state.events.find((e) => e.t === 'transcript' && e.req === req));
+
+  // The recording goes up sealed in pieces, as any file; the text comes back to the phone that asked.
+  const audio = crypto.randomBytes(CHUNK_BYTES + 500);
+  await me.send('transcribe', { ws: ws.id, req: 'voice-req-0001', file: { id: 'voice-file-0001', name: '../voice-note.m4a', bytes: audio.length } });
+  await upload('voice-file-0001', audio);
+  const got = await answer('voice-req-0001');
+  assert.deepEqual([got.error, got.text, got.engine, got.send], [undefined, 'tolong cek README', 'fake', false]);
+  assert.ok(heard[0].bytes.equals(audio), 'the engine hears the recording whole');
+  assert.equal(path.basename(heard[0].file), 'voice-note.m4a', 'under a clean name');
+  assert.ok(!heard[0].file.startsWith(inbox), 'not in the inbox: a voice note is not a file for the agent');
+  assert.equal(fs.existsSync(path.dirname(heard[0].file)), false, 'the recording is deleted once it has been read');
+  assert.deepEqual(fs.readdirSync(inbox), []);
+  assert.equal(asked.length, 0, 'no turn of the agent starts: the text goes back to the box to be checked');
+  assert.equal(me.state.workspaces.get(ws.id).items.length, 0, 'and nothing is added to the conversation');
+
+  // Why it failed reaches the phone; the recording is still deleted.
+  fail = 'Nothing on the Mac can turn speech into text yet.';
+  await me.send('transcribe', { ws: ws.id, req: 'voice-req-0002', file: { id: 'voice-file-0002', name: 'voice-note.webm', bytes: 10 } });
+  await upload('voice-file-0002', Buffer.alloc(10, 1));
+  assert.equal((await answer('voice-req-0002')).error, fail);
+  assert.equal(fs.existsSync(path.dirname(heard[1].file)), false);
+
+  // Too long a recording is refused before a byte is taken; a made-up request id is ignored.
+  await me.send('transcribe', { ws: ws.id, req: 'voice-req-0003', file: { id: 'voice-file-0003', name: 'voice-note.m4a', bytes: 26 * 1024 * 1024 } });
+  assert.match((await answer('voice-req-0003')).error, /at most/);
+  await me.send('transcribe', { ws: ws.id, req: '../x', file: { id: 'voice-file-0004', name: 'v.m4a', bytes: 10 } });
+  await me.send('ping', {});
+  await until(() => me.state.events.some((e) => e.t === 'pong'));
+  assert.equal(me.state.events.some((e) => e.t === 'transcript' && e.req === '../x'), false);
+  assert.equal(heard.length, 2);
+
+  me.close();
+  await daemon.stop();
+  await running;
+  relay.close();
+  relay.closeAllConnections();
+  model.close();
+  model.closeAllConnections();
+});
+
 test('relay: file pieces are taken once, a request waits for a piece still on its way, and the store refuses more than it may hold', async (t) => {
   const secret = 'test-secret-that-is-long-enough-123456';
   const { token } = deriveKeys(secret);
