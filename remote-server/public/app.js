@@ -80,6 +80,7 @@ const ICONS = {
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   mic: svg('<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.500a6.5 6.5 0 0013 0M12 18v2.5"/>'),
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+  pencil: svg('<path d="M4 20h4L19.5 8.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   cross: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   play: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>`,
   brain: svg('<path d="M9 4a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 006 0V7a3 3 0 00-3-3zM15 4a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-6 0"/>'),
@@ -4020,27 +4021,65 @@ function showVoice() {
     page.style.transform = page.style.opacity = page.style.transition = ''; // ready to open again where it belongs
     return $('talk-actions').replaceChildren();
   }
-  const changed = page.dataset.phase !== voice.phase;
+  const done = voice.phase === 'done';
+  const editing = done && Boolean(voice.editing);
+  const changed = page.dataset.phase !== voice.phase || page.classList.contains('editing') !== editing;
   page.dataset.phase = voice.phase;
+  page.classList.toggle('editing', editing);
   page.classList.toggle('still', state.device?.settings?.animation === false);
   if (!talkRain) talkRain = codeRain($('talk-rain'), { still: talkStill() });
-  const done = voice.phase === 'done';
-  const said = done ? voice.text : voice.said;
+  // What was said before Add (voice.before) stays in front of what is being said now.
+  const said = done ? voice.text : joinVoice(voice.before, voice.said);
   const text = $('talk-text');
+  text.hidden = editing;
+  $('talk-edit').hidden = !editing;
   const line = said || (voice.phase === 'rec' ? 'listening... tell SEEKER what to do' : '');
   $('talk-said').textContent = said || ''; // read out whole; the typing is only for the eyes
   text.classList.toggle('hint', !said);
   text.classList.toggle('partial', Boolean(said) && !done);
   typeTalk(line ? `> ${line}` : '');
   $('talk-state').textContent =
-    voice.phase === 'rec' ? voiceClock(Date.now() - voice.started) : voice.phase === 'up' ? 'Sending it to your Mac…' : voice.phase === 'text' ? 'Your Mac is turning it into text…' : 'Check it, then send it.';
+    voice.phase === 'rec' ? voiceClock(Date.now() - voice.started) : voice.phase === 'up' ? 'Sending it to your Mac…' : voice.phase === 'text' ? 'Your Mac is turning it into text…' : voiceTo(voice, editing);
   if (!changed) return; // the buttons stay as they are between ticks, so a tap on one is never lost
   // No Cancel button: the page is swiped up to throw the voice note away (or Escape on a keyboard).
   $('talk-swipe').replaceChildren(h('span', { class: 'ico', icon: 'up' }), done ? 'Swipe up to discard' : 'Swipe up to cancel');
-  const btn = (label, cls, onclick) => h('button', { class: `btn${cls ? ` ${cls}` : ''}`, type: 'button', onclick }, label);
+  const btn = (label, cls, onclick, icon, more = {}) => h('button', { class: `btn${cls ? ` ${cls}` : ''}`, type: 'button', onclick, ...more }, icon && h('span', { class: 'ico', icon }), label);
+  // At the end: Edit fixes the words right here, the mic adds more to them, Send sends them.
+  const add = btn('', 'talk-more', () => startVoice(true), 'mic', { 'aria-label': 'Say more, added after these words' });
+  const send = btn('Send', 'primary', () => useVoice(true), 'send', { id: 'talk-send', disabled: !voice.text?.trim() });
   $('talk-actions').replaceChildren(
-    ...(voice.phase === 'rec' ? [btn('Done', 'talk-done', () => stopVoice(false))] : done ? [btn('Edit', '', () => useVoice(false)), btn('Send', 'primary', () => useVoice(true))] : []),
+    ...(voice.phase === 'rec' ? [btn('Done', 'talk-done', () => stopVoice(false))] : editing ? [add, send] : done ? [btn('Edit', '', editVoice, 'pencil'), add, send] : []),
   );
+}
+
+/** Two pieces of one voice note, the earlier first. */
+const joinVoice = (before, after) => [before, after].map((s) => String(s ?? '').trim()).filter(Boolean).join(' ');
+
+/** Under the words once they are back: where Send takes them, or that their project is not the one open now. */
+function voiceTo(mine, editing) {
+  const name = state.workspaces.get(mine.ws)?.meta.name ?? 'its project';
+  if (!(state.view.name === 'session' && state.view.ws === mine.ws)) return `This was said for ${name}, which is not open now.`;
+  return editing ? `Fix the words, then send to ${name}.` : `Tap the words to fix them. Sends to ${name}.`;
+}
+
+/** Turns the words into a box to fix them in, on the talk page itself. Called from the tap, so iOS shows the keyboard. */
+function editVoice() {
+  const mine = voice;
+  if (mine?.phase !== 'done' || mine.editing) return;
+  mine.editing = true;
+  showVoice();
+  const edit = $('talk-edit');
+  edit.value = mine.text;
+  fitTalkEdit();
+  edit.focus();
+  edit.setSelectionRange(edit.value.length, edit.value.length);
+}
+
+/** The box grows with what is in it, up to the height the CSS allows. */
+function fitTalkEdit() {
+  const edit = $('talk-edit');
+  edit.style.height = 'auto';
+  edit.style.height = `${edit.scrollHeight + 2}px`;
 }
 
 /** Throws the voice note away, wherever it is: recording, on its way, being turned into text, or shown. */
@@ -4069,6 +4108,7 @@ function swipeTalk() {
   };
   page.addEventListener('pointerdown', (e) => {
     if (!voice || e.button > 0) return;
+    if (e.target === $('talk-edit')) return; // the words being fixed: a finger there selects and scrolls them
     const text = $('talk-text');
     if (text.contains(e.target) && text.scrollHeight > text.clientHeight) return; // its own scroll comes first
     drag = { id: e.pointerId, y: e.clientY, moves: [], on: false, mine: voice };
@@ -4108,6 +4148,24 @@ function swipeTalk() {
   // A tap that ends a drag is not also a tap on the button under the finger.
   page.addEventListener('click', (e) => dragged && e.timeStamp - dragged < 400 && (e.stopPropagation(), e.preventDefault()), true);
   document.addEventListener('keydown', (e) => e.key === 'Escape' && voice && !page.hidden && cancelVoice());
+  // The words, once back, are tapped to fix them in place.
+  $('talk-text').addEventListener('click', () => voice?.phase === 'done' && editVoice());
+  const edit = $('talk-edit');
+  edit.addEventListener('input', () => {
+    if (voice?.editing) voice.text = edit.value;
+    fitTalkEdit();
+    const send = $('talk-send');
+    if (send) send.disabled = !edit.value.trim();
+  });
+  edit.addEventListener('keydown', (e) => {
+    // Return sends (the keyboard says so); Shift+Return is a new line. Escape stops fixing, it does not throw them away.
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) return e.preventDefault(), useVoice(true);
+    if (e.key === 'Escape' && voice?.editing) {
+      e.stopPropagation();
+      voice.editing = false;
+      showVoice();
+    }
+  });
 }
 
 /** Listens to the microphone for the wave. `ctx` is made during the tap (iOS starts sound only from one). */
@@ -4246,8 +4304,14 @@ function endVoice() {
   showVoice();
 }
 
-async function startVoice() {
-  if (voice || !state.view.ws) return;
+/**
+ * Starts recording. With `more`, a voice note whose words are back (and maybe fixed) records on: what is said
+ * now is added after them, and if it comes to nothing they are kept as they were.
+ */
+async function startVoice(more = false) {
+  const prev = more && voice?.phase === 'done' ? voice : null;
+  if ((voice && !prev) || !(prev?.ws ?? state.view.ws)) return;
+  if (prev?.used) return;
   if (!(state.linked && state.online)) return toast('Your Mac is not connected.');
   // Made inside the tap, before anything is awaited: iOS lets a page start sound only from a gesture.
   let ctx = null;
@@ -4262,6 +4326,12 @@ async function startVoice() {
     ctx?.close?.().catch(() => {});
     return toast(err?.name === 'NotAllowedError' ? 'The microphone is not allowed. Allow it for this app in Settings, then try again.' : `The microphone could not be opened: ${err?.message ?? err}.`);
   }
+  // Swiped away, sent, or started twice while the microphone was being opened: this recording is not wanted.
+  if (voice !== prev || prev?.used) {
+    stream.getTracks().forEach((t) => t.stop());
+    ctx?.close?.().catch(() => {});
+    return;
+  }
   const { mime, ext } = voiceType();
   let recorder;
   try {
@@ -4272,7 +4342,9 @@ async function startVoice() {
     return toast(`This browser cannot record: ${err?.message ?? err}.`);
   }
   const type = recorder.mimeType || mime || 'audio/webm';
-  const mine = { phase: 'rec', recorder, stream, parts: [], started: Date.now(), ext, type, ws: state.view.ws, cancelled: false, said: '', text: '', preview: null, audio: listenTo(ctx, stream) };
+  if (prev) cancelAnimationFrame(prev.frame); // its wave gives way to the new one
+  const before = prev ? prev.text.trim() : '';
+  const mine = { phase: 'rec', recorder, stream, parts: [], started: Date.now(), ext, type, ws: prev?.ws ?? state.view.ws, cancelled: false, before, said: '', text: '', preview: null, audio: listenTo(ctx, stream) };
   voice = mine;
   recorder.addEventListener('dataavailable', (e) => e.data?.size && mine.parts.push(e.data));
   recorder.addEventListener('stop', () => {
@@ -4333,7 +4405,7 @@ function stopVoice(cancel) {
     try {
       voice.recorder.stop();
     } catch {}
-    return endVoice();
+    return failVoice(voice);
   }
   voice.phase = 'up';
   showVoice();
@@ -4345,28 +4417,43 @@ function stopVoice(cancel) {
   }
 }
 
+/**
+ * A recording that came to nothing. Said after earlier words (Add), it leaves those words as they were, to be
+ * sent or fixed; on its own, the voice note ends.
+ */
+function failVoice(mine) {
+  if (voice !== mine) return;
+  if (!mine.before) return endVoice();
+  clearInterval(mine.tick);
+  clearTimeout(mine.timer);
+  Object.assign(mine, { phase: 'done', text: mine.before, said: '', editing: false });
+  showVoice();
+  cancelAnimationFrame(mine.frame);
+  drawWave(mine);
+}
+
 async function sendVoice(blob) {
   const mine = voice;
   if (!mine) return;
   if (!blob.size) {
     toast('Nothing was recorded.');
-    return endVoice();
+    return failVoice(mine);
   }
   const req = transferId();
   const file = { id: transferId(), name: `voice-note.${mine.ext}`, bytes: blob.size, file: blob };
   mine.req = req;
-  if (!(await command('transcribe', { ws: mine.ws, req, file: { id: file.id, name: file.name, bytes: file.bytes } }))) return endVoice();
+  if (!(await command('transcribe', { ws: mine.ws, req, file: { id: file.id, name: file.name, bytes: file.bytes } }))) return voice === mine && failVoice(mine);
   if (voice !== mine) return;
   if (!(await uploadFiles([file], { quiet: true }))) {
     if (voice === mine) toast('The voice note could not be sent to your Mac.');
-    return voice === mine && endVoice();
+    return voice === mine && failVoice(mine);
   }
   if (voice !== mine) return;
   mine.phase = 'text';
   mine.timer = setTimeout(() => {
     if (voice !== mine) return;
     toast('Your Mac did not send the text back in time.');
-    endVoice();
+    failVoice(mine);
   }, VOICE_WAIT_MS);
   showVoice();
 }
@@ -4390,15 +4477,15 @@ function voiceArrived(event) {
   if (mine.req !== event.req) return;
   clearTimeout(mine.timer);
   if (event.error) {
-    endVoice();
+    failVoice(mine);
     return toast(event.error);
   }
   const text = String(event.text ?? '').trim();
   if (!text) {
-    endVoice();
+    failVoice(mine);
     return toast('Nothing was heard in that voice note.');
   }
-  mine.text = text;
+  mine.text = joinVoice(mine.before, text);
   if (event.send) return useVoice(true);
   mine.phase = 'done';
   showVoice();
@@ -4407,8 +4494,12 @@ function voiceArrived(event) {
 /** Puts the text of a voice note in the box, after what is there, and sends it (`send`) or leaves it to be edited. */
 function useVoice(send) {
   const mine = voice;
-  if (!mine?.text) return;
-  const { ws, text } = mine;
+  const text = mine?.text?.trim();
+  if (!text || mine.used) return; // a second tap on Send, or Return held down, sends nothing more
+  mine.used = true;
+  if (send && navigator.vibrate) navigator.vibrate(15); // felt where the phone can (not on an iPhone)
+  const { ws } = mine;
+  $('talk-edit').blur();
   endVoice();
   if (state.view.name !== 'session' || state.view.ws !== ws) return toast('The voice note was for another project, so it was not put in this box.');
   const before = input.value.replace(/\s+$/, '');
