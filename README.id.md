@@ -462,12 +462,16 @@ dan ditolak di sistem lain.
 
 ### Voice note
 
-Selama kolom ketik kosong, tombol Send berganti jadi tombol mic (begitu ada teks, kembali jadi Send); selama agen bekerja, tempat itu diisi tombol Stop. Tombol mic merekam voice note: ketuk, bicara, lalu ketuk **Done** (atau mic lagi);
-**Cancel** membuangnya. Satu voice note paling lama lima menit. Rekamannya dikirim ke Mac terenkripsi,
-dalam potongan 2 MB yang sama seperti file, diubah jadi teks di sana, lalu dihapus. Teksnya masuk ke
-kotak pesan supaya bisa kamu cek dan betulkan dulu (nama file atau perintah yang salah dengar lebih mudah
-dibetulkan daripada dibatalkan), lalu kirim seperti biasa. Dengan `/config voiceAutoSend on`, teksnya
-langsung terkirim. Voice note tidak memulai apa pun dengan sendirinya, dan voice note yang masih direkam
+Selama kolom ketik kosong, tombol Send berganti jadi tombol mic (begitu ada teks, kembali jadi Send); selama agen bekerja, tempat itu diisi tombol Stop. Mengetuk tombol mic membuka halaman bicara: robot SEEKER
+mendengarkan, waveform mengikuti suaramu, dan di bawahnya muncul kata-kata yang kamu ucapkan. Ketuk
+**Done** kalau sudah selesai; **Cancel** membuangnya. Satu voice note paling lama lima menit. Rekamannya
+dikirim ke Mac terenkripsi, dalam potongan 2 MB yang sama seperti file, diubah jadi teks di sana, lalu
+dihapus. Selama kamu bicara, rekaman yang sudah ada dikirim ke Mac tiap beberapa detik, jadi teksnya
+muncul beberapa detik di belakang ucapanmu (selama dua menit pertama); teks finalnya dibuat dari seluruh
+rekaman setelah **Done** diketuk. Teks itu tampil di halaman untuk kamu cek: **Send** mengirimnya,
+**Edit** memasukkannya ke kotak pesan supaya bisa dibetulkan dulu (nama file atau perintah yang salah
+dengar lebih mudah dibetulkan daripada dibatalkan). Dengan `/config voiceAutoSend on`, teksnya langsung
+terkirim. Voice note tidak memulai apa pun dengan sendirinya, dan voice note yang masih direkam
 atau diproses saat agen mulai bekerja tetap memegang tombol mic sampai selesai.
 
 Yang mengubah suara jadi teks diatur lewat `voiceEngine` (`/config`):

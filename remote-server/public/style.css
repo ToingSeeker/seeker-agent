@@ -3635,8 +3635,9 @@ pre {
   transition: width var(--sk-motion-fast);
 }
 
-/* ── voice notes: the mic sits where Send is and takes turns with it (composerState in app.js), and the
-   strip above the box shows while one is recorded ── */
+/* ── voice notes: the mic sits where Send is and takes turns with it (composerState in app.js). Tapped, it
+   opens the talk page over everything: the robot, the wave of the voice, and what was said under it.
+   data-phase (rec / up / text / done) says where the voice note is; --lvl (0–1) is how loud it is now. ── */
 .mic.rec,
 .mic.rec:active {
   border-color: transparent;
@@ -3644,42 +3645,122 @@ pre {
   background: var(--sk-danger-soft);
   box-shadow: none;
 }
-.voice {
+.talk {
+  position: fixed;
+  inset: 0;
+  z-index: 25; /* over the sheet (20), under the toast (30), the gate and the lock */
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
-  margin: 0 0 8px;
-  padding: 8px 8px 8px 14px;
-  border: 1px solid var(--sk-border);
-  border-radius: 14px;
-  background: var(--sk-surface-elevated);
-  font-size: 14px;
+  justify-content: center;
+  gap: 18px;
+  padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+  background: radial-gradient(120% 70% at 50% 34%, var(--sk-primary-soft), transparent 60%), var(--sk-bg);
+  animation: fade var(--sk-motion-fast) ease-out;
 }
-.voice .dot {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--sk-danger);
+.talk[hidden] {
+  display: none;
+}
+.talk-bot {
+  width: 132px;
+  height: 132px;
+  margin-top: auto;
+  transform: translateY(calc(var(--lvl, 0) * -14px)) scale(calc(1 + var(--lvl, 0) * 0.08));
+  transition: transform 90ms linear;
+}
+.talk-bot .robot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.talk-bot .robot .y {
+  fill: var(--sk-success);
+  filter: drop-shadow(0 0 0.35px var(--sk-success));
+}
+.talk[data-phase='up'] .talk-bot,
+.talk[data-phase='text'] .talk-bot {
+  animation: talk-think 1.4s ease-in-out infinite;
+}
+.talk[data-phase='up'] .talk-bot .robot .y,
+.talk[data-phase='text'] .talk-bot .robot .y {
+  fill: var(--sk-primary);
   animation: pulse 1s ease-in-out infinite;
 }
-.voice .dot.wait {
-  background: var(--sk-primary);
+.talk-wave {
+  width: min(86vw, 360px);
+  height: 84px;
 }
-.voice .time {
+.talk-text {
+  width: min(90vw, 440px);
+  max-height: 32vh;
+  margin: 0;
+  overflow-y: auto;
+  font-size: 20px;
+  line-height: 1.45;
+  text-align: center;
+  color: var(--sk-text-primary);
+  overflow-wrap: anywhere;
+}
+.talk-text.partial {
+  color: var(--sk-text-secondary);
+}
+.talk-text.hint {
+  color: var(--sk-text-muted);
+  font-size: 16px;
+}
+.talk-state {
   font: 13px/1.4 var(--mono);
   color: var(--sk-text-secondary);
 }
-.voice .btn {
-  flex: none;
+.talk[data-phase='rec'] .talk-state::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--sk-danger);
+  vertical-align: 1px;
+  animation: pulse 1s ease-in-out infinite;
+}
+.talk-actions {
+  display: flex;
+  gap: 12px;
+  width: min(90vw, 400px);
+  margin-top: auto;
+}
+.talk-actions .btn {
+  flex: 1;
   width: auto;
   margin: 0;
-  min-height: 36px;
-  padding: 6px 14px;
+  min-height: 52px;
+  border-radius: 26px;
+}
+@keyframes talk-think {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+.talk.still .talk-bot,
+.talk.still .talk-bot *,
+.talk.still .talk-state::before {
+  animation: none;
+  transform: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .voice .dot {
+  .talk,
+  .talk .talk-bot,
+  .talk .talk-bot *,
+  .talk .talk-state::before {
     animation: none;
+  }
+  .talk-bot {
+    transform: none;
   }
 }
 

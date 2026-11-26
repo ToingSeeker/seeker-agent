@@ -24,7 +24,7 @@ test('the stylesheet takes every colour from a token', () => {
   const css = read('style.css');
   const rules = css.slice(css.indexOf('}', css.indexOf(':root')));
   assert.deepEqual(rules.match(/#[0-9a-fA-F]{6}\b/g) ?? [], [], 'a colour written out below the token block');
-  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--dx', 'var(--dy', 'var(--mono', 'var(--nav-h', 'var(--p', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
+  assert.deepEqual([...new Set(css.match(/var\(--(?!sk-)[a-z-]+/g))].sort(), ['var(--app-h', 'var(--dx', 'var(--dy', 'var(--lvl', 'var(--mono', 'var(--nav-h', 'var(--p', 'var(--safe-b', 'var(--sans', 'var(--t'], 'a variable from before the redesign');
   // The class names the app gives its states all have a rule.
   const app = read('app.js');
   for (const tone of ['primary', 'execution', 'reasoning', 'success', 'danger']) {
@@ -87,6 +87,47 @@ test('the mic and Send take turns in one place: the mic while the box is empty, 
   assert.match(fn, /\$\('send'\)\.hidden = showStop \|\| showMic;/);
   // Where the browser cannot record, Send shows as it always did.
   assert.ok(!app.slice(app.indexOf('if (canRecord) {')).split('\n').slice(0, 4).some((l) => l.includes("$('mic').hidden = false")));
+});
+
+test('a voice note opens the talk page: robot, wave, and the words under it, checked before they are sent', () => {
+  const html = read('index.html');
+  const app = read('app.js');
+  const css = read('style.css');
+  // The page sits outside the app, robot over wave over text, with its buttons last; the old strip is gone.
+  const page = html.slice(html.indexOf('<div id="talk"'), html.indexOf('</div>\n', html.indexOf('id="talk-actions"')));
+  assert.match(page, /role="dialog" aria-modal="true"/);
+  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-bot', 'talk-wave', 'talk-text', 'talk-state', 'talk-actions']);
+  assert.match(page, /<canvas id="talk-wave"/);
+  assert.match(page, /id="talk-text"[^>]*aria-live="polite"/);
+  assert.ok(!html.includes('id="voice"') && !css.includes('.voice {'), 'no strip above the box any more');
+  assert.match(app, /\$\('talk-bot'\)\.innerHTML = ICONS\.logo;/, 'the robot is SEEKER\'s own');
+  // Over the sheet, under the toast, so what goes wrong is still read.
+  assert.match(css, /\.talk \{[^}]*position: fixed;[^}]*z-index: 25;/);
+  // Each phase has its buttons: Cancel/Done while recording, Cancel while it is turned into text, Edit/Send at the end.
+  const show = app.slice(app.indexOf('function showVoice()'), app.indexOf('function listenTo('));
+  assert.match(show, /btn\('Cancel', '', \(\) => stopVoice\(true\)\), btn\('Done', 'primary', \(\) => stopVoice\(false\)\)/);
+  assert.match(show, /btn\('Edit', '', \(\) => useVoice\(false\)\), btn\('Send', 'primary', \(\) => useVoice\(true\)\)/);
+  assert.match(show, /if \(!changed\) return;/, 'the buttons are not rebuilt on every tick');
+  // Previews go up one at a time, quietly, marked partial; their text is only shown, never sent or put in the box.
+  const preview = app.slice(app.indexOf('function previewVoice('), app.indexOf('function stopVoice('));
+  assert.match(preview, /partial: true/);
+  assert.match(preview, /uploadFiles\(\[file\], \{ quiet: true \}\)/);
+  assert.match(preview, /if \(mine\.preview && now - mine\.preview\.at < VOICE_PREVIEW_WAIT_MS\) return;/);
+  const arrived = app.slice(app.indexOf('function voiceArrived('), app.indexOf('function useVoice('));
+  const previewBranch = arrived.slice(arrived.indexOf('if (mine.preview?.req === event.req)'), arrived.indexOf('if (mine.req !== event.req) return;'));
+  assert.ok(previewBranch.includes('mine.said = said') && !previewBranch.includes('useVoice') && !previewBranch.includes('input.value'), 'a preview only updates the page');
+  assert.match(arrived, /if \(event\.send\) return useVoice\(true\);/, 'voiceAutoSend still sends the final text');
+  // A quiet upload leaves the progress bar and toasts alone, so a preview never disturbs a real upload.
+  const upload = app.slice(app.indexOf('async function uploadFiles('), app.indexOf('function showAttachments('));
+  assert.match(upload, /if \(!quiet\) \{\s*uploading = null;/);
+  // The sound graph is made before anything is awaited (iOS starts sound only inside the tap) and closed at the end.
+  const start = app.slice(app.indexOf('async function startVoice()'), app.indexOf('function previewVoice('));
+  assert.ok(start.indexOf('new Ctx()') < start.indexOf('await navigator.mediaDevices.getUserMedia'));
+  assert.match(app, /mine\.audio\?\.ctx\.close\?\.\(\)/);
+  // The robot keeps still when animation is off or less motion is asked for.
+  assert.match(app, /page\.classList\.toggle\('still', state\.device\?\.settings\?\.animation === false\)/);
+  assert.match(css, /\.talk\.still \.talk-bot,/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.talk,/);
 });
 
 test('+ offers everything that goes into a message, including files of any kind', () => {

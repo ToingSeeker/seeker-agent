@@ -94,12 +94,16 @@ is sent as a smaller JPEG on macOS and refused elsewhere.
 
 ### Voice notes
 
-While the box is empty, Send turns into a mic (it turns back into Send as soon as you type); while the agent works, that place shows Stop instead. The mic records a voice note: tap it, speak, then tap **Done** (or the mic again);
-**Cancel** throws it away. A note can be up to five minutes. The recording goes to the Mac encrypted, in
-the same 2 MB pieces as a file, is turned into text there and deleted. The text lands in the message box
-for you to check and fix (a misheard file name or command is easier to correct than to undo), then you
-send it as usual. With `/config voiceAutoSend on` it is sent at once. A voice note starts nothing by
-itself, and one still being recorded or turned into text when the agent starts keeps its mic until it is done.
+While the box is empty, Send turns into a mic (it turns back into Send as soon as you type); while the agent works, that place shows Stop instead. Tapping the mic opens the talk page: SEEKER's robot listening,
+a wave that follows your voice, and under it the words as you say them. Tap **Done** when you have
+finished; **Cancel** throws it away. A note can be up to five minutes. The recording goes to the Mac
+encrypted, in the same 2 MB pieces as a file, is turned into text there and deleted. While you speak,
+what has been recorded so far goes to the Mac every few seconds, so the words appear a couple of seconds
+behind you (for the first two minutes); the final text is made from the whole recording once you tap
+**Done**. It shows on the page for you to check: **Send** sends it, **Edit** puts it in the message box
+to fix first (a misheard file name or command is easier to correct than to undo). With
+`/config voiceAutoSend on` it is sent at once. A voice note starts nothing by itself, and one still being
+recorded or turned into text when the agent starts keeps its mic until it is done.
 
 What turns speech into text is set by `voiceEngine` (`/config`):
 

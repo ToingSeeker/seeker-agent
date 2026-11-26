@@ -791,6 +791,23 @@ test('remote control: a voice note comes back as text, starts no turn, and leave
   assert.equal((await answer('voice-req-0002')).error, fail);
   assert.equal(fs.existsSync(path.dirname(heard[1].file)), false);
 
+  // A preview (what was recorded so far, while the user still speaks) comes back marked partial and is
+  // never sent, even with voiceAutoSend on; its recording is deleted like any other.
+  fail = null;
+  daemon.config.voiceAutoSend = true;
+  await me.send('transcribe', { ws: ws.id, req: 'voice-req-0005', partial: true, file: { id: 'voice-file-0005', name: 'voice-note.m4a', bytes: 12 } });
+  await upload('voice-file-0005', Buffer.alloc(12, 2));
+  const preview = await answer('voice-req-0005');
+  assert.deepEqual([preview.partial, preview.text, preview.send], [true, 'tolong cek README', false]);
+  assert.equal(fs.existsSync(path.dirname(heard[2].file)), false);
+  // The final one still goes out with voiceAutoSend, and is not marked partial.
+  await me.send('transcribe', { ws: ws.id, req: 'voice-req-0006', file: { id: 'voice-file-0006', name: 'voice-note.m4a', bytes: 12 } });
+  await upload('voice-file-0006', Buffer.alloc(12, 3));
+  const final = await answer('voice-req-0006');
+  assert.deepEqual([final.partial, final.send], [undefined, true]);
+  daemon.config.voiceAutoSend = false;
+  assert.equal(asked.length, 0, 'neither starts a turn on the Mac: the phone sends the text');
+
   // Too long a recording is refused before a byte is taken; a made-up request id is ignored.
   await me.send('transcribe', { ws: ws.id, req: 'voice-req-0003', file: { id: 'voice-file-0003', name: 'voice-note.m4a', bytes: 26 * 1024 * 1024 } });
   assert.match((await answer('voice-req-0003')).error, /at most/);
@@ -798,7 +815,7 @@ test('remote control: a voice note comes back as text, starts no turn, and leave
   await me.send('ping', {});
   await until(() => me.state.events.some((e) => e.t === 'pong'));
   assert.equal(me.state.events.some((e) => e.t === 'transcript' && e.req === '../x'), false);
-  assert.equal(heard.length, 2);
+  assert.equal(heard.length, 4);
 
   me.close();
   await daemon.stop();
