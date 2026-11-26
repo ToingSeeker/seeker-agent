@@ -28,8 +28,6 @@
         <div id="controls" class="controls" hidden></div>
         <div id="suggest" class="suggest" hidden></div>
         <div id="attachments" class="attachments" hidden></div>
-        <!-- A voice note while it is recorded, sent and turned into text on the Mac (app.js, "voice notes"). -->
-        <div id="voice" class="voice" role="status" hidden></div>
         <!-- At rest one line: +, the writing area, Send. While writing (or with something in it) two levels:
              the writing area has a row to itself; +, the context used, Stop and Send sit under it.
              + opens one sheet with everything that can be added: camera, photos, any file, a file mention, commands.
@@ -52,6 +50,15 @@
       <nav id="nav" hidden></nav>
     </div>
     <div id="sheet" hidden></div>
+    <!-- Talking to SEEKER (app.js, "voice notes"): the robot listens, the wave follows the voice, and what was
+         said shows under it, while it is spoken (previews from the Mac) and once it is done, to be checked. -->
+    <div id="talk" class="talk" role="dialog" aria-modal="true" aria-label="Voice note" hidden>
+      <div id="talk-bot" class="talk-bot" aria-hidden="true"></div>
+      <canvas id="talk-wave" class="talk-wave" aria-hidden="true"></canvas>
+      <p id="talk-text" class="talk-text" aria-live="polite"></p>
+      <div id="talk-state" class="talk-state"></div>
+      <div id="talk-actions" class="talk-actions"></div>
+    </div>
     <div id="toast" role="status" hidden></div>
     <div id="announce" class="sr-only" aria-live="polite"></div>
     <!-- The app lock (lock.js): Face ID or a 6-digit PIN. While it is up, #app and #sheet are hidden and inert. -->

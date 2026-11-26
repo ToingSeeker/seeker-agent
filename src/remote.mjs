@@ -1374,12 +1374,14 @@ export class RemoteDaemon {
    * Turns a voice note from the phone into text and sends the text back: the phone puts it in the box
    * (or sends it, with voiceAutoSend). The recording comes in pieces like any file, into a private
    * temporary folder, and is deleted as soon as it has been read. No turn of the agent starts here, so
-   * a voice note can be made while the agent works.
+   * a voice note can be made while the agent works. A `partial` one is what has been recorded so far, sent
+   * while the user still speaks so the words show up as they go: its text is only shown, never sent.
    */
   async #transcribe(command) {
     const req = String(command.req ?? '');
     if (!FILE_ID.test(req)) return;
-    const reply = (fields) => this.send({ t: 'transcript', req, ...fields });
+    const partial = command.partial === true;
+    const reply = (fields) => this.send({ t: 'transcript', req, ...(partial ? { partial } : {}), ...fields });
     let file;
     try {
       [file] = announcedFiles([command.file]);
@@ -1392,10 +1394,10 @@ export class RemoteDaemon {
       const saved = await receiveFile({ url: this.url, headers: this.#headers(), key: this.keys.key, file, dir });
       const started = Date.now();
       const { text, engine } = await this.transcriber(saved, this.config);
-      this.log(`voice note → text with ${engine} in ${((Date.now() - started) / 1000).toFixed(1)}s (${text.length} characters)`);
-      return reply({ text, engine, send: this.config.voiceAutoSend === true });
+      if (!partial) this.log(`voice note → text with ${engine} in ${((Date.now() - started) / 1000).toFixed(1)}s (${text.length} characters)`);
+      return reply({ text, engine, send: !partial && this.config.voiceAutoSend === true });
     } catch (err) {
-      this.log(`voice note: ${err.message}`);
+      if (!partial) this.log(`voice note: ${err.message}`);
       return reply({ error: err.message });
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
