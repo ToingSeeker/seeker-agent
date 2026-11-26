@@ -71,12 +71,31 @@ test('the message box is one line at rest and opens to two levels while writing'
   assert.match(app, /setTimeout\(\(\) => \$\('form'\)\.classList\.remove\('open'\), \d+\)/);
 });
 
+test('the mic and Send take turns in one place: the mic while the box is empty, Send once something is typed', () => {
+  const html = read('index.html');
+  const app = read('app.js');
+  const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
+  const mic = form.match(/<button id="mic"[^>]*>/)?.[0] ?? '';
+  // Same round shape as Send, on the single line at rest, hidden until the browser is known to record.
+  assert.match(mic, /class="send mic"/);
+  assert.doesNotMatch(mic, /\bextra\b/);
+  assert.match(mic, /\bhidden\b/);
+  const fn = app.slice(app.indexOf('function composerState()'), app.indexOf('// ── composer'));
+  // While the agent works Stop has the place alone; only a voice note under way keeps the mic.
+  assert.match(fn, /const showMic = canRecord && \(\(empty && !sending && !showStop\) \|\| Boolean\(voice\)\);/);
+  assert.match(fn, /mic\.hidden = !showMic;/);
+  assert.match(fn, /\$\('send'\)\.hidden = showStop \|\| showMic;/);
+  // Where the browser cannot record, Send shows as it always did.
+  assert.ok(!app.slice(app.indexOf('if (canRecord) {')).split('\n').slice(0, 4).some((l) => l.includes("$('mic').hidden = false")));
+});
+
 test('+ offers everything that goes into a message, including files of any kind', () => {
   const html = read('index.html');
   const app = read('app.js');
   const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
   // One + on the bar; the picture and @ buttons, and the separate commands button, live in its sheet now.
-  assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'stop', 'send']);
+  // The mic beside Send records a voice note (it stays hidden where the browser cannot record).
+  assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'mic', 'stop', 'send']);
   // A PDF or a ZIP can be picked: the "Files" picker takes every kind, and the camera takes a picture.
   assert.match(form, /<input id="anyfile" type="file" multiple hidden \/>/);
   // On iOS it is narrowed to public.data, so Files opens the file browser and not the Photo Library menu.
@@ -181,7 +200,8 @@ test('Stop and Send take turns in one place, and a long message scrolls inside t
   // Stop while a task runs and nothing is typed; Send as soon as there is text or an attachment.
   assert.match(state, /const showStop = stoppable && empty && !sending;/);
   assert.match(state, /\$\('stop'\)\.hidden = !showStop;/);
-  assert.match(state, /\$\('send'\)\.hidden = showStop;/);
+  // The mic takes Send's place too while the box is empty (see the test on the mic).
+  assert.match(state, /\$\('send'\)\.hidden = showStop \|\| showMic;/);
   // The box is redrawn on every keystroke, so clearing the text brings Stop back.
   assert.match(app, /input\.addEventListener\('input', \(\) => \{[^}]*composerState\(\);/);
   // Stop is a circle the size of Send, not a red pill beside it.

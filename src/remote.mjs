@@ -22,6 +22,7 @@ import { TOOL_BY_NAME } from './tools.mjs';
 import { ANSI } from './text.mjs';
 import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, cardFacts, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
 import { crewMeta } from './crew.mjs';
+import { MAX_VOICE_BYTES, transcribe } from './transcribe.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -828,7 +829,7 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, respawn = respawnDaemon, conversationsFile = remember ? path.join(HOME_DIR, 'remote-conversations.json') : null }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, transcriber = transcribe, respawn = respawnDaemon, conversationsFile = remember ? path.join(HOME_DIR, 'remote-conversations.json') : null }) {
     // Which saved conversation each project opened from the phone holds, so a restart continues it: folder → file.
     this.conversationsFile = conversationsFile;
     this.conversations = {};
@@ -839,6 +840,7 @@ export class RemoteDaemon {
     this.quit = null; // how this process ends itself (set by whoever started it); without one, restart() only stops the daemon
     this.restarting = false;
     this.inbox = inbox; // where files sent from the phone are saved
+    this.transcriber = transcriber; // voice note → text (src/transcribe.mjs; replaced in tests)
     // Instructions waiting for a project's current task to end: workspace id → { cwd, items, paused }.
     // Kept on disk, so they outlive this process; what was waiting when it last ended comes back paused.
     this.queueFile = queueFile;
@@ -1369,6 +1371,38 @@ export class RemoteDaemon {
   }
 
   /**
+   * Turns a voice note from the phone into text and sends the text back: the phone puts it in the box
+   * (or sends it, with voiceAutoSend). The recording comes in pieces like any file, into a private
+   * temporary folder, and is deleted as soon as it has been read. No turn of the agent starts here, so
+   * a voice note can be made while the agent works.
+   */
+  async #transcribe(command) {
+    const req = String(command.req ?? '');
+    if (!FILE_ID.test(req)) return;
+    const reply = (fields) => this.send({ t: 'transcript', req, ...fields });
+    let file;
+    try {
+      [file] = announcedFiles([command.file]);
+    } catch (err) {
+      return reply({ error: err.message });
+    }
+    if (file.bytes > MAX_VOICE_BYTES) return reply({ error: `That voice note is ${kilobytes(file.bytes)}; at most ${kilobytes(MAX_VOICE_BYTES)} can be turned into text.` });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-voice-in-'));
+    try {
+      const saved = await receiveFile({ url: this.url, headers: this.#headers(), key: this.keys.key, file, dir });
+      const started = Date.now();
+      const { text, engine } = await this.transcriber(saved, this.config);
+      this.log(`voice note → text with ${engine} in ${((Date.now() - started) / 1000).toFixed(1)}s (${text.length} characters)`);
+      return reply({ text, engine, send: this.config.voiceAutoSend === true });
+    } catch (err) {
+      this.log(`voice note: ${err.message}`);
+      return reply({ error: err.message });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  /**
    * Sends the phone a file an answer offered. The phone names the answer and the file's place in its
    * list, never a path: only what an answer in this transcript named can be downloaded.
    */
@@ -1498,6 +1532,8 @@ export class RemoteDaemon {
           return await this.#sendFile(command, workspace);
         case 'download':
           return void this.#download(command, workspace).catch((err) => this.log(`download: ${err.message}`));
+        case 'transcribe':
+          return void this.#transcribe(command).catch((err) => this.log(`voice note: ${err.message}`));
         case 'lockout':
           // The phone is unpairing itself after three wrong PINs within ten minutes.
           this.log('a phone unpaired itself after 3 wrong PINs in 10 minutes');

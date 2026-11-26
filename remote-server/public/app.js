@@ -77,6 +77,7 @@ const ICONS = {
   image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l5-4.5 3.5 3 3-2.5 4.5 4"/>'),
   camera: svg('<path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/><circle cx="12" cy="12.8" r="3.4"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
+  mic: svg('<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.500a6.5 6.5 0 0013 0M12 18v2.5"/>'),
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   cross: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
   play: `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5l12 7-12 7z"/></svg>`,
@@ -398,6 +399,9 @@ function apply(event) {
       break;
     case 'download':
       downloadArrived(event);
+      break;
+    case 'transcript':
+      voiceArrived(event);
       break;
     case 'choose':
       // The Mac answers a skill that has a list to pick from with that list. Only the phone that is
@@ -3629,6 +3633,9 @@ function queuePanel(ws, up) {
  * Stop and Send share one place. While something runs and the box is empty it holds Stop; once there is
  * something to send (text or an attachment) Send takes it, and clearing the box brings Stop back.
  */
+// Voice notes (below): declared here because composerState reads them.
+const canRecord = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+let voice = null; // { phase: 'rec' | 'up' | 'text', recorder, stream, parts, started, tick, req, timer, ws }
 function composerState() {
   const ws = state.workspaces.get(state.view.ws);
   if (!ws) return;
@@ -3640,10 +3647,18 @@ function composerState() {
   const nowhere = st.busy && !meta.terminal && !meta.can?.queue;
   $('send').disabled = sending || !up || nowhere || empty;
   $('send').classList.toggle('busy', sending);
+  // The mic waits while a voice note is on its way; one being recorded can always be stopped.
+  const mic = $('mic');
+  mic.disabled = mic.dataset.busy === '1' || (!up && !mic.classList.contains('rec'));
   const stoppable = st.busy && meta.can?.stop !== false;
   const showStop = stoppable && empty && !sending;
+  // The mic and Send take turns in one place: the mic while the box is empty, Send once there is something
+  // to send. While the agent works, Stop has that place alone. A voice note under way keeps the mic, so it
+  // can be stopped or waited on.
+  const showMic = canRecord && ((empty && !sending && !showStop) || Boolean(voice));
+  mic.hidden = !showMic;
   $('stop').hidden = !showStop;
-  $('send').hidden = showStop;
+  $('send').hidden = showStop || showMic;
   $('stop').disabled = !up || Boolean(meta.stopping) || (stopAsked !== null && stopAsked === (meta.turn ?? null));
   if (!st.busy) stopAsked = null;
 }
@@ -3921,6 +3936,169 @@ $('anyfile').addEventListener('change', async (e) => {
   e.target.value = '';
   await addImages(files, { whole: true });
 });
+// ── voice notes ──
+// The mic records here, the recording goes to the Mac in sealed pieces like any file, and the Mac turns it
+// into text (src/transcribe.mjs) and deletes it. The text comes back into the box to be checked before it is
+// sent: a misheard file name or command is easier to fix than to undo. With voiceAutoSend on the Mac it is sent.
+const VOICE_MAX_MS = 5 * 60_000;
+const VOICE_WAIT_MS = 6 * 60_000; // for the text, once the recording has gone
+const VOICE_TYPES = [
+  ['audio/mp4', 'm4a'], // what an iPhone records
+  ['audio/webm;codecs=opus', 'webm'],
+  ['audio/webm', 'webm'],
+  ['audio/ogg;codecs=opus', 'ogg'],
+];
+
+function voiceType() {
+  for (const [mime, ext] of VOICE_TYPES) if (!MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(mime)) return { mime, ext };
+  return { mime: '', ext: 'webm' };
+}
+
+const voiceClock = (ms) => {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+function showVoice() {
+  const strip = $('voice');
+  const mic = $('mic');
+  mic.classList.toggle('rec', voice?.phase === 'rec');
+  mic.setAttribute('aria-label', voice?.phase === 'rec' ? 'Stop recording and turn it into text' : 'Record a voice note');
+  mic.dataset.busy = voice && voice.phase !== 'rec' ? '1' : '';
+  composerState();
+  strip.hidden = !voice || voice.phase === 'up'; // while it goes up, the upload bar under the box says so
+  if (!voice) return strip.replaceChildren();
+  if (voice.phase === 'rec') {
+    strip.replaceChildren(
+      h('i', { class: 'dot', 'aria-hidden': 'true' }),
+      h('span', { class: 'grow' }, 'Recording ', h('span', { class: 'time' }, voiceClock(Date.now() - voice.started))),
+      h('button', { class: 'btn', type: 'button', onclick: () => stopVoice(true) }, 'Cancel'),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => stopVoice(false) }, 'Done'),
+    );
+  } else {
+    strip.replaceChildren(h('i', { class: 'dot wait', 'aria-hidden': 'true' }), h('span', { class: 'grow' }, 'Your Mac is turning it into text…'), h('button', { class: 'btn', type: 'button', onclick: () => endVoice() }, 'Cancel'));
+  }
+}
+
+function endVoice() {
+  if (!voice) return;
+  clearInterval(voice.tick);
+  clearTimeout(voice.timer);
+  voice.stream?.getTracks().forEach((t) => t.stop()); // the mic light goes off
+  voice = null;
+  showVoice();
+}
+
+async function startVoice() {
+  if (voice || !state.view.ws) return;
+  if (!(state.linked && state.online)) return toast('Your Mac is not connected.');
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (err) {
+    return toast(err?.name === 'NotAllowedError' ? 'The microphone is not allowed. Allow it for this app in Settings, then try again.' : `The microphone could not be opened: ${err?.message ?? err}.`);
+  }
+  const { mime, ext } = voiceType();
+  let recorder;
+  try {
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch (err) {
+    stream.getTracks().forEach((t) => t.stop());
+    return toast(`This browser cannot record: ${err?.message ?? err}.`);
+  }
+  const mine = { phase: 'rec', recorder, stream, parts: [], started: Date.now(), ext, ws: state.view.ws, cancelled: false };
+  voice = mine;
+  recorder.addEventListener('dataavailable', (e) => e.data?.size && mine.parts.push(e.data));
+  recorder.addEventListener('stop', () => {
+    mine.stream.getTracks().forEach((t) => t.stop());
+    if (voice !== mine || mine.cancelled) return;
+    sendVoice(new Blob(mine.parts, { type: recorder.mimeType || mime || 'audio/webm' }));
+  });
+  recorder.start(1000);
+  mine.tick = setInterval(() => {
+    if (Date.now() - mine.started >= VOICE_MAX_MS) {
+      toast('A voice note can be at most 5 minutes; this one was stopped there.');
+      return stopVoice(false);
+    }
+    showVoice();
+  }, 500);
+  if (navigator.vibrate) navigator.vibrate(30);
+  showVoice();
+}
+
+function stopVoice(cancel) {
+  if (!voice || voice.phase !== 'rec') return;
+  clearInterval(voice.tick);
+  voice.cancelled = cancel;
+  if (cancel) {
+    try {
+      voice.recorder.stop();
+    } catch {}
+    return endVoice();
+  }
+  if (Date.now() - voice.started < 700) {
+    toast('Hold on a little longer: that was too short to hear anything.');
+    voice.cancelled = true;
+    try {
+      voice.recorder.stop();
+    } catch {}
+    return endVoice();
+  }
+  voice.phase = 'up';
+  showVoice();
+  try {
+    voice.recorder.stop(); // its 'stop' event sends what was recorded
+  } catch {
+    endVoice();
+  }
+}
+
+async function sendVoice(blob) {
+  const mine = voice;
+  if (!mine) return;
+  if (!blob.size) {
+    toast('Nothing was recorded.');
+    return endVoice();
+  }
+  const req = transferId();
+  const file = { id: transferId(), name: `voice-note.${mine.ext}`, bytes: blob.size, file: blob };
+  mine.req = req;
+  if (!(await command('transcribe', { ws: mine.ws, req, file: { id: file.id, name: file.name, bytes: file.bytes } }))) return endVoice();
+  if (voice !== mine) return;
+  if (!(await uploadFiles([file]))) return endVoice();
+  if (voice !== mine) return;
+  mine.phase = 'text';
+  mine.timer = setTimeout(() => {
+    if (voice !== mine) return;
+    toast('Your Mac did not send the text back in time.');
+    endVoice();
+  }, VOICE_WAIT_MS);
+  showVoice();
+}
+
+/** The Mac's answer to a voice note: the text, or why there is none. Only the phone that recorded it acts on it. */
+function voiceArrived(event) {
+  if (!voice || voice.req !== event.req) return;
+  const { ws } = voice;
+  endVoice();
+  if (event.error) return toast(event.error);
+  const text = String(event.text ?? '').trim();
+  if (!text) return toast('Nothing was heard in that voice note.');
+  if (state.view.name !== 'session' || state.view.ws !== ws) return toast('The voice note was for another project, so it was not put in this box.');
+  const before = input.value.replace(/\s+$/, '');
+  input.value = before ? `${before} ${text}` : text;
+  grow();
+  suggest();
+  composerState();
+  if (event.send && !$('send').disabled) return $('form').requestSubmit();
+  input.focus();
+}
+
+if (canRecord) {
+  $('mic').innerHTML = ICONS.mic;
+  $('mic').addEventListener('click', () => (voice?.phase === 'rec' ? stopVoice(false) : startVoice()));
+}
+
 // A picture pasted into the text box is attached too.
 input.addEventListener('paste', (e) => {
   const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));

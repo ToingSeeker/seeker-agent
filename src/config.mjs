@@ -76,6 +76,15 @@ export const DEFAULTS = {
   // message: tokens ('500k', '2m') or dollars ('$2'). When they pass it, they are stopped and SEEKER
   // reports what was done. Dollars count only replies with a known price. Empty: no limit.
   swarmBudget: '',
+  // Voice notes from the phone (src/transcribe.mjs): what turns speech into text — 'auto' (whisper.cpp on
+  // this machine if it is installed, else Groq, else OpenAI, with the keys already set), 'whisper-cpp',
+  // 'groq', 'openai' or 'off'. voiceLanguage: a language code such as 'id' or 'en', or '' to let it tell.
+  // voiceWhisperModel: the ggml model file for whisper.cpp ('' finds the largest in the usual folders).
+  // voiceAutoSend: send the text at once instead of putting it in the box to check first.
+  voiceEngine: 'auto',
+  voiceLanguage: '',
+  voiceWhisperModel: '',
+  voiceAutoSend: false,
 };
 
 /** Settings `/config` may change, with how to read each from text. Returns undefined when the text is invalid. */
@@ -104,6 +113,10 @@ export const SETTINGS = {
   compactAt: { parse: int(0), help: 'summarise the conversation at this many tokens (0: only when the window is full)' },
   cacheTtl: { parse: (v) => (['5m', '1h'].includes(v) ? v : undefined), help: 'how long Anthropic keeps the conversation cached: 5m or 1h' },
   swarmBudget: { parse: (v) => budgetSetting(v), help: 'most the helpers may spend per message: tokens (500k, 2m) or dollars ($2); "off" for no limit' },
+  voiceEngine: { parse: (v) => (['auto', 'whisper-cpp', 'groq', 'openai', 'off'].includes(v.toLowerCase()) ? v.toLowerCase() : undefined), help: 'what turns phone voice notes into text: auto, whisper-cpp, groq, openai or off' },
+  voiceLanguage: { parse: (v) => (['', 'auto', 'none', '-'].includes(v.toLowerCase()) ? '' : /^[a-z]{2,3}$/i.test(v) ? v.toLowerCase() : undefined), help: 'language of voice notes, e.g. id or en ("auto" to let it tell)' },
+  voiceWhisperModel: { parse: (v) => (['', 'auto', 'none', '-'].includes(v.toLowerCase()) ? '' : v), help: 'whisper.cpp model file for voice notes ("auto" finds the largest installed)' },
+  voiceAutoSend: { parse: bool, help: 'send a voice note as soon as it is text, instead of putting it in the box to check' },
   keepAlive: { parse: (v) => v, help: 'how long the model stays in memory' },
   host: {
     parse: (v) => {

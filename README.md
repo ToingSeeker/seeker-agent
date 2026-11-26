@@ -92,6 +92,30 @@ a path, so only pictures a tool step already showed can be fetched. The picture 
 encrypted, beside the event log rather than in it, and is held there for ten minutes. A file over 2 MB
 is sent as a smaller JPEG on macOS and refused elsewhere.
 
+### Voice notes
+
+While the box is empty, Send turns into a mic (it turns back into Send as soon as you type); while the agent works, that place shows Stop instead. The mic records a voice note: tap it, speak, then tap **Done** (or the mic again);
+**Cancel** throws it away. A note can be up to five minutes. The recording goes to the Mac encrypted, in
+the same 2 MB pieces as a file, is turned into text there and deleted. The text lands in the message box
+for you to check and fix (a misheard file name or command is easier to correct than to undo), then you
+send it as usual. With `/config voiceAutoSend on` it is sent at once. A voice note starts nothing by
+itself, and one still being recorded or turned into text when the agent starts keeps its mic until it is done.
+
+What turns speech into text is set by `voiceEngine` (`/config`):
+
+- `auto` (the default): whisper.cpp on the Mac if it is installed, else Groq, else OpenAI.
+- `whisper-cpp`: on the Mac, offline and free; the recording never leaves it. Install it with
+  `brew install whisper-cpp ffmpeg` and put a model in `~/.cache/whisper-cpp/` (for example
+  `ggml-large-v3-turbo-q5_0.bin` from huggingface.co/ggerganov/whisper.cpp). The largest model found
+  there is used, or the file named in `voiceWhisperModel`.
+- `groq` or `openai`: their transcription API, with the key SEEKER already has for that provider
+  (`GROQ_API_KEY` / `OPENAI_API_KEY`, or one added in `/model`). The recording is sent to them.
+- `off`: no voice notes.
+
+`voiceLanguage` (`id`, `en`, …) tells the engine which language to expect; empty lets it tell. The mic
+asks for microphone permission the first time; on an iPhone the app must be opened from the Home Screen
+or Safari over HTTPS.
+
 ### Videos and other whole files
 
 The same button takes a video too, and `/file` sends any file as it is. A video or file is not shown to

@@ -3635,6 +3635,54 @@ pre {
   transition: width var(--sk-motion-fast);
 }
 
+/* ── voice notes: the mic sits where Send is and takes turns with it (composerState in app.js), and the
+   strip above the box shows while one is recorded ── */
+.mic.rec,
+.mic.rec:active {
+  border-color: transparent;
+  color: var(--sk-danger);
+  background: var(--sk-danger-soft);
+  box-shadow: none;
+}
+.voice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--sk-border);
+  border-radius: 14px;
+  background: var(--sk-surface-elevated);
+  font-size: 14px;
+}
+.voice .dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sk-danger);
+  animation: pulse 1s ease-in-out infinite;
+}
+.voice .dot.wait {
+  background: var(--sk-primary);
+}
+.voice .time {
+  font: 13px/1.4 var(--mono);
+  color: var(--sk-text-secondary);
+}
+.voice .btn {
+  flex: none;
+  width: auto;
+  margin: 0;
+  min-height: 36px;
+  padding: 6px 14px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice .dot {
+    animation: none;
+  }
+}
+
 /* ── bottom navigation: a floating dock ──
    One capsule of glass held off the screen's edges, four pill buttons of equal width inside it:
    the icon over its word. What scrolls passes beneath it (the screens leave room under their last
