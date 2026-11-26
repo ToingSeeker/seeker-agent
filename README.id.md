@@ -463,8 +463,9 @@ dan ditolak di sistem lain.
 ### Voice note
 
 Selama kolom ketik kosong, tombol Send berganti jadi tombol mic (begitu ada teks, kembali jadi Send); selama agen bekerja, tempat itu diisi tombol Stop. Mengetuk tombol mic membuka halaman bicara: robot SEEKER
-mendengarkan, waveform mengikuti suaramu, dan di bawahnya muncul kata-kata yang kamu ucapkan. Ketuk
-**Done** kalau sudah selesai; **Cancel** membuangnya. Satu voice note paling lama lima menit. Rekamannya
+mendengarkan di atas hujan kode seperti gerbang Jack In, gelombang cahaya berlapis yang membesar mengikuti
+suaramu, dan di bawahnya kata-kata yang kamu ucapkan diketik dalam warna hijau. Ketuk
+**Done** kalau sudah selesai; geser halamannya ke atas untuk membuangnya (atau tekan Escape). Satu voice note paling lama lima menit. Rekamannya
 dikirim ke Mac terenkripsi, dalam potongan 2 MB yang sama seperti file, diubah jadi teks di sana, lalu
 dihapus. Selama kamu bicara, rekaman yang sudah ada dikirim ke Mac tiap beberapa detik, jadi teksnya
 muncul beberapa detik di belakang ucapanmu (selama dua menit pertama); teks finalnya dibuat dari seluruh

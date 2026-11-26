@@ -62,6 +62,66 @@ const easeIn = (p) => p * p * p;
 const easeInOut = (p) => (p < 0.5 ? 4 * p * p * p : 1 - (-2 * p + 2) ** 3 / 2);
 
 /**
+ * The gate's faint code rain on its own, behind another page (the talk page in app.js): the same glyphs
+ * falling as the gate shows while it waits for the tap. `still`: one frame, nothing moves. Returns { stop }.
+ */
+export function codeRain(canvas, { alpha = 0.14, px = 15, still = false } = {}) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return { stop() {} };
+  const style = getComputedStyle(document.documentElement);
+  const green = style.getPropertyValue('--sk-success').trim() || '#50D15F';
+  const mono = style.getPropertyValue('--mono').trim() || 'ui-monospace, Menlo, monospace';
+  let W = 0;
+  let H = 0;
+  let cols = [];
+  let frame = 0;
+  let last = 0;
+  let clock = 0;
+  const size = () => {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    W = canvas.clientWidth || innerWidth;
+    H = canvas.clientHeight || innerHeight;
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cols = Array.from({ length: Math.ceil(W / px) + 1 }, (_, i) => ({ x: i * px + px / 2, head: Math.random() * H * 1.2, speed: 0.03 + Math.random() * 0.08, len: 6 + Math.floor(Math.random() * 18), seed: Math.floor(Math.random() * 997) }));
+  };
+  const draw = (now) => {
+    const dt = last ? Math.min(50, now - last) : 16;
+    last = now;
+    clock += dt;
+    if (canvas.clientWidth && Math.abs(canvas.clientWidth - W) > 1) size();
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = `${px}px ${mono}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    const tick = Math.floor(clock / 90);
+    for (const c of cols) {
+      if (!still) c.head += c.speed * dt;
+      if (c.head - c.len * px > H) {
+        c.head = -Math.random() * H * 0.4;
+        c.len = 6 + Math.floor(Math.random() * 18);
+      }
+      const headRow = Math.floor(c.head / px);
+      for (let k = 0; k < c.len; k++) {
+        const row = headRow - k;
+        const y = row * px;
+        if (y < -px || y > H) continue;
+        const flicker = k === 0 || (row * 13 + c.seed) % 7 === 0 ? tick : 0;
+        ctx.globalAlpha = alpha * (k === 0 ? 1 : 0.85 * (1 - k / c.len));
+        ctx.fillStyle = k === 0 ? '#E9FFEE' : green;
+        ctx.fillText(GLYPHS[(c.seed + row * 7 + flicker) % GLYPHS.length], c.x, y);
+      }
+    }
+    ctx.globalAlpha = 1;
+    if (!still) frame = requestAnimationFrame(draw);
+  };
+  size();
+  frame = requestAnimationFrame(draw);
+  return { stop: () => cancelAnimationFrame(frame) };
+}
+
+/**
  * Plays the gate in `root` (fixed over the whole screen). `from`: points on screen the pixels fly
  * out of (the PIN's dots), or null. `status()`: { linked, online, ms, sessions } as the app knows
  * them now. `target()`: the element the robot merges with at the end, or null. Returns { stop }.

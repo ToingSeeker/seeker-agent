@@ -94,9 +94,10 @@ is sent as a smaller JPEG on macOS and refused elsewhere.
 
 ### Voice notes
 
-While the box is empty, Send turns into a mic (it turns back into Send as soon as you type); while the agent works, that place shows Stop instead. Tapping the mic opens the talk page: SEEKER's robot listening,
-a wave that follows your voice, and under it the words as you say them. Tap **Done** when you have
-finished; **Cancel** throws it away. A note can be up to five minutes. The recording goes to the Mac
+While the box is empty, Send turns into a mic (it turns back into Send as soon as you type); while the agent works, that place shows Stop instead. Tapping the mic opens the talk page: SEEKER's robot listening
+over the Jack In gate's code rain, a woven wave of light that swells with your voice, and under it the words
+typed out in green as you say them. Tap **Done** when you have
+finished; swipe the page up to throw it away (or press Escape). A note can be up to five minutes. The recording goes to the Mac
 encrypted, in the same 2 MB pieces as a file, is turned into text there and deleted. While you speak,
 what has been recorded so far goes to the Mac every few seconds, so the words appear a couple of seconds
 behind you (for the first two minutes); the final text is made from the whole recording once you tap

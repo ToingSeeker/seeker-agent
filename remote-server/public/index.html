@@ -53,11 +53,13 @@
     <!-- Talking to SEEKER (app.js, "voice notes"): the robot listens, the wave follows the voice, and what was
          said shows under it, while it is spoken (previews from the Mac) and once it is done, to be checked. -->
     <div id="talk" class="talk" role="dialog" aria-modal="true" aria-label="Voice note" hidden>
+      <canvas id="talk-rain" class="talk-rain" aria-hidden="true"></canvas>
       <div id="talk-bot" class="talk-bot" aria-hidden="true"></div>
       <canvas id="talk-wave" class="talk-wave" aria-hidden="true"></canvas>
-      <p id="talk-text" class="talk-text" aria-live="polite"></p>
+      <p id="talk-text" class="talk-text"><span id="talk-said" class="sr-only" aria-live="polite"></span><span class="talk-typed" aria-hidden="true"></span><span class="talk-cur" aria-hidden="true">_</span></p>
       <div id="talk-state" class="talk-state"></div>
       <div id="talk-actions" class="talk-actions"></div>
+      <div id="talk-swipe" class="talk-swipe" aria-hidden="true"></div>
     </div>
     <div id="toast" role="status" hidden></div>
     <div id="announce" class="sr-only" aria-live="polite"></div>
