@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { chooseEngine, cleanTranscript, findWhisperModel, transcribe } from '../src/transcribe.mjs';
+import { chooseEngine, cleanTranscript, findWhisperModel, languagesOf, transcribe, voicePrompt } from '../src/transcribe.mjs';
 import { SETTINGS } from '../src/config.mjs';
 
 const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-voice-test-'));
@@ -60,7 +60,7 @@ test('voice: whisper.cpp on this machine is preferred, the audio is converted to
     assert.deepEqual(result, { text: 'Halo, tolong cek file README.md.', engine: 'whisper-cpp' });
     const calls = fs.readFileSync(tools.log, 'utf8');
     assert.match(calls, /ffmpeg .*-i .*voice-note\.m4a -ar 16000 -ac 1 -c:a pcm_s16le .*voice\.wav/);
-    assert.match(calls, new RegExp(`whisper -m ${path.join(dir, 'ggml-small.bin').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} -f .*voice\\.wav -l id -nt -np`));
+    assert.match(calls, new RegExp(`whisper -m ${path.join(dir, 'ggml-small.bin').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} -f .*voice\\.wav -l id -nt --prompt SEEKER$`, 'm'));
     assert.ok(fs.existsSync(audio), 'the recording itself is left to whoever sent it');
   });
 });
@@ -95,6 +95,7 @@ test('voice: without whisper.cpp, Groq is used with the key SEEKER already has, 
       assert.match(seen[0].body, /name="model"\r\n\r\nwhisper-large-v3-turbo/);
       assert.match(seen[0].body, /filename="voice-note\.webm"[\s\S]*opus bytes/);
       assert.doesNotMatch(seen[0].body, /name="language"/, 'no language hint unless one is set');
+      assert.match(seen[0].body, /name="prompt"\r\n\r\nSEEKER\r\n/, 'SEEKER is a word it expects');
 
       const openai = { ...config, voiceEngine: 'openai', voiceLanguage: 'en' };
       assert.equal((await transcribe(audio, openai, { env: tools.env })).engine, 'openai');
@@ -137,5 +138,46 @@ test('voice: silence is not text, and /config takes only known values', async ()
   assert.equal(SETTINGS.voiceLanguage.parse('ID'), 'id');
   assert.equal(SETTINGS.voiceLanguage.parse('auto'), '');
   assert.equal(SETTINGS.voiceLanguage.parse('indonesian'), undefined);
+  assert.equal(SETTINGS.voiceLanguage.parse('ID, en'), 'id,en');
+  assert.equal(SETTINGS.voiceLanguage.parse('id,english'), undefined);
+  assert.equal(SETTINGS.voiceWords.parse(' Orfy,  LensBook ,'), 'Orfy, LensBook');
+  assert.equal(SETTINGS.voiceWords.parse('-'), '');
   assert.equal(SETTINGS.voiceAutoSend.parse('on'), true);
+});
+
+/** A whisper-cli that hears `heard` when left to tell the language, and says what it was given. */
+function guessingWhisper(tools, heard, said = 'Hæ, hýkar.') {
+  fs.writeFileSync(
+    path.join(tools.bin, 'whisper-cli'),
+    `#!/bin/sh\necho "whisper $*" >> "${tools.log}"\nlang=""; prev=""; for a; do [ "$prev" = "-l" ] && lang="$a"; prev="$a"; done\nif [ "$lang" = auto ]; then echo "whisper_full_with_state: auto-detected language: ${heard} (p = 0.41)" >&2; printf ' ${said}\\n'; else printf " Hi SEEKER, ($lang)\\n"; fi\n`,
+    { mode: 0o755 },
+  );
+}
+
+test('voice: told the languages to choose among, a note heard as another language is done again in the first', async () => {
+  assert.deepEqual(languagesOf({ voiceLanguage: 'id,en' }), ['id', 'en']);
+  assert.deepEqual(languagesOf({ voiceLanguage: '' }), []);
+  assert.equal(voicePrompt({ voiceWords: 'Orfy, SEEKER, LensBook' }), 'SEEKER, Orfy, LensBook');
+  await withoutCloudKeys(async () => {
+    const tools = fakeTools();
+    const audio = path.join(scratch(), 'v.m4a');
+    fs.writeFileSync(audio, 'x');
+    const dirs = [models()];
+    // "hi seeker" heard as Icelandic: redone in Indonesian, the first allowed.
+    guessingWhisper(tools, 'is');
+    assert.equal((await transcribe(audio, { voiceLanguage: 'id,en' }, { env: tools.env, modelDirs: dirs })).text, 'Hi SEEKER, (id)');
+    assert.deepEqual(fs.readFileSync(tools.log, 'utf8').match(/-l [a-z]+/g), ['-l auto', '-l id']);
+    // Heard as one of them: taken as it is, one pass only.
+    fs.rmSync(tools.log);
+    guessingWhisper(tools, 'en', 'Hi SEEKER.');
+    assert.equal((await transcribe(audio, { voiceLanguage: 'id,en' }, { env: tools.env, modelDirs: dirs })).text, 'Hi SEEKER.');
+    assert.deepEqual(fs.readFileSync(tools.log, 'utf8').match(/-l [a-z]+/g), ['-l auto']);
+    // Left to tell (no list), whatever it hears stands.
+    guessingWhisper(tools, 'is');
+    assert.equal((await transcribe(audio, {}, { env: tools.env, modelDirs: dirs })).text, 'Hæ, hýkar.');
+    // The prompt said back over silence is not taken for speech.
+    guessingWhisper(tools, 'en', 'SEEKER.');
+    await assert.rejects(transcribe(audio, {}, { env: tools.env, modelDirs: dirs }), /Nothing was heard/);
+    assert.match(fs.readFileSync(tools.log, 'utf8'), /--prompt SEEKER$/m);
+  });
 });

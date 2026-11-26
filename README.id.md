@@ -487,6 +487,9 @@ Yang mengubah suara jadi teks diatur lewat `voiceEngine` (`/config`):
 - `off`: voice note dimatikan.
 
 `voiceLanguage` (`id`, `en`, …) memberi tahu bahasa yang diharapkan; kosong berarti dideteksi sendiri.
+Beberapa sekaligus (`id,en`) berarti dideteksi di antara itu saja: voice note pendek yang terdengar sebagai
+bahasa lain ("hi seeker" jadi bahasa Islandia) diulang dengan bahasa pertama. `voiceWords` berisi kata yang
+harus dieja benar, dipisah koma (nama proyek, nama tool); SEEKER selalu termasuk.
 Saat pertama dipakai, mic meminta izin mikrofon; di iPhone aplikasinya harus dibuka dari Home Screen atau
 Safari lewat HTTPS.
 
