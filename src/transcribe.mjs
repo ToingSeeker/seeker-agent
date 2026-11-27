@@ -187,18 +187,78 @@ export const cleanTranscript = (text) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-async function withWhisper(file, setup, config) {
+/**
+ * whisper hears 30 seconds at a time, and a sentence across the edge of one can be dropped without a trace
+ * (the 7th of 12 numbered sentences, every time, in a 53-second note). So a longer note is cut, at its
+ * pauses, into pieces no longer than this, each heard whole. (whisper.cpp's own --vad does not help: it
+ * joins the speech back up and drops sentences at the same edge.)
+ */
+export const PIECE_S = 25;
+
+/**
+ * Where to cut a recording `seconds` long so no piece is longer than `max`: at the middle of the latest
+ * pause ([start, end] in seconds) that keeps it so, or at `max` itself when there is no pause to cut at.
+ * [] when it is short enough already.
+ */
+export function cutPoints(seconds, pauses, max = PIECE_S) {
+  const middles = pauses.map(([start, end]) => (start + end) / 2);
+  const cuts = [];
+  for (let from = 0; seconds - from > max; ) {
+    const fit = middles.filter((m) => m > from + 5 && m <= from + max); // no piece of a few seconds only
+    from = fit.length ? Math.max(...fit) : from + max;
+    cuts.push(Math.round(from * 1000) / 1000);
+  }
+  return cuts;
+}
+
+/** How long `wav` is and where its pauses are, measured by ffmpeg relative to its loudest point; null when unknown. */
+async function pausesOf(ffmpeg, wav, peak) {
+  const floor = Math.min(-35, Number.isFinite(peak) ? Math.round(peak) - 30 : -35);
+  try {
+    const { stderr } = await run(ffmpeg, ['-nostdin', '-hide_banner', '-i', wav, '-af', `silencedetect=noise=${floor}dB:d=0.3`, '-f', 'null', os.devNull], RUN_MS, { both: true });
+    const length = /Duration:\s*(\d+):(\d+):([\d.]+)/.exec(stderr);
+    if (!length) return null;
+    const seconds = Number(length[1]) * 3600 + Number(length[2]) * 60 + Number(length[3]);
+    const pauses = [];
+    for (const [, kind, at] of stderr.matchAll(/silence_(start|end):\s*(-?[\d.]+)/g)) {
+      if (kind === 'start') pauses.push([Number(at), seconds]);
+      else if (pauses.length) pauses.at(-1)[1] = Number(at);
+    }
+    return { seconds, pauses };
+  } catch {
+    return null; // heard in one go, as before
+  }
+}
+
+/** The WAV files whisper is to hear, in order: `wav` itself, or the pieces it is cut into. */
+async function piecesOf(ffmpeg, wav, peak) {
+  const measured = await pausesOf(ffmpeg, wav, peak);
+  const cuts = measured ? cutPoints(measured.seconds, measured.pauses) : [];
+  if (!cuts.length) return [wav];
+  const dir = path.dirname(wav);
+  try {
+    await run(ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', wav, '-f', 'segment', '-segment_times', cuts.join(','), '-c', 'copy', path.join(dir, 'piece-%03d.wav')], RUN_MS);
+  } catch {
+    return [wav];
+  }
+  const pieces = fs.readdirSync(dir).filter((n) => /^piece-\d+\.wav$/.test(n)).sort().map((n) => path.join(dir, n));
+  return pieces.length ? pieces : [wav];
+}
+
+async function withWhisper(file, setup, config, peak) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-voice-'));
   try {
     const wav = path.join(dir, 'voice.wav');
     await run(setup.ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', file, '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wav], RUN_MS);
+    const pieces = await piecesOf(setup.ffmpeg, wav, peak);
     const langs = languagesOf(config);
     const prompt = voicePrompt(config);
-    const pass = (lang) => run(setup.whisper, ['-m', setup.model, '-f', wav, '-l', lang, '-nt', '--prompt', prompt], RUN_MS, { both: true });
+    // All the pieces go to one whisper-cli, which loads the model once and prints them in order.
+    const pass = (lang) => run(setup.whisper, ['-m', setup.model, ...pieces.flatMap((p) => ['-f', p]), '-l', lang, '-nt', '--prompt', prompt], RUN_MS, { both: true });
     let out = await pass(langs.length === 1 ? langs[0] : 'auto');
     // Told among which languages to tell: heard as another one, it is done again in the first of them.
-    const heard = /auto-detected language: ([a-z]{2,3})\b/.exec(out.stderr)?.[1];
-    if (langs.length > 1 && heard && !langs.includes(heard)) out = await pass(langs[0]);
+    const heard = [...out.stderr.matchAll(/auto-detected language: ([a-z]{2,3})\b/g)].map((m) => m[1]);
+    if (langs.length > 1 && heard.some((l) => !langs.includes(l))) out = await pass(langs[0]);
     return withoutMadeUp(cleanTranscript(out.stdout), prompt);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -239,7 +299,7 @@ export async function transcribe(file, config = {}, { env = process.env, fetchIm
   if (peak !== null && peak < SILENT_DB) throw new Error('Nothing was heard in that voice note.');
   let text;
   try {
-    text = setup.engine === 'whisper-cpp' ? await withWhisper(file, setup, config) : await withCloud(file, setup, setup.engine, config, fetchImpl);
+    text = setup.engine === 'whisper-cpp' ? await withWhisper(file, setup, config, peak) : await withCloud(file, setup, setup.engine, config, fetchImpl);
   } catch (err) {
     throw new Error(`The voice note could not be turned into text (${setup.engine}): ${err.message}`);
   }
