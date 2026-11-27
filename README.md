@@ -145,6 +145,19 @@ It is safe to think out loud:
 Replies in talk mode are kept short and plain, without code blocks; the whole reply is in the
 conversation as usual. Talk mode needs the app open: a phone that locks or leaves the app ends it.
 
+**The reading voice** is chosen in Settings → Voice, on each phone, with **Try** beside every voice:
+
+- **Automatic** (the default): the phone's own voice for the reply's language.
+- **On this phone**: any of the phone's Indonesian or English voices. iPhone has one Indonesian voice
+  (Damayanti, female).
+- **Azure (cloud)**: Azure AI Speech neural voices, such as Ardi (Indonesian, male), Gadis (Indonesian,
+  female) and multilingual voices that read both languages. Each piece of a reply is sent to Azure by
+  your Mac and the sound comes back to the phone encrypted, so a reply starts a moment later. Put the key
+  and region of your Speech resource (Azure portal → Keys and Endpoint) in Settings → Voice → Azure
+  Speech; it is kept on the Mac as `azureSpeechKey` / `azureSpeechRegion` in `config.json` and never sent
+  back. `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` in the Mac's environment come first. If Azure fails,
+  the rest of the reply is read in the phone's voice and the reason is shown.
+
 ### Videos and other whole files
 
 The same button takes a video too, and `/file` sends any file as it is. A video or file is not shown to
@@ -997,6 +1010,7 @@ plain Node.
 | `src/highlight.mjs` | code in colour (keywords, strings, calls, numbers, types, comments) in diffs and code blocks, by the file's language or the block's tag |
 | `src/theme.mjs` | the one palette for the terminal and the phone app (amber brand, blue tool at work, purple thinking, green done, red failed); written as 24-bit, 256 or 16 colours depending on the terminal, none with `NO_COLOR` |
 | `src/images.mjs` | images in a conversation: finding the files a message names, loading them, the clipboard, previews and whole pictures for the phone, the Quick Look picture on a file card |
+| `src/speech.mjs` | cloud voices for talk mode: a piece of a reply spoken by Azure AI Speech with the key kept on the Mac |
 | `src/transfer.mjs` | whole files between the phone and the Mac: encrypted pieces through the relay, the inbox, the files an answer offers for download and what their cards show (a video's length, when it changed) |
 | `src/mascot.mjs` | the robot and the wordmark in the header, and the robot and person by each message, drawn as pixels, with their animation |
 | `src/screen.mjs`, `src/input.mjs` | full-screen layout on the alternate screen (header pinned on top, input box at the bottom, the conversation scrolled inside SEEKER) and the input editor |

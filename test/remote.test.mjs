@@ -826,6 +826,93 @@ test('remote control: a voice note comes back as text, starts no turn, and leave
   model.closeAllConnections();
 });
 
+test('remote control: a cloud voice is spoken on the Mac and comes back sealed; the Azure key is kept there and never sent back', async () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-remote-'));
+  const secret = 'test-secret-that-is-long-enough-123456';
+  const { key } = deriveKeys(secret);
+  const relay = createRelay({ authHash: deriveKeys(secret).authHash });
+  const url = await listen(relay);
+  const asked = [];
+  const model = http.createServer((req, res) => {
+    req.resume().on('end', () => {
+      if (req.url === '/api/chat') asked.push(req.url);
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.end(JSON.stringify(done('ok')));
+    });
+  });
+  const host = await listen(model);
+  const config = { ...DEFAULTS, host, bundledSkills: false, remote: { url, secret } };
+  const build = async (folder, ui, asker) => ({
+    agent: new Agent({ config, ui, permissions: new Permissions({ mode: 'ask', cwd: folder, ask: asker }), provider: createProvider('ollama', config), info: { tools: true, thinking: false, context: null }, cwd: folder }),
+    session: { save() {}, startNew() {} },
+  });
+  const spoken = [];
+  const sound = crypto.randomBytes(3000);
+  const speaker = async (text, voice, cfg) => {
+    spoken.push({ text, voice, key: cfg.azureSpeechKey, region: cfg.azureSpeechRegion });
+    if (!cfg.azureSpeechKey) throw new Error('No Azure Speech key on the Mac yet.');
+    return { data: sound, mime: 'audio/mpeg' };
+  };
+  // The Mac's own environment would come first: this test is about a key set from the phone.
+  const env = { ...process.env };
+  delete process.env.AZURE_SPEECH_KEY;
+  delete process.env.AZURE_SPEECH_REGION;
+  const daemon = new RemoteDaemon({ config, folders: [cwd], build, remember: false, speaker });
+  const running = daemon.start();
+  const me = await phone(url, secret);
+  await until(() => me.state.online && me.state.workspaces.size === 1 && me.state.device);
+  const answer = (req) => until(() => me.state.events.find((e) => e.t === 'speech' && e.req === req));
+  try {
+    // Before a key is set the phone is told so, and why the voice cannot be used.
+    assert.equal(me.state.device.settings.speech.azure, 'none');
+    assert.ok(me.state.device.settings.speech.voices.some((v) => v.id === 'id-ID-ArdiNeural'), 'Ardi, a male Indonesian voice, is offered');
+    await me.send('speak', { req: 'speech-req-0001', text: 'Halo', voice: 'id-ID-ArdiNeural' });
+    assert.match((await answer('speech-req-0001')).error, /No Azure Speech key/);
+
+    // The key typed on the phone is kept on the Mac; the phone only learns that one is set, and the region.
+    await me.send('speech_key', { key: 'a'.repeat(32), region: ' SouthEast Asia ' });
+    await until(() => me.state.device.settings.speech.azure === 'set');
+    assert.equal(me.state.device.settings.speech.region, 'southeastasia');
+    assert.equal(JSON.stringify(me.state.events).includes('a'.repeat(32)), false, 'the key never comes back to the phone');
+    await me.send('speech_key', { key: 'short', region: 'eastus' });
+    await until(() => me.state.replies.some((r) => r.t === 'toast' && /does not look like an Azure Speech key/.test(r.text)));
+    assert.equal(daemon.config.azureSpeechKey, 'a'.repeat(32), 'a bad key does not replace a good one');
+
+    // A piece of a reply comes back as sealed MP3 beside the log, for the phone that asked.
+    await me.send('speak', { req: 'speech-req-0002', text: 'Saya sudah cek README.', voice: 'id-ID-ArdiNeural' });
+    const got = await answer('speech-req-0002');
+    assert.deepEqual([got.error, got.bytes], [undefined, sound.length]);
+    const blob = await fetch(`${url}/api/blob?id=speech-req-0002`, { headers: me.headers });
+    const back = unseal(key, (await blob.json()).c);
+    assert.equal(back.mime, 'audio/mpeg');
+    assert.ok(Buffer.from(back.data, 'base64').equals(sound), 'the sound arrives whole');
+    assert.deepEqual(spoken.at(-1), { text: 'Saya sudah cek README.', voice: 'id-ID-ArdiNeural', key: 'a'.repeat(32), region: 'southeastasia' });
+
+    // Not a voice name, too long a piece, or a made-up request id: refused before Azure is asked.
+    const before = spoken.length;
+    await me.send('speak', { req: 'speech-req-0003', text: 'x', voice: '"><evil/>' });
+    assert.match((await answer('speech-req-0003')).error, /not an Azure voice/);
+    await me.send('speak', { req: 'speech-req-0004', text: 'x'.repeat(2001), voice: 'id-ID-ArdiNeural' });
+    assert.match((await answer('speech-req-0004')).error, /1 to 2000 characters/);
+    await me.send('speak', { req: '../x', text: 'x', voice: 'id-ID-ArdiNeural' });
+    await me.send('ping', {});
+    await until(() => me.state.events.some((e) => e.t === 'pong'));
+    assert.equal(me.state.events.some((e) => e.t === 'speech' && e.req === '../x'), false);
+    assert.equal(spoken.length, before);
+    assert.equal(asked.length, 0, 'speaking starts no turn of the agent');
+    assert.equal(me.state.workspaces.values().next().value.items.length, 0, 'and adds nothing to the conversation');
+  } finally {
+    Object.assign(process.env, env);
+    me.close();
+    await daemon.stop();
+    await running;
+    relay.close();
+    relay.closeAllConnections();
+    model.close();
+    model.closeAllConnections();
+  }
+});
+
 test('relay: file pieces are taken once, a request waits for a piece still on its way, and the store refuses more than it may hold', async (t) => {
   const secret = 'test-secret-that-is-long-enough-123456';
   const { token } = deriveKeys(secret);
@@ -1505,7 +1592,9 @@ test('remote: the phone changes the settings /config holds, they take effect at 
   await until(() => me.state.device?.settings);
   const toasted = (pattern) => until(() => me.state.replies.some((r) => r.t === 'toast' && pattern.test(r.text)));
   const [ws] = [...me.state.workspaces.keys()];
-  assert.deepEqual(me.state.device.settings, { think: true, showThinking: true, animation: true, permissionMode: 'ask', maxSteps: 60, keepAlive: '30m', host: ollama.host, ollama: true, context: 32768 });
+  const { speech, ...settings } = me.state.device.settings;
+  assert.deepEqual(settings, { think: true, showThinking: true, animation: true, permissionMode: 'ask', maxSteps: 60, keepAlive: '30m', host: ollama.host, ollama: true, context: 32768 });
+  assert.deepEqual(Object.keys(speech), ['azure', 'region', 'voices'], 'cloud voices: whether a key is set, never the key');
 
   // Plain settings: parsed as /config parses them, and reported back.
   await me.send('config', { key: 'think', value: 'false' });

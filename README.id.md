@@ -516,6 +516,19 @@ Balasan di mode ngobrol dibuat pendek dan polos, tanpa blok kode; balasan lengka
 percakapan seperti biasa. Mode ngobrol butuh aplikasinya terbuka: HP yang terkunci atau keluar dari
 aplikasi mengakhirinya.
 
+**Suara pembaca** dipilih di Settings → Voice, per HP, dengan tombol **Try** di samping setiap suara:
+
+- **Automatic** (bawaan): suara HP sendiri untuk bahasa balasannya.
+- **On this phone**: suara bahasa Indonesia atau Inggris yang ada di HP. iPhone punya satu suara bahasa
+  Indonesia (Damayanti, perempuan).
+- **Azure (cloud)**: suara neural Azure AI Speech, seperti Ardi (Indonesia, laki-laki), Gadis (Indonesia,
+  perempuan), dan suara multilingual yang bisa membaca kedua bahasa. Setiap potongan balasan dikirim Mac-mu
+  ke Azure, dan suaranya kembali ke HP terenkripsi, jadi balasan mulai sedikit lebih lambat. Isi key dan
+  region resource Speech-mu (Azure portal → Keys and Endpoint) di Settings → Voice → Azure Speech; key
+  disimpan di Mac sebagai `azureSpeechKey` / `azureSpeechRegion` di `config.json` dan tidak pernah dikirim
+  balik. `AZURE_SPEECH_KEY` dan `AZURE_SPEECH_REGION` di environment Mac didahulukan. Kalau Azure gagal,
+  sisa balasan dibacakan dengan suara HP dan alasannya ditampilkan.
+
 ### Video dan file utuh lainnya
 
 Tombol yang sama juga bisa melampirkan video, dan `/file` mengirim file apa pun apa adanya. Video atau
