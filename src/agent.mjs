@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describeExternal } from './external-tools.mjs';
 import { SubdirectoryHints } from './context-files.mjs';
 import { decide, fallbackChain, reasonText } from './failover.mjs';
-import { LOOKING, PLAN_NOTE } from './permissions.mjs';
+import { LOOKING, PLAN_NOTE, TALK_NOTE, TALK_PLAN_NOTE } from './permissions.mjs';
 import { findSecrets, keyHint, redactSecrets, secretKind } from './secrets.mjs';
 import { buildSystemPrompt } from './prompt.mjs';
 import { createProvider, keyPool, providerDefs } from './providers.mjs';
@@ -99,6 +99,8 @@ export class Agent {
     this.boardActor = null;
     // The goal of a /swarm being planned (src/swarm.mjs), until its plan is approved or cancelled.
     this.swarm = null;
+    // True while the user talks to it from the phone (talk mode, src/remote.mjs): replies are read out to them.
+    this.talking = false;
     // What this agent's replies have cost (src/budget.mjs), and — for the lead — what its helpers
     // have cost while it answers the current message, with why they were stopped if the budget ran out.
     this.spent = blankSpent();
@@ -1188,7 +1190,9 @@ export class Agent {
     }
     if (references && HAS_REFERENCE.test(userText)) await this.#attachReferences(message, signal);
     this.#attachImages(message, sent);
-    if (this.permissions?.planning && !this.review && !this.parent) message.content += `\n\n${PLAN_NOTE}`;
+    // Talking from the phone (src/remote.mjs): short spoken replies, and with plan mode a discussion, not a plan each time.
+    if (this.talking && !this.review && !this.parent) message.content += `\n\n${TALK_NOTE}${this.permissions?.planning ? `\n${TALK_PLAN_NOTE}` : ''}`;
+    else if (this.permissions?.planning && !this.review && !this.parent) message.content += `\n\n${PLAN_NOTE}`;
     if (!this.review && !this.parent) {
       const dragged = draggedFilesIn(userText, this.cwd);
       if (dragged.length) message.content += `\n\n[The file${dragged.length > 1 ? 's' : ''} named above, as plain path${dragged.length > 1 ? 's' : ''} to open: ${dragged.join(' · ')}]`;
@@ -1258,7 +1262,7 @@ export class Agent {
       ui.ensureNewline();
     }
     if (this.shellHooks && !this.review && !this.parent && !signal.aborted) this.shellHooks.run('post_llm_call', { extra: { response: this.messages.at(-1)?.content ?? '' } }).catch(() => {});
-    if (this.permissions?.planning && !this.review && !this.parent && !signal.aborted) ui.notice('  Plan mode: nothing was changed. /plan go carries the plan out · /plan off leaves plan mode.');
+    if (this.permissions?.planning && !this.talking && !this.review && !this.parent && !signal.aborted) ui.notice('  Plan mode: nothing was changed. /plan go carries the plan out · /plan off leaves plan mode.');
     // Not awaited: the user has their answer and can type; the review works behind it.
     if (!signal.aborted) this.reviewing = this.#reviewTurn().catch(() => {});
   }

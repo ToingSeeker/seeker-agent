@@ -2971,7 +2971,8 @@ pre {
   order: 0;
 }
 .composer-box:not(.open) .stop-btn,
-.composer-box:not(.open) .send {
+.composer-box:not(.open) .send,
+.composer-box:not(.open) .talk-btn {
   order: 2;
 }
 .composer-bar {
@@ -3905,6 +3906,309 @@ pre {
 }
 #talk-actions .btn.talk-done:active {
   opacity: 0.6;
+}
+/* ── Talk mode (talk in app.js): a spoken conversation on the talk page. ──
+   Green is what the user says, purple that plan mode holds changes back, orange SEEKER's voice, blue a
+   plan being carried out, amber something only the user can answer. */
+.talk.conv {
+  padding-top: calc(64px + env(safe-area-inset-top));
+  gap: 14px;
+}
+.talk-top {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.talk-top[hidden] {
+  display: none;
+}
+.talk-top .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--sk-border);
+  border-radius: 999px;
+  background: var(--sk-surface);
+  font: 600 11px var(--mono);
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--sk-text-primary);
+}
+.talk-top .chip .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sk-success);
+  box-shadow: 0 0 8px var(--sk-success);
+}
+.talk-top .chip .ico {
+  display: block;
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+.talk-top .chip .ico svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.talk-top .chip.plan {
+  flex: none;
+  border-color: rgba(156, 107, 235, 0.45);
+  background: var(--sk-reasoning-soft);
+  color: var(--sk-reasoning);
+}
+.talk-top .chip.run {
+  flex: none;
+  border-color: rgba(65, 136, 255, 0.5);
+  background: var(--sk-execution-soft);
+  color: var(--sk-execution);
+}
+.talk-top .chip.pause {
+  border-color: rgba(255, 181, 71, 0.45);
+  background: var(--sk-warning-soft);
+  color: var(--sk-warning);
+}
+.talk-top .chip.pause .dot {
+  background: var(--sk-warning);
+  box-shadow: none;
+}
+.talk.conv .talk-bot {
+  margin-top: 0;
+}
+.talk.conv .talk-bot.small {
+  width: 84px;
+  height: 84px;
+}
+.talk[data-phase='speak'] .talk-bot .robot .y,
+.talk[data-phase='plan'] .talk-bot .robot .y {
+  fill: var(--sk-primary);
+}
+.talk[data-phase='approval'] .talk-bot .robot .y,
+.talk[data-phase='hold'] .talk-bot .robot .y {
+  fill: var(--sk-warning);
+}
+.talk.conv .talk-wave {
+  height: 90px;
+}
+.talk-wave[hidden] {
+  display: none;
+}
+/* How far the pause has gone toward sending what was said by itself. */
+.talk-gap {
+  width: min(78vw, 340px);
+}
+.talk-gap[hidden] {
+  display: none;
+}
+.talk-gap .lbl {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font: 11px var(--mono);
+  color: var(--sk-text-muted);
+}
+.talk-gap .track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--sk-surface-elevated);
+  overflow: hidden;
+}
+.talk-gap .track i {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--sk-success), var(--sk-cyan));
+  transition: width 50ms linear;
+}
+.talk-panel {
+  width: min(92vw, 440px);
+  max-height: 46vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  touch-action: pan-y;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.talk-panel[hidden] {
+  display: none;
+}
+.talk-said {
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--sk-user);
+  font: 13px/1.5 var(--mono);
+  color: var(--sk-text-secondary);
+}
+.talk-said b {
+  font-weight: 500;
+  color: var(--sk-user);
+}
+.talk-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: 12px;
+  background: var(--sk-surface);
+  font: 12.5px var(--mono);
+  color: var(--sk-text-secondary);
+  overflow-wrap: anywhere;
+}
+.talk-step .spin {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--sk-execution);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+.talk-reply,
+.talk-plan,
+.talk-card {
+  padding: 14px 16px;
+  border: 1px solid var(--sk-border);
+  border-radius: 16px;
+  background: var(--sk-surface);
+  font: 500 15px/1.6 var(--sans);
+  color: var(--sk-text-primary);
+  overflow-wrap: anywhere;
+}
+.talk-reply .read {
+  color: var(--sk-text-muted);
+}
+.talk-reply .now {
+  border-radius: 4px;
+  background: var(--sk-primary-soft);
+  color: var(--sk-primary);
+}
+.talk-plan b {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.talk-plan ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.talk-plan .safe {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(156, 107, 235, 0.3);
+  border-radius: 12px;
+  background: var(--sk-reasoning-soft);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--sk-text-secondary);
+}
+.talk-plan .safe .ico,
+.talk-card .t .ico {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--sk-reasoning);
+}
+.talk-plan .safe .ico svg,
+.talk-card .t .ico svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.talk-card {
+  border-color: rgba(255, 181, 71, 0.5);
+  background: var(--sk-bg-raised);
+  box-shadow: 0 0 0 4px rgba(255, 181, 71, 0.07);
+}
+.talk-card .t {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--sk-warning);
+}
+.talk-card .t .ico {
+  color: var(--sk-warning);
+}
+.talk-card p {
+  margin: 0 0 10px;
+}
+.talk-card .cmd {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--sk-border);
+  border-radius: 10px;
+  background: var(--sk-bg);
+  font: 13px/1.5 var(--mono);
+  white-space: pre-wrap;
+}
+.talk-card .warn {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--sk-danger);
+}
+.talk-card .row {
+  display: flex;
+  gap: 10px;
+}
+.talk-card .btn {
+  flex: 1;
+  min-height: 46px;
+  margin: 0;
+}
+.talk-card .btn.reject {
+  border-color: rgba(241, 109, 118, 0.5);
+  background: none;
+  color: var(--sk-danger);
+}
+.talk-card .btn.quiet {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--sk-text-secondary);
+}
+#talk-actions .btn.reject {
+  color: var(--sk-danger);
+}
+/* Run: the one way a talk becomes changes, in the blue of work being carried out. */
+#talk-actions .btn.run,
+#talk-actions .btn.run:active {
+  background: var(--sk-execution);
+  color: #fff;
+}
+/* Beside the mic in the box: talk mode. */
+.tool-btn.talk-btn {
+  color: var(--sk-primary);
+}
+.tool-btn.talk-btn svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.tool-btn.talk-btn[hidden] {
+  display: none;
 }
 @keyframes talk-think {
   0%,

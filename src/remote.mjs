@@ -343,6 +343,7 @@ export class Workspace {
     this.tools = { total: 0, failed: 0 };
     this.startedAt = null; // when the turn in progress began
     this.lastAt = null; // when anything last happened here
+    this.talk = null; // talk mode from the phone: { planning } — whether plan mode was on before it began
     this.ui = new WebUI((event) => this.#report(event));
     this.ui.onStep = () => this.touch();
   }
@@ -415,7 +416,31 @@ export class Workspace {
       ...(this.terminal ? { terminal: true } : {}),
       // Chose its own model on the phone, instead of following the default.
       ...(this.ownModel ? { ownModel: true } : {}),
+      // Plan mode: nothing is changed until the plan is approved. The phone's talk page shows Run while it is on.
+      ...(agent.permissions?.planning ? { planning: true } : {}),
+      ...(this.talk ? { talk: true } : {}),
     };
+  }
+
+  /**
+   * Talk mode from the phone: the user speaks and hears the replies. Starting it (or "Talk more" after a plan was
+   * run) turns plan mode on, so the conversation is a discussion: the model may look, and nothing is changed
+   * until the user taps Run, which is /plan go. Ending it puts plan mode back as it was before talk began.
+   */
+  setTalk(on) {
+    if (on) {
+      this.talk ??= { planning: Boolean(this.agent.permissions.planning) };
+      // Never in the middle of a turn: a plan carried out with Run must not be stopped halfway by plan mode
+      // coming back. The phone asks again when the project is idle, at the start of the next turn of the talk.
+      if (this.status === 'idle') this.agent.permissions.planning = true;
+      this.agent.talking = true;
+    } else if (this.talk) {
+      // Left as it was found; a plan carried out with Run (plan mode off) stays carried out.
+      if (!this.talk.planning) this.agent.permissions.planning = false;
+      this.talk = null;
+      this.agent.talking = false;
+    }
+    this.touch();
   }
 
   /** Marks how the turn ended as not yet seen on the phone (it counts on the app's badge), and tells the phone. */
@@ -1486,6 +1511,8 @@ export class RemoteDaemon {
           if (!text) return;
           if (workspace.status !== 'idle' || workspace.receiving) return this.send({ t: 'toast', text: `${workspace.name} is still working. Queue it, or stop it first.` });
           this.log(`${workspace.name} ← ${text.split('\n')[0].slice(0, 70)}${images.length ? ` (+${images.length} image${images.length > 1 ? 's' : ''})` : ''}`);
+          // Words spoken in talk mode are never a command: "slash plan go" heard as /plan go must not start the plan.
+          if (command.spoken === true) return void workspace.run(text, images, { via: 'voice' }).catch((err) => this.log(`error in ${workspace.name}: ${err.message}`));
           return this.#dispatch(workspace, text, images);
         }
         case 'instruct':
@@ -1536,6 +1563,12 @@ export class RemoteDaemon {
           return void this.#download(command, workspace).catch((err) => this.log(`download: ${err.message}`));
         case 'transcribe':
           return void this.#transcribe(command).catch((err) => this.log(`voice note: ${err.message}`));
+        case 'talk': {
+          // A terminal session answers for itself; talk mode is for a conversation held from the phone.
+          if (!own(workspace)) return this.send({ t: 'toast', text: 'Talk mode works in a project opened from the phone.' });
+          workspace.setTalk(command.on === true);
+          return this.log(`${workspace.name}: talk mode ${command.on === true ? 'on (plan mode on: nothing is changed until Run)' : 'off'}`);
+        }
         case 'lockout':
           // The phone is unpairing itself after three wrong PINs within ten minutes.
           this.log('a phone unpaired itself after 3 wrong PINs in 10 minutes');

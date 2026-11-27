@@ -14,6 +14,7 @@ import { MODEL_SLOTS, PRICES_AS_OF, RANGES, approx, chargedPart, charged, compac
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { codeRain, gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
+import { EndOfSpeech, latestReply, pickVoice, planIn, sentences, speakable, speechLang } from './converse.js';
 import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, PROJECT_CHARACTERS, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from './characters.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
@@ -79,6 +80,8 @@ const ICONS = {
   camera: svg('<path d="M4 8.5A1.5 1.5 0 015.5 7h2.3l1.4-2h5.6l1.4 2h2.3A1.5 1.5 0 0120 8.5v9a1.5 1.5 0 01-1.5 1.5h-13A1.5 1.5 0 014 17.5z"/><circle cx="12" cy="12.8" r="3.4"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   mic: svg('<rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.500a6.5 6.5 0 0013 0M12 18v2.5"/>'),
+  talk: svg('<path d="M4 5h16v10H9l-5 4z"/><path d="M8.5 10h.01M12 10h.01M15.5 10h.01" stroke-width="2.4"/>'),
+  speaker: svg('<path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 010 6M19 6.5a8 8 0 010 11"/>'),
   check: svg('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
   pencil: svg('<path d="M4 20h4L19.5 8.5l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>'),
   cross: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
@@ -467,6 +470,7 @@ async function listen() {
             }
           }
           render();
+          if (talk) talkWatch();
         }
       }
     } catch (err) {
@@ -2530,7 +2534,7 @@ function entryOf(item) {
     // Files sent with it show as cards; the list the agent reads under the words is not repeated.
     const { said, listed } = splitSent(item.text);
     // Its node is the pixel person, moving with the robot's animation setting.
-    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : 'QUEUED'), time), said && h('div', { class: 'said' }, said), sentFiles(item, listed), pictures(item.images, '', { ws: state.view.ws, item: item.id, user: true })));
+    return h('li', { class: 'ev user' }, h('span', { class: state.device?.settings?.animation === false ? 'node still' : 'node', icon: 'you' }), h('div', { class: 'body' }, h('div', { class: 'headline' }, h('span', { class: 'who' }, 'YOU'), item.via && h('span', { class: 'tag primary' }, item.via === 'steer' ? 'STEERED' : item.via === 'voice' ? 'SPOKEN' : 'QUEUED'), time), said && h('div', { class: 'said' }, said), sentFiles(item, listed), pictures(item.images, '', { ws: state.view.ws, item: item.id, user: true })));
   }
   if (item.kind === 'assistant') {
     if (!item.text) return null;
@@ -3644,7 +3648,10 @@ function queuePanel(ws, up) {
  */
 // Voice notes (below): declared here because composerState reads them.
 const canRecord = Boolean(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
-let voice = null; // { phase: 'rec' | 'up' | 'text' | 'done', recorder, stream, parts, started, tick, req, timer, ws, said, text, preview, audio }
+let voice = null; // { phase: 'rec' | 'up' | 'text' | 'done', recorder, stream, parts, started, tick, req, timer, ws, said, text, preview, audio, talk }
+// Talk mode (below the voice notes): a spoken conversation held on the talk page. Declared here for the same reason.
+const canTalk = canRecord && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance === 'function';
+let talk = null;
 function composerState() {
   const ws = state.workspaces.get(state.view.ws);
   if (!ws) return;
@@ -3666,6 +3673,9 @@ function composerState() {
   // can be stopped or waited on.
   const showMic = canRecord && ((empty && !sending && !showStop) || Boolean(voice));
   mic.hidden = !showMic;
+  // Talk mode sits beside the mic, for a project opened from the phone (a terminal session answers for itself).
+  $('talkmode').hidden = !canTalk || !showMic || Boolean(voice) || Boolean(talk) || Boolean(meta.terminal);
+  $('talkmode').disabled = !up;
   $('stop').hidden = !showStop;
   $('send').hidden = showStop || showMic;
   $('stop').disabled = !up || Boolean(meta.stopping) || (stopAsked !== null && stopAsked === (meta.turn ?? null));
@@ -4010,8 +4020,13 @@ function showVoice() {
   mic.setAttribute('aria-label', voice?.phase === 'rec' ? 'Stop recording and turn it into text' : 'Record a voice note');
   mic.dataset.busy = voice && voice.phase !== 'rec' ? '1' : '';
   composerState();
+  if (talk) return showTalk();
   const page = $('talk');
   page.hidden = !voice;
+  page.classList.remove('conv');
+  for (const id of ['talk-top', 'talk-panel', 'talk-gap']) $(id).hidden = true;
+  $('talk-wave').hidden = false;
+  $('talk-bot').classList.remove('small');
   if (!voice) {
     talkRain?.stop();
     talkRain = null;
@@ -4113,7 +4128,7 @@ function swipeTalk() {
     page.style.opacity = dy ? String(Math.max(0, 1 + dy / page.clientHeight)) : '';
   };
   page.addEventListener('pointerdown', (e) => {
-    if (!voice || e.button > 0) return;
+    if (!voice || talk || e.button > 0) return; // talk mode ends with Done, not a swipe
     if (e.target === $('talk-edit')) return; // the words being fixed: a finger there selects and scrolls them
     const text = $('talk-text');
     if (text.contains(e.target) && text.scrollHeight > text.clientHeight) return; // its own scroll comes first
@@ -4153,9 +4168,9 @@ function swipeTalk() {
   page.addEventListener('pointercancel', release);
   // A tap that ends a drag is not also a tap on the button under the finger.
   page.addEventListener('click', (e) => dragged && e.timeStamp - dragged < 400 && (e.stopPropagation(), e.preventDefault()), true);
-  document.addEventListener('keydown', (e) => e.key === 'Escape' && voice && !page.hidden && cancelVoice());
+  document.addEventListener('keydown', (e) => e.key === 'Escape' && !page.hidden && (talk ? endTalk() : voice && cancelVoice()));
   // The words, once back, are tapped to fix them in place.
-  $('talk-text').addEventListener('click', () => voice?.phase === 'done' && editVoice());
+  $('talk-text').addEventListener('click', () => !talk && voice?.phase === 'done' && editVoice());
   const edit = $('talk-edit');
   edit.addEventListener('input', () => {
     if (voice?.editing) voice.text = edit.value;
@@ -4191,7 +4206,9 @@ function listenTo(ctx, stream) {
 
 function quietVoice(mine) {
   cancelAnimationFrame(mine.frame);
-  mine.audio?.ctx.close?.().catch(() => {});
+  clearInterval(mine.hear);
+  // In talk mode the sound context is the conversation's, made once in the tap that began it, and kept.
+  if (!mine.talk) mine.audio?.ctx.close?.().catch(() => {});
   if (mine.audio) mine.levels = mine.audio.levels; // the wave stays as it was when the recording ended
   mine.audio = null;
 }
@@ -4203,7 +4220,7 @@ const WAVE_STRANDS = 14; // thin lines woven into the one wave
  * it settles into a calm drift, and it keeps drifting until the page closes.
  */
 function drawWave(mine) {
-  if (voice !== mine) return;
+  if (voice !== mine && talk?.wave !== mine) return;
   const canvas = $('talk-wave');
   const dpr = Math.min(2, devicePixelRatio || 1);
   const w = canvas.clientWidth;
@@ -4230,7 +4247,15 @@ function drawWave(mine) {
     }
   }
   const rec = mine.phase === 'rec';
-  const level = rec && a ? a.level : 0;
+  // Talk mode, while a reply is read out: the wave is SEEKER's voice, swelling with a speaking rhythm.
+  const speaking = mine.phase === 'speak';
+  if (speaking && now - (mine.at ?? 0) > 60) {
+    mine.at = now;
+    mine.level = 0.22 + 0.4 * Math.abs(Math.sin(now / 170) * Math.sin(now / 410));
+    mine.levels.push(mine.level);
+    if (mine.levels.length > 120) mine.levels.shift();
+  }
+  const level = rec && a ? a.level : speaking ? mine.level : 0;
   $('talk').style.setProperty('--lvl', level.toFixed(3));
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, hgt);
@@ -4254,7 +4279,7 @@ function drawWave(mine) {
   const cy = hgt / 2;
   const reach = hgt / 2 - 4;
   const cyan = css.getPropertyValue('--sk-cyan').trim() || '#31D8F4';
-  const ink = rec ? cyan : css.getPropertyValue('--sk-text-muted').trim() || '#858993';
+  const ink = rec ? cyan : speaking ? css.getPropertyValue('--sk-primary').trim() || '#FF8A00' : css.getPropertyValue('--sk-text-muted').trim() || '#858993';
   // Strong in the middle, fading out at both ends, like light on a line.
   const fade = g.createLinearGradient(0, 0, w, 0);
   fade.addColorStop(0, 'rgba(0,0,0,0)');
@@ -4274,7 +4299,7 @@ function drawWave(mine) {
   for (let s = 0; s < WAVE_STRANDS; s++) {
     const p = s / (WAVE_STRANDS - 1);
     const phase = p * 2.4;
-    g.globalAlpha = (rec ? 0.22 : 0.12) + 0.18 * Math.sin(Math.PI * p);
+    g.globalAlpha = (rec || speaking ? 0.22 : 0.12) + 0.18 * Math.sin(Math.PI * p);
     g.lineWidth = 1;
     g.beginPath();
     for (let i = 0, x = 0; x <= w; i++, x += step) {
@@ -4285,7 +4310,7 @@ function drawWave(mine) {
     g.stroke();
   }
   // The glowing core: one brighter line where the strands cross.
-  g.globalAlpha = rec ? 0.9 : 0.5;
+  g.globalAlpha = rec || speaking ? 0.9 : 0.5;
   g.lineWidth = 1.6;
   g.shadowColor = ink;
   g.shadowBlur = 12;
@@ -4314,28 +4339,33 @@ function endVoice() {
  * Starts recording. With `more`, a voice note whose words are back (and maybe fixed) records on: what is said
  * now is added after them, and if it comes to nothing they are kept as they were.
  */
-async function startVoice(more = false) {
+async function startVoice(more = false, owner = null) {
   const prev = more && voice?.phase === 'done' ? voice : null;
-  if ((voice && !prev) || !(prev?.ws ?? state.view.ws)) return;
+  if ((voice && !prev) || !(owner?.ws ?? prev?.ws ?? state.view.ws)) return;
   if (prev?.used) return;
-  if (!(state.linked && state.online)) return toast('Your Mac is not connected.');
+  if (!(state.linked && state.online)) return owner ? talkHold(owner, 'Your Mac is not connected.') : toast('Your Mac is not connected.');
   // Made inside the tap, before anything is awaited: iOS lets a page start sound only from a gesture.
-  let ctx = null;
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    ctx = Ctx ? new Ctx() : null;
-  } catch {}
+  // Talk mode made its own in the tap that began the conversation, and listens with it each time.
+  let ctx = owner?.ctx ?? null;
+  if (!owner) {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      ctx = Ctx ? new Ctx() : null;
+    } catch {}
+  }
+  const drop = () => !owner && ctx?.close?.().catch(() => {});
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
   } catch (err) {
-    ctx?.close?.().catch(() => {});
+    drop();
+    if (owner) endTalk();
     return toast(err?.name === 'NotAllowedError' ? 'The microphone is not allowed. Allow it for this app in Settings, then try again.' : `The microphone could not be opened: ${err?.message ?? err}.`);
   }
-  // Swiped away, sent, or started twice while the microphone was being opened: this recording is not wanted.
-  if (voice !== prev || prev?.used) {
+  // Swiped away, sent, or started twice while the microphone was being opened (or talk mode ended): not wanted.
+  if (voice !== prev || prev?.used || (owner && (talk !== owner || owner.stage !== 'listen'))) {
     stream.getTracks().forEach((t) => t.stop());
-    ctx?.close?.().catch(() => {});
+    drop();
     return;
   }
   const { mime, ext } = voiceType();
@@ -4344,13 +4374,14 @@ async function startVoice(more = false) {
     recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
-    ctx?.close?.().catch(() => {});
+    drop();
+    if (owner) endTalk();
     return toast(`This browser cannot record: ${err?.message ?? err}.`);
   }
   const type = recorder.mimeType || mime || 'audio/webm';
   if (prev) cancelAnimationFrame(prev.frame); // its wave gives way to the new one
   const before = prev ? prev.text.trim() : '';
-  const mine = { phase: 'rec', recorder, stream, parts: [], started: Date.now(), ext, type, ws: prev?.ws ?? state.view.ws, cancelled: false, before, said: '', text: '', preview: null, audio: listenTo(ctx, stream) };
+  const mine = { phase: 'rec', recorder, stream, parts: [], started: Date.now(), ext, type, ws: owner?.ws ?? prev?.ws ?? state.view.ws, cancelled: false, before, said: '', text: '', preview: null, audio: listenTo(ctx, stream), talk: owner };
   voice = mine;
   recorder.addEventListener('dataavailable', (e) => e.data?.size && mine.parts.push(e.data));
   recorder.addEventListener('stop', () => {
@@ -4367,6 +4398,11 @@ async function startVoice(more = false) {
     previewVoice(mine);
     showVoice();
   }, 500);
+  // Talk mode hears when the user has finished, and sends what they said without a tap.
+  if (owner) {
+    owner.heard.reset(performance.now());
+    mine.hear = setInterval(() => hearTalk(mine), 50);
+  }
   if (navigator.vibrate) navigator.vibrate(30);
   showVoice();
   drawWave(mine);
@@ -4427,8 +4463,13 @@ function stopVoice(cancel) {
  * A recording that came to nothing. Said after earlier words (Add), it leaves those words as they were, to be
  * sent or fixed; on its own, the voice note ends.
  */
-function failVoice(mine) {
+function failVoice(mine, why = '') {
   if (voice !== mine) return;
+  // In talk mode nothing is lost: it simply listens again.
+  if (mine.talk) {
+    endVoice();
+    return talkListen(mine.talk, why || 'Nothing was heard. Listening again.');
+  }
   if (!mine.before) return endVoice();
   clearInterval(mine.tick);
   clearTimeout(mine.timer);
@@ -4482,6 +4523,10 @@ function voiceArrived(event) {
   }
   if (mine.req !== event.req) return;
   clearTimeout(mine.timer);
+  if (mine.talk) {
+    const said = String(event.text ?? '').trim();
+    return event.error || !said ? failVoice(mine, event.error) : talkSend(mine, said);
+  }
   if (event.error) {
     failVoice(mine);
     return toast(event.error);
@@ -4531,7 +4576,393 @@ if (canRecord) {
   $('talk-bot').innerHTML = ICONS.logo;
   swipeTalk();
   $('mic').addEventListener('click', () => (voice?.phase === 'rec' ? stopVoice(false) : startVoice()));
+  $('talkmode').innerHTML = ICONS.talk;
+  $('talkmode').addEventListener('click', startTalk);
 }
+
+// ── talk mode ──
+// A spoken conversation on the talk page. SEEKER listens; a pause of a little over a second sends what was said
+// (converse.js hears it), the reply is read out by the phone's own voice, and it listens again. What is said is
+// never a /command: the Mac runs spoken words as a message. Starting talk mode turns plan mode on in the project
+// (setTalk in src/remote.mjs), so the talk is a discussion: the agent may look, and nothing is changed. Only the
+// Run button — /plan go, tapped — carries a plan out, and every edit and command after it still waits for an
+// approval answered by a tap; while one waits the conversation pauses and the microphone is off. Each new turn of
+// the talk starts as a discussion again, and Done puts plan mode back as it was.
+const TALK_START_WAIT = 20_000; // for the Mac to start on what was said
+const TALK_GRACE_MS = 1500; // a turn that ended without an answer, waited on in case work goes on (Run)
+const TALK_PIECE_MS = 90; // per letter, plus a few seconds: a piece that never says it ended is moved past
+
+function startTalk() {
+  const ws = state.workspaces.get(state.view.ws);
+  if (!canTalk || talk || voice || !ws || ws.meta.terminal) return;
+  if (!(state.linked && state.online)) return toast('Your Mac is not connected.');
+  // Both inside the tap: iOS lets a page start sound, and speech, only from a gesture.
+  let ctx = null;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    ctx = Ctx ? new Ctx() : null;
+  } catch {}
+  try {
+    speechSynthesis.cancel();
+    const wake = new SpeechSynthesisUtterance(' ');
+    wake.volume = 0;
+    speechSynthesis.speak(wake);
+  } catch {}
+  talk = { ws: ws.meta.id, ctx, stage: 'listen', note: '', said: '', reply: '', pieces: [], piece: -1, plan: [], heard: new EndOfSpeech(), began: false, approval: null, away: false, wave: null, reading: null, keys: {} };
+  command('talk', { ws: talk.ws, on: true });
+  talkListen(talk);
+}
+
+/** Ends talk mode: stops listening and reading, and puts the project's plan mode back as it was. */
+function endTalk() {
+  const owner = talk;
+  if (!owner) return;
+  talk = null;
+  clearTimeout(owner.wait);
+  clearTimeout(owner.grace);
+  stopSpeaking(owner);
+  if (voice?.talk === owner) voice.phase === 'rec' ? stopVoice(true) : endVoice();
+  owner.ctx?.close?.().catch(() => {});
+  command('talk', { ws: owner.ws, on: false }, { quiet: true });
+  showVoice();
+}
+
+/** Listens for the user's next words. A project at work is waited on first. */
+function talkListen(owner, note = '') {
+  if (talk !== owner) return;
+  stopSpeaking(owner);
+  const ws = state.workspaces.get(owner.ws);
+  if (!ws) return talkHold(owner, 'This project has been closed.');
+  // Every turn of the talk starts as a discussion: after a plan was run, plan mode comes back on.
+  if (!ws.meta.planning) command('talk', { ws: owner.ws, on: true }, { quiet: true });
+  if (agentState(ws.meta).busy) {
+    Object.assign(owner, { stage: 'think', began: true, note });
+    return showVoice();
+  }
+  Object.assign(owner, { stage: 'listen', note, plan: [] });
+  showVoice();
+  startVoice(false, owner);
+}
+
+/** Stops for something only the user can sort out (the Mac gone, the project closed); Listen tries again. */
+function talkHold(owner, note) {
+  if (talk !== owner) return;
+  stopSpeaking(owner);
+  if (voice?.talk === owner) voice.phase === 'rec' ? stopVoice(true) : endVoice();
+  Object.assign(owner, { stage: 'hold', note });
+  showVoice();
+}
+
+/** Measures the microphone while the user speaks, and sends what they said once they pause. */
+function hearTalk(mine) {
+  const owner = mine.talk;
+  if (voice !== mine || mine.phase !== 'rec' || !mine.audio || talk !== owner) return;
+  const a = mine.audio;
+  a.analyser.getByteTimeDomainData(a.data);
+  let sum = 0;
+  for (const v of a.data) sum += ((v - 128) / 128) ** 2;
+  const now = performance.now();
+  const heard = owner.heard.feed(Math.min(1, Math.sqrt(sum / a.data.length) * 4.5), now);
+  const bar = $('talk-gap').querySelector('i');
+  if (bar) bar.style.width = `${Math.round(owner.heard.progress(now) * 100)}%`;
+  if (heard === 'end') stopVoice(false);
+  else if (heard === 'idle') {
+    // Nobody spoke: the recording starts over, so it never grows long and empty.
+    stopVoice(true);
+    talkListen(owner, owner.note);
+  }
+}
+
+/** What was said, as text: sent to the agent as a spoken message, never as a command. */
+async function talkSend(mine, text) {
+  const owner = mine.talk;
+  endVoice();
+  if (talk !== owner) return;
+  const ws = state.workspaces.get(owner.ws);
+  if (!ws) return talkHold(owner, 'This project has been closed.');
+  Object.assign(owner, { stage: 'think', said: text, reply: '', note: '', began: false });
+  showVoice();
+  if (!(await command('message', { ws: owner.ws, text, spoken: true, locked: Boolean(lockCfg) }))) return talkListen(owner, 'That could not be sent. Say it again.');
+  waitForStart(owner);
+}
+
+function waitForStart(owner) {
+  clearTimeout(owner.wait);
+  owner.wait = setTimeout(() => talk === owner && owner.stage === 'think' && !owner.began && talkListen(owner, 'Your Mac did not start on that. Say it again.'), TALK_START_WAIT);
+}
+
+/** Run: carries the plan out (/plan go, tapped — never spoken). Approvals still come, one tap each. */
+function talkRun(owner) {
+  const ws = state.workspaces.get(owner.ws);
+  if (talk !== owner || !ws || agentState(ws.meta).busy) return;
+  stopSpeaking(owner);
+  Object.assign(owner, { stage: 'think', said: 'Run the plan.', reply: '', note: '', plan: [], began: false });
+  showVoice();
+  command('message', { ws: owner.ws, text: '/plan go', locked: Boolean(lockCfg) }).then((sent) => (sent ? waitForStart(owner) : talkListen(owner, 'Run could not be sent.')));
+}
+
+/** Follows the project while talk mode is on: an approval pauses the talk, a finished turn is read out. */
+function talkWatch() {
+  try {
+    const owner = talk;
+    const ws = state.workspaces.get(owner.ws);
+    if (!ws) return owner.stage !== 'hold' && talkHold(owner, 'This project has been closed.');
+    const { meta } = ws;
+    const pending = state.approvals.find((a) => a.ws === owner.ws) ?? null;
+    if (owner.away && (!pending || state.view.name !== 'review')) owner.away = false;
+    if (pending) {
+      if (owner.approval?.id !== pending.id) {
+        // The microphone goes off and the reading stops: an approval is answered by a tap, never by voice.
+        if (voice?.talk === owner) voice.phase === 'rec' ? stopVoice(true) : endVoice();
+        stopSpeaking(owner);
+        Object.assign(owner, { stage: 'approval', approval: pending, began: true });
+        say(pending.kind === 'question' ? 'SEEKER has a question. Check the screen.' : 'Approval needed. Check the screen.', 'en-US');
+      }
+      return showVoice();
+    }
+    if (owner.stage === 'approval') Object.assign(owner, { stage: 'think', approval: null });
+    if (owner.stage === 'listen' && meta.status !== 'idle' && voice?.talk === owner) {
+      // Work started here from elsewhere (the queue, another phone): wait for it instead of talking over it.
+      voice.phase === 'rec' ? stopVoice(true) : endVoice();
+      Object.assign(owner, { stage: 'think', began: true });
+    }
+    if (owner.stage !== 'think') return showVoice();
+    // Begun only once the project is seen at work: what was said shows up in the conversation a moment before
+    // the status changes, and the summary from before (idle) must not read as the turn already over.
+    if (meta.status !== 'idle') {
+      owner.began = true;
+      clearTimeout(owner.grace);
+      owner.grace = null;
+    }
+    if (meta.status !== 'idle' || !owner.began) return showVoice();
+    clearTimeout(owner.wait);
+    const reply = latestReply(ws.items);
+    if (!reply) {
+      // No answer yet: Run is a command (/plan go) that hands the plan to a new turn a moment later, so the
+      // project is idle in between. Waited on briefly before it counts as over, or the talk would listen (and
+      // turn plan mode back on) just as the plan starts.
+      if (owner.grace === undefined || owner.grace === null) owner.grace = setTimeout(() => {
+        owner.grace = null;
+        if (talk === owner && owner.stage === 'think' && state.workspaces.get(owner.ws)?.meta.status === 'idle') talkListen(owner, meta.outcome === 'failed' ? 'That ended with an error; it is in the conversation.' : meta.outcome === 'stopped' ? 'Stopped.' : '');
+      }, TALK_GRACE_MS);
+      return showVoice();
+    }
+    owner.reply = reply;
+    owner.plan = meta.planning ? planIn(reply) : [];
+    speakReply(owner);
+  } catch (err) {
+    console.error('talk mode:', err);
+  }
+}
+
+/** Says a short line in the phone's voice, outside a reply (that an approval waits). */
+function say(text, lang) {
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    const v = pickVoice(speechSynthesis.getVoices(), lang);
+    if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  } catch {}
+}
+
+/** Reads the reply out a sentence or so at a time, lighting the one being read; then listens again (or waits on a plan). */
+function speakReply(owner) {
+  stopSpeaking(owner);
+  owner.stage = owner.plan.length ? 'plan' : 'speak';
+  owner.pieces = sentences(speakable(owner.reply));
+  owner.piece = -1;
+  owner.wave = { phase: 'speak', levels: [], level: 0 };
+  const reading = (owner.reading = {});
+  const lang = speechLang(owner.reply);
+  const chosen = pickVoice(speechSynthesis.getVoices(), lang);
+  const next = () => {
+    clearTimeout(owner.pieceTimer);
+    if (talk !== owner || owner.reading !== reading) return;
+    owner.piece += 1;
+    if (owner.piece >= owner.pieces.length) return readOut(owner);
+    const text = owner.pieces[owner.piece];
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = lang;
+    if (chosen) u.voice = chosen;
+    u.onend = next;
+    u.onerror = next;
+    owner.pieceTimer = setTimeout(next, 4000 + text.length * TALK_PIECE_MS);
+    try {
+      speechSynthesis.speak(u);
+    } catch {
+      return next();
+    }
+    showVoice();
+  };
+  showVoice();
+  drawWave(owner.wave);
+  next();
+}
+
+/** The reply has been read: a plan waits for Run or Talk more; anything else, the user's turn. */
+function readOut(owner) {
+  stopSpeaking(owner);
+  if (owner.stage === 'plan') return showVoice();
+  talkListen(owner);
+}
+
+function stopSpeaking(owner) {
+  clearTimeout(owner.pieceTimer);
+  owner.reading = null;
+  if (owner.wave) cancelAnimationFrame(owner.wave.frame);
+  owner.wave = null;
+  owner.piece = -1;
+  try {
+    speechSynthesis.cancel();
+  } catch {}
+}
+
+/** The talk page in talk mode: what the conversation is doing now, and what can be done. */
+function showTalk() {
+  const owner = talk;
+  const page = $('talk');
+  const ws = state.workspaces.get(owner.ws);
+  const meta = ws?.meta ?? {};
+  page.hidden = owner.away;
+  page.classList.add('conv');
+  page.classList.toggle('still', state.device?.settings?.animation === false);
+  if (!talkRain && !owner.away) talkRain = codeRain($('talk-rain'), { still: talkStill() });
+  const rec = voice?.talk === owner ? voice : null;
+  const stage = owner.stage;
+  page.dataset.phase = stage === 'listen' ? (rec?.phase === 'rec' ? 'rec' : 'text') : stage === 'think' ? 'text' : stage;
+  page.classList.remove('editing');
+  $('talk-edit').hidden = true;
+  $('talk-swipe').replaceChildren();
+  const btn = (label, cls, onclick, icon, more = {}) => h('button', { class: `btn${cls ? ` ${cls}` : ''}`, type: 'button', onclick, ...more }, icon && h('span', { class: 'ico', icon }), label);
+  const changed = (part, key) => owner.keys[part] !== key && ((owner.keys[part] = key), true);
+
+  // At the top: which project, and whether changes are held back (plan mode) or being made.
+  const paused = stage === 'approval';
+  const top = $('talk-top');
+  top.hidden = false;
+  if (changed('top', `${meta.name}|${Boolean(meta.planning)}|${paused}`))
+    top.replaceChildren(
+      h('span', { class: `chip${paused ? ' pause' : ''}` }, h('i', { class: 'dot' }), paused ? 'TALK PAUSED' : `TALK · ${meta.name ?? ''}`),
+      meta.planning ? h('span', { class: 'chip plan' }, h('span', { class: 'ico', icon: 'lock' }), 'Discussing') : h('span', { class: 'chip run' }, h('span', { class: 'ico', icon: 'play' }), 'Running'),
+    );
+  $('talk-bot').classList.toggle('small', stage === 'plan' || stage === 'approval');
+  $('talk-wave').hidden = !(stage === 'listen' || stage === 'speak');
+
+  // While the user speaks: their words, typed out as the previews come back.
+  const text = $('talk-text');
+  text.hidden = stage !== 'listen';
+  if (stage === 'listen') {
+    const said = rec ? joinVoice('', rec.said) : '';
+    $('talk-said').textContent = said;
+    text.classList.toggle('hint', !said);
+    text.classList.toggle('partial', Boolean(said));
+    typeTalk(said ? `> ${said}` : rec?.phase === 'rec' ? '> listening... talk it through' : '');
+  }
+  $('talk-gap').hidden = !(stage === 'listen' && rec?.phase === 'rec');
+  if ($('talk-gap').hidden) $('talk-gap').querySelector('i').style.width = '0%';
+
+  const panel = $('talk-panel');
+  panel.hidden = !['think', 'speak', 'plan', 'approval'].includes(stage);
+  if (stage === 'think') {
+    const doing = meta.tools?.running || (meta.status === 'idle' ? '' : meta.activity) || '';
+    if (changed('panel', `think|${owner.said}|${doing}`))
+      panel.replaceChildren(h('div', { class: 'talk-said' }, h('b', {}, 'You: '), owner.said), doing && h('div', { class: 'talk-step' }, h('i', { class: 'spin' }), doing));
+  } else if (stage === 'speak' || stage === 'plan') {
+    if (changed('panel', `${stage}|${owner.reply}|${owner.piece}`)) {
+      const pieces = owner.pieces.map((p, i) => h('span', { class: i === owner.piece ? 'now' : i < owner.piece ? 'read' : '' }, `${p} `));
+      panel.replaceChildren(
+        stage === 'plan'
+          ? h('div', { class: 'talk-plan' }, h('b', {}, 'Plan ready'), h('ol', {}, ...owner.plan.map((step) => h('li', {}, step))), h('p', { class: 'safe' }, h('span', { class: 'ico', icon: 'lock' }), 'Nothing has been changed. Tap Run to carry it out — saying "go" does not start anything.'))
+          : h('div', { class: 'talk-reply' }, ...pieces),
+      );
+    }
+  } else if (stage === 'approval') {
+    const a = owner.approval;
+    const busy = state.deciding.has(a.id);
+    if (changed('panel', `approval|${a.id}|${busy}`)) {
+      const decide = async (type, fields) => {
+        if (state.deciding.has(a.id)) return;
+        state.deciding.add(a.id);
+        showVoice();
+        if (!(await command(type, { id_approval: a.id, ...fields }))) {
+          state.deciding.delete(a.id);
+          showVoice();
+        }
+      };
+      // The whole request (a diff, a question's choices) is on its own page; Details goes there and back.
+      const details = () => {
+        owner.away = true;
+        showVoice();
+        go({ name: 'review', id: a.id, from: { name: 'session', ws: owner.ws } });
+      };
+      const question = a.kind === 'question';
+      panel.replaceChildren(
+        h(
+          'div',
+          { class: 'talk-card' },
+          h('div', { class: 't' }, h('span', { class: 'ico', icon: 'alert' }), question ? 'SEEKER has a question' : a.title),
+          question ? h('p', {}, a.title) : h('div', { class: a.kind === 'exec' ? 'cmd' : 'cmd plain' }, a.kind === 'exec' ? a.summary : `${a.doing} ${a.summary}`),
+          a.warning && h('div', { class: 'warn' }, '⚠ ', a.warning),
+          h(
+            'div',
+            { class: 'row' },
+            question ? btn('Answer', 'primary', details) : [btn('Reject', 'reject', () => decide('approve', { decision: 'deny' }), null, { disabled: busy }), a.kind === 'write' ? btn('Review change', 'primary', details) : btn(busy ? 'Sending…' : 'Approve', 'primary', () => decide('approve', { decision: 'allow' }), null, { disabled: busy })],
+          ),
+          !question && a.kind !== 'write' && btn('Details', 'quiet', details),
+        ),
+      );
+    }
+  }
+
+  $('talk-state').textContent =
+    stage === 'listen'
+      ? rec?.phase === 'rec'
+        ? owner.note && !owner.heard.spoken ? owner.note : `Listening · ${voiceClock(Date.now() - rec.started)}`
+        : rec
+          ? 'Your Mac is turning it into text…'
+          : owner.note || 'Opening the microphone…'
+      : stage === 'think'
+        ? meta.status === 'idle' ? 'Sending it to your Mac…' : 'Thinking…'
+        : stage === 'speak'
+          ? 'Tap anywhere to interrupt'
+          : stage === 'plan'
+            ? 'Run carries it out. Every change still asks you first.'
+            : stage === 'approval'
+              ? 'The microphone is off until you choose.'
+              : owner.note;
+
+  const pace = stage === 'listen' ? rec?.phase ?? '' : '';
+  if (changed('actions', `${stage}|${pace}|${meta.status}|${Boolean(meta.stopping)}`)) {
+    const done = btn('Done', '', endTalk);
+    $('talk-actions').replaceChildren(
+      ...(stage === 'listen'
+        ? [done, btn('Send now', 'primary', () => stopVoice(false), 'send', { disabled: rec?.phase !== 'rec' })]
+        : stage === 'think'
+          ? [btn('Stop', 'reject', () => command('stop', { ws: owner.ws, turn: meta.turn ?? null }), 'stop', { disabled: meta.status === 'idle' || Boolean(meta.stopping) })]
+          : stage === 'speak'
+            ? [done]
+            : stage === 'plan'
+              ? [btn('Talk more', '', () => talkListen(owner), 'mic'), btn('Run', 'run', () => talkRun(owner), 'play')]
+              : stage === 'approval'
+                ? []
+                : [done, btn('Listen', 'primary', () => talkListen(owner), 'mic')]),
+    );
+  }
+}
+
+// A tap on the page while a reply is read out stops the reading: in a plan it stays on the plan, otherwise it listens.
+$('talk').addEventListener('click', (e) => {
+  if (!talk || e.target.closest('button')) return;
+  if (talk.stage === 'speak') talkListen(talk);
+  else if (talk.stage === 'plan' && talk.reading) {
+    stopSpeaking(talk);
+    showVoice();
+  }
+});
+// iOS takes the microphone away from a page in the background: talk mode ends there, and plan mode is put back.
+document.addEventListener('visibilitychange', () => document.hidden && talk && endTalk());
 
 // A picture pasted into the text box is attached too.
 input.addEventListener('paste', (e) => {
