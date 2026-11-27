@@ -132,11 +132,50 @@ export const voicePrompt = (config) => {
   return [...new Set(words)].join(', ').slice(0, 400);
 };
 
-/** A transcript that is only the prompt said back is the engine filling silence, not what was said. */
-const echoesPrompt = (text, prompt) => {
-  const bare = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-  return Boolean(text) && bare(text) === bare(prompt);
-};
+/**
+ * Below this peak (dBFS) a recording holds no speech: a quiet room through the phone's noise suppression
+ * peaks far lower, and a voice far higher. Whisper given such a recording makes text up rather than
+ * return nothing, so it is not given it.
+ */
+export const SILENT_DB = -45;
+
+/** The loudest point of `file` in dBFS, measured by ffmpeg; null when it cannot be measured. */
+async function peakOf(ffmpeg, file) {
+  try {
+    const { stderr } = await run(ffmpeg, ['-nostdin', '-hide_banner', '-loglevel', 'info', '-i', file, '-af', 'volumedetect', '-f', 'null', os.devNull], 60_000, { both: true });
+    const peak = /max_volume:\s*(-?[\d.]+|-inf)\s*dB/.exec(stderr)?.[1];
+    return peak === undefined ? null : peak === '-inf' ? -Infinity : Number(peak);
+  } catch {
+    return null; // the engine will say what is wrong with the file
+  }
+}
+
+// What whisper writes over silence or noise, learnt from the subtitles it was trained on. Said by someone to
+// SEEKER, none of these is a request; they are taken off the end of a transcript, or make the whole of one.
+const MADE_UP = [
+  'sous-titrage société radio-canada',
+  "sous-titres réalisés par la communauté d'amara\\.org",
+  'thanks? (?:you )?for watching',
+  'terima kasih (?:telah|sudah) menonton',
+];
+const MADE_UP_AT_END = new RegExp(`(^|[.!?…]\\s+)(?:${MADE_UP.join('|')})[.!?…]?$`, 'iu');
+const bare = (t) => String(t ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+
+/**
+ * The transcript without what the engine made up: the phrases above, the prompt said back, a piece of
+ * one of its words ("EKER" from SEEKER, out of a hiss), or a lone "you". '' when nothing real is left.
+ */
+export function withoutMadeUp(text, prompt) {
+  let out = String(text ?? '').trim();
+  for (let before = ''; before !== out; ) {
+    before = out;
+    out = out.replace(MADE_UP_AT_END, '$1').trim();
+  }
+  const said = bare(out);
+  if (!said || said === 'you' || said === bare(prompt)) return '';
+  if (String(prompt).split(',').some((word) => bare(word).includes(said))) return '';
+  return out;
+}
 
 /** whisper.cpp prints each segment on a line of its own; joined, they are the text. */
 export const cleanTranscript = (text) =>
@@ -160,8 +199,7 @@ async function withWhisper(file, setup, config) {
     // Told among which languages to tell: heard as another one, it is done again in the first of them.
     const heard = /auto-detected language: ([a-z]{2,3})\b/.exec(out.stderr)?.[1];
     if (langs.length > 1 && heard && !langs.includes(heard)) out = await pass(langs[0]);
-    const text = cleanTranscript(out.stdout);
-    return echoesPrompt(text, prompt) ? '' : text;
+    return withoutMadeUp(cleanTranscript(out.stdout), prompt);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -184,8 +222,7 @@ async function withCloud(file, setup, engine, config, fetchImpl) {
     } catch {}
     throw new Error(`${engine === 'groq' ? 'Groq' : 'OpenAI'} answered ${res.status}${said ? `: ${said}` : ''}`);
   }
-  const text = cleanTranscript((await res.json())?.text);
-  return echoesPrompt(text, prompt) ? '' : text;
+  return withoutMadeUp(cleanTranscript((await res.json())?.text), prompt);
 }
 
 /**
@@ -196,6 +233,10 @@ async function withCloud(file, setup, engine, config, fetchImpl) {
 export async function transcribe(file, config = {}, { env = process.env, fetchImpl = fetch, modelDirs = MODEL_DIRS } = {}) {
   const setup = chooseEngine(config, { env, modelDirs });
   if (!setup.engine) throw new Error(setup.reason);
+  // A silent recording goes to no engine (a cloud one too, when ffmpeg is here to measure it).
+  const ffmpeg = setup.ffmpeg ?? findProgram('ffmpeg', env.PATH);
+  const peak = ffmpeg ? await peakOf(ffmpeg, file) : null;
+  if (peak !== null && peak < SILENT_DB) throw new Error('Nothing was heard in that voice note.');
   let text;
   try {
     text = setup.engine === 'whisper-cpp' ? await withWhisper(file, setup, config) : await withCloud(file, setup, setup.engine, config, fetchImpl);

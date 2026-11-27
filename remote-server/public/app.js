@@ -4046,7 +4046,7 @@ function showVoice() {
   const btn = (label, cls, onclick, icon, more = {}) => h('button', { class: `btn${cls ? ` ${cls}` : ''}`, type: 'button', onclick, ...more }, icon && h('span', { class: 'ico', icon }), label);
   // At the end: Edit fixes the words right here, the mic adds more to them, Send sends them.
   const add = btn('', 'talk-more', () => startVoice(true), 'mic', { 'aria-label': 'Say more, added after these words' });
-  const send = btn('Send', 'primary', () => useVoice(true), 'send', { id: 'talk-send', disabled: !voice.text?.trim() });
+  const send = btn('Send', 'primary', () => useVoice(true), 'send', { id: 'talk-send', disabled: !voice.text?.trim() || !voiceProject(voice) });
   $('talk-actions').replaceChildren(
     ...(voice.phase === 'rec' ? [btn('Done', 'talk-done', () => stopVoice(false))] : editing ? [add, send] : done ? [btn('Edit', '', editVoice, 'pencil'), add, send] : []),
   );
@@ -4055,10 +4055,16 @@ function showVoice() {
 /** Two pieces of one voice note, the earlier first. */
 const joinVoice = (before, after) => [before, after].map((s) => String(s ?? '').trim()).filter(Boolean).join(' ');
 
+// A voice note's words go only into the box of the project it was said for: Send opens that project when
+// another is on screen, and while it is closed they stay here (to be fixed, copied or swiped away).
+const voiceProject = (mine) => state.workspaces.get(mine?.ws) ?? null;
+const voiceHere = (mine) => state.view.name === 'session' && state.view.ws === mine?.ws;
+
 /** Under the words once they are back: where Send takes them, or that their project is not the one open now. */
 function voiceTo(mine, editing) {
-  const name = state.workspaces.get(mine.ws)?.meta.name ?? 'its project';
-  if (!(state.view.name === 'session' && state.view.ws === mine.ws)) return `This was said for ${name}, which is not open now.`;
+  const name = voiceProject(mine)?.meta.name;
+  if (!name) return 'Said for a project that is closed now, so Send cannot take these words there.';
+  if (!voiceHere(mine)) return `Said for ${name}, which is not open now. Send opens it.`;
   return editing ? `Fix the words, then send to ${name}.` : `Tap the words to fix them. Sends to ${name}.`;
 }
 
@@ -4155,7 +4161,7 @@ function swipeTalk() {
     if (voice?.editing) voice.text = edit.value;
     fitTalkEdit();
     const send = $('talk-send');
-    if (send) send.disabled = !edit.value.trim();
+    if (send) send.disabled = !edit.value.trim() || !voiceProject(voice);
   });
   edit.addEventListener('keydown', (e) => {
     // Return sends (the keyboard says so); Shift+Return is a new line. Escape stops fixing, it does not throw them away.
@@ -4486,29 +4492,38 @@ function voiceArrived(event) {
     return toast('Nothing was heard in that voice note.');
   }
   mine.text = joinVoice(mine.before, text);
-  if (event.send) return useVoice(true);
   mine.phase = 'done';
+  if (event.send && useVoice(true)) return;
   showVoice();
 }
 
-/** Puts the text of a voice note in the box, after what is there, and sends it (`send`) or leaves it to be edited. */
+/**
+ * Puts the text of a voice note in the box, after what is there, and sends it (`send`) or leaves it to be
+ * edited, in the project it was said for (opened first if another is on screen). If that project has been
+ * closed, the words stay on the talk page: they are never thrown away. Returns whether they were used.
+ */
 function useVoice(send) {
   const mine = voice;
   const text = mine?.text?.trim();
-  if (!text || mine.used) return; // a second tap on Send, or Return held down, sends nothing more
+  if (!text || mine.used) return false; // a second tap on Send, or Return held down, sends nothing more
+  if (!voiceProject(mine)) {
+    toast('The project this was said for is closed. The words are kept here.');
+    showVoice();
+    return false;
+  }
   mine.used = true;
   if (send && navigator.vibrate) navigator.vibrate(15); // felt where the phone can (not on an iPhone)
-  const { ws } = mine;
   $('talk-edit').blur();
   endVoice();
-  if (state.view.name !== 'session' || state.view.ws !== ws) return toast('The voice note was for another project, so it was not put in this box.');
+  if (!voiceHere(mine)) go({ name: 'session', ws: mine.ws }); // its own draft comes back, and the words go after it
   const before = input.value.replace(/\s+$/, '');
   input.value = before ? `${before} ${text}` : text;
   grow();
   suggest();
   composerState();
-  if (send && !$('send').disabled) return $('form').requestSubmit();
-  input.focus();
+  if (send && !$('send').disabled) $('form').requestSubmit();
+  else input.focus();
+  return true;
 }
 
 if (canRecord) {

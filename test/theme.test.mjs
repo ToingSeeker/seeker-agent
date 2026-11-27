@@ -114,11 +114,14 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   // Edit fixes the words on the page itself, the mic between adds more after them, Send (with its icon) sends.
   assert.match(show, /editing \? \[add, send\] : done \? \[btn\('Edit', '', editVoice, 'pencil'\), add, send\]/);
   assert.match(show, /btn\('', 'talk-more', \(\) => startVoice\(true\), 'mic'/);
-  assert.match(show, /btn\('Send', 'primary', \(\) => useVoice\(true\), 'send', \{ id: 'talk-send', disabled: !voice\.text\?\.trim\(\) \}\)/);
+  assert.match(show, /btn\('Send', 'primary', \(\) => useVoice\(true\), 'send', \{ id: 'talk-send', disabled: !voice\.text\?\.trim\(\) \|\| !voiceProject\(voice\) \}\)/);
+  assert.match(app, /if \(send\) send\.disabled = !edit\.value\.trim\(\) \|\| !voiceProject\(voice\);/, 'fixing the words keeps Send off for a closed project');
   assert.match(show, /text\.hidden = editing;\s*\$\('talk-edit'\)\.hidden = !editing;/);
   assert.match(show, /: voiceTo\(voice, editing\);/, 'under the words: where Send takes them');
   const to = app.slice(app.indexOf('function voiceTo('), app.indexOf('function editVoice('));
-  assert.match(to, /state\.view\.ws === mine\.ws/, 'says so when the note is for a project that is not open');
+  assert.match(app, /const voiceHere = \(mine\) => state\.view\.name === 'session' && state\.view\.ws === mine\?\.ws;/);
+  assert.match(to, /if \(!name\) return 'Said for a project that is closed now/, 'says so when its project is closed');
+  assert.match(to, /if \(!voiceHere\(mine\)\) return `Said for \$\{name\}, which is not open now\. Send opens it\.`/, 'and when it is not the one open');
   // The box to fix them in: the swipe leaves it alone, Return sends, Escape only stops fixing.
   assert.match(page, /<textarea id="talk-edit" class="talk-edit" rows="3" enterkeyhint="send"[^>]*hidden><\/textarea>/);
   assert.match(css, /\.talk-edit \{[^}]*font: 500 16px/, '16px, so iOS does not zoom in');
@@ -128,7 +131,15 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   assert.match(app, /if \(e\.key === 'Escape' && voice\?\.editing\) \{\s*e\.stopPropagation\(\);/);
   // Send goes once, however often it is tapped.
   const use = app.slice(app.indexOf('function useVoice('), app.indexOf('if (canRecord) {'));
-  assert.match(use, /if \(!text \|\| mine\.used\) return;[^\n]*\n\s*mine\.used = true;/);
+  assert.match(use, /if \(!text \|\| mine\.used\) return false;/);
+  // The words are never thrown away: a closed project keeps them on the page (checked before anything is
+  // ended), and another project on screen is opened first so they land in their own box.
+  assert.match(use, /if \(!voiceProject\(mine\)\) \{\s*toast\([^)]*\);\s*showVoice\(\);\s*return false;\s*\}\s*mine\.used = true;/);
+  assert.ok(use.indexOf('if (!voiceProject(mine))') < use.indexOf('endVoice();'), 'checked before the note is ended');
+  assert.match(use, /endVoice\(\);\s*if \(!voiceHere\(mine\)\) go\(\{ name: 'session', ws: mine\.ws \}\);/);
+  assert.match(use, /return true;\s*\}\s*$/);
+  // Sent at once (voiceAutoSend): it is a finished note first, so one that cannot be sent stays to be seen.
+  assert.match(app, /mine\.phase = 'done';\s*if \(event\.send && useVoice\(true\)\) return;\s*showVoice\(\);/);
   // Adding more: what was said stays in front, and a recording that comes to nothing keeps it.
   const start = app.slice(app.indexOf('async function startVoice('), app.indexOf('function previewVoice('));
   assert.match(start, /const prev = more && voice\?\.phase === 'done' \? voice : null;/);
@@ -164,7 +175,7 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   const arrived = app.slice(app.indexOf('function voiceArrived('), app.indexOf('function useVoice('));
   const previewBranch = arrived.slice(arrived.indexOf('if (mine.preview?.req === event.req)'), arrived.indexOf('if (mine.req !== event.req) return;'));
   assert.ok(previewBranch.includes('mine.said = said') && !previewBranch.includes('useVoice') && !previewBranch.includes('input.value'), 'a preview only updates the page');
-  assert.match(arrived, /if \(event\.send\) return useVoice\(true\);/, 'voiceAutoSend still sends the final text');
+  assert.match(arrived, /if \(event\.send && useVoice\(true\)\) return;/, 'voiceAutoSend still sends the final text');
   // A quiet upload leaves the progress bar and toasts alone, so a preview never disturbs a real upload.
   const upload = app.slice(app.indexOf('async function uploadFiles('), app.indexOf('function showAttachments('));
   assert.match(upload, /if \(!quiet\) \{\s*uploading = null;/);
