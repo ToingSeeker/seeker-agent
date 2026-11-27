@@ -41,6 +41,7 @@
             <input id="anyfile" type="file" multiple hidden />
             <span class="grow extra"></span>
             <span id="tokens" class="tokens extra" aria-label="Context used"></span>
+            <button id="talkmode" class="tool-btn talk-btn" type="button" aria-label="Talk it through: a spoken conversation, nothing is changed until you tap Run" title="Talk mode" hidden></button>
             <button id="mic" class="send mic" type="button" aria-label="Record a voice note" title="Voice note" hidden></button>
             <button id="stop" class="stop-btn" type="button" aria-label="Stop current execution" title="Stop current execution" hidden></button>
             <button id="send" class="send" type="submit" aria-label="Send instruction" title="Send"></button>
@@ -54,10 +55,15 @@
          said shows under it, while it is spoken (previews from the Mac) and once it is done, to be checked. -->
     <div id="talk" class="talk" role="dialog" aria-modal="true" aria-label="Voice note" hidden>
       <canvas id="talk-rain" class="talk-rain" aria-hidden="true"></canvas>
+      <!-- Talk mode (talk in app.js): the project and whether plan mode holds changes back, at the top. -->
+      <div id="talk-top" class="talk-top" hidden></div>
       <div id="talk-bot" class="talk-bot" aria-hidden="true"></div>
       <canvas id="talk-wave" class="talk-wave" aria-hidden="true"></canvas>
       <p id="talk-text" class="talk-text"><span id="talk-said" class="sr-only" aria-live="polite"></span><span class="talk-typed" aria-hidden="true"></span><span class="talk-cur" aria-hidden="true">_</span></p>
       <textarea id="talk-edit" class="talk-edit" rows="3" enterkeyhint="send" aria-label="Fix the words of the voice note" hidden></textarea>
+      <!-- Talk mode: the reply being read out, the plan to run, or an approval waiting. -->
+      <div id="talk-panel" class="talk-panel" hidden></div>
+      <div id="talk-gap" class="talk-gap" hidden aria-hidden="true"><div class="lbl"><span>pause</span><span>sends by itself</span></div><div class="track"><i></i></div></div>
       <div id="talk-state" class="talk-state"></div>
       <div id="talk-actions" class="talk-actions"></div>
       <div id="talk-swipe" class="talk-swipe" aria-hidden="true"></div>

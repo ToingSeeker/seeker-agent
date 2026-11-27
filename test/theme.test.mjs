@@ -96,7 +96,7 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   // The page sits outside the app, robot over wave over text, with its buttons last; the old strip is gone.
   const page = html.slice(html.indexOf('<div id="talk"'), html.indexOf('<div id="toast"'));
   assert.match(page, /role="dialog" aria-modal="true"/);
-  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-rain', 'talk-bot', 'talk-wave', 'talk-text', 'talk-said', 'talk-edit', 'talk-state', 'talk-actions', 'talk-swipe']);
+  assert.deepEqual([...page.matchAll(/id="(talk-[a-z]+)"/g)].map((m) => m[1]), ['talk-rain', 'talk-top', 'talk-bot', 'talk-wave', 'talk-text', 'talk-said', 'talk-edit', 'talk-panel', 'talk-gap', 'talk-state', 'talk-actions', 'talk-swipe']);
   assert.match(page, /<canvas id="talk-wave"/);
   // The words are typed out for the eyes; a screen reader hears them whole, once.
   assert.match(page, /<span id="talk-said" class="sr-only" aria-live="polite"><\/span><span class="talk-typed" aria-hidden="true"><\/span><span class="talk-cur" aria-hidden="true">_<\/span>/);
@@ -143,7 +143,7 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   // Adding more: what was said stays in front, and a recording that comes to nothing keeps it.
   const start = app.slice(app.indexOf('async function startVoice('), app.indexOf('function previewVoice('));
   assert.match(start, /const prev = more && voice\?\.phase === 'done' \? voice : null;/);
-  assert.match(start, /if \(voice !== prev \|\| prev\?\.used\) \{\s*stream\.getTracks\(\)\.forEach\(\(t\) => t\.stop\(\)\);/, 'a mic opened for a note that is gone is closed again');
+  assert.match(start, /if \(voice !== prev \|\| prev\?\.used \|\| \(owner && \(talk !== owner \|\| owner\.stage !== 'listen'\)\)\) \{\s*stream\.getTracks\(\)\.forEach\(\(t\) => t\.stop\(\)\);/, 'a mic opened for a note (or a talk) that is gone is closed again');
   assert.match(app, /mine\.text = joinVoice\(mine\.before, text\);/);
   const fail = app.slice(app.indexOf('function failVoice('), app.indexOf('async function sendVoice('));
   assert.match(fail, /if \(!mine\.before\) return endVoice\(\);/);
@@ -163,7 +163,7 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   assert.match(swipe, /e\.type === 'pointerup' && voice === mine/, 'a cancelled touch or a newer note is never thrown away');
   assert.match(swipe, /text\.scrollHeight > text\.clientHeight\) return;/);
   assert.match(swipe, /e\.stopPropagation\(\), e\.preventDefault\(\)/);
-  assert.match(swipe, /e\.key === 'Escape' && voice && !page\.hidden && cancelVoice\(\)/);
+  assert.match(swipe, /e\.key === 'Escape' && !page\.hidden && \(talk \? endTalk\(\) : voice && cancelVoice\(\)\)/, 'Escape throws a voice note away, or ends talk mode');
   assert.match(app, /\$\('talk-bot'\)\.innerHTML = ICONS\.logo;\s*swipeTalk\(\);/);
   assert.match(css, /\.talk \{[^}]*touch-action: none;/);
   assert.match(css, /\.talk-text\.scrolls \{\s*touch-action: pan-y;/);
@@ -194,7 +194,7 @@ test('a voice note opens the talk page: robot, wave, and the words under it, che
   assert.match(css, /\.talk-rain \{[^}]*z-index: -1;/);
   // The wave keeps drifting while the page is open, and stops for good when the note ends or motion is off.
   const wave = app.slice(app.indexOf('function drawWave('), app.indexOf('function endVoice('));
-  assert.match(wave, /if \(voice !== mine\) return;/);
+  assert.match(wave, /if \(voice !== mine && talk\?\.wave !== mine\) return;/);
   assert.match(wave, /if \(!talkStill\(\)\) mine\.frame = requestAnimationFrame/);
 });
 
@@ -204,7 +204,7 @@ test('+ offers everything that goes into a message, including files of any kind'
   const form = html.slice(html.indexOf('<form id="form"'), html.indexOf('</form>'));
   // One + on the bar; the picture and @ buttons, and the separate commands button, live in its sheet now.
   // The mic beside Send records a voice note (it stays hidden where the browser cannot record).
-  assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'mic', 'stop', 'send']);
+  assert.deepEqual([...form.matchAll(/<button id="([^"]+)"/g)].map((m) => m[1]), ['add', 'talkmode', 'mic', 'stop', 'send']);
   // A PDF or a ZIP can be picked: the "Files" picker takes every kind, and the camera takes a picture.
   assert.match(form, /<input id="anyfile" type="file" multiple hidden \/>/);
   // On iOS it is narrowed to public.data, so Files opens the file browser and not the Photo Library menu.

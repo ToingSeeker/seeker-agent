@@ -124,6 +124,27 @@ Icelandic) is done again in the first. `voiceWords` lists words it should spell 
 asks for microphone permission the first time; on an iPhone the app must be opened from the Home Screen
 or Safari over HTTPS.
 
+### Talk mode
+
+The speech-bubble button beside the mic starts a spoken conversation, for talking a project through
+before anything is done. SEEKER listens; when you pause for a little over a second what you said is sent
+by itself, the reply is read out by the phone's own voice (Indonesian or English, by the reply), and it
+listens again. Tap the page to cut a reply short; **Done** ends it.
+
+It is safe to think out loud:
+
+- Starting talk mode turns plan mode on in that project. The agent may read files and run commands that
+  only read; anything that changes something is refused, not asked about.
+- What you say is never run as a command: "slash plan go", heard as `/plan go`, reaches the model as words.
+- When you want to go ahead, the agent gives the plan as a numbered list and the page shows it with
+  **Run**. Only that tap carries the plan out, and every edit and command after it still asks for your
+  approval. While one waits the talk pauses and the microphone is off; it is answered by a tap (a file
+  change opens its diff first), never by voice.
+- Each new turn of the talk starts as a discussion again, and **Done** puts plan mode back as it was.
+
+Replies in talk mode are kept short and plain, without code blocks; the whole reply is in the
+conversation as usual. Talk mode needs the app open: a phone that locks or leaves the app ends it.
+
 ### Videos and other whole files
 
 The same button takes a video too, and `/file` sends any file as it is. A video or file is not shown to

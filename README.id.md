@@ -493,6 +493,29 @@ harus dieja benar, dipisah koma (nama proyek, nama tool); SEEKER selalu termasuk
 Saat pertama dipakai, mic meminta izin mikrofon; di iPhone aplikasinya harus dibuka dari Home Screen atau
 Safari lewat HTTPS.
 
+### Mode ngobrol
+
+Tombol gelembung chat di samping mic memulai percakapan lewat suara, untuk membahas project dulu sebelum
+ada yang dikerjakan. SEEKER mendengarkan; kalau kamu jeda sedikit lebih dari sedetik, ucapanmu terkirim
+sendiri, balasannya dibacakan dengan suara bawaan HP (bahasa Indonesia atau Inggris, mengikuti balasannya),
+lalu SEEKER mendengarkan lagi. Ketuk halamannya untuk memotong balasan; **Done** mengakhiri.
+
+Aman untuk berpikir sambil bicara:
+
+- Mode ngobrol menyalakan plan mode di project itu. Agen boleh membaca file dan menjalankan perintah yang
+  hanya membaca; apa pun yang mengubah sesuatu ditolak, bukan ditanyakan.
+- Ucapanmu tidak pernah dijalankan sebagai perintah: "slash plan go" yang terdengar sebagai `/plan go`
+  sampai ke model sebagai kata-kata biasa.
+- Kalau kamu mau lanjut, agen memberi rencana berupa daftar bernomor, dan halamannya menampilkan tombol
+  **Run**. Hanya ketukan itu yang menjalankan rencana, dan setiap edit dan perintah sesudahnya tetap minta
+  persetujuanmu. Selama persetujuan ditunggu, obrolan dijeda dan mikrofon mati; jawabannya lewat ketukan
+  (perubahan file menampilkan diff-nya dulu), tidak pernah lewat suara.
+- Setiap giliran baru dimulai sebagai diskusi lagi, dan **Done** mengembalikan plan mode seperti semula.
+
+Balasan di mode ngobrol dibuat pendek dan polos, tanpa blok kode; balasan lengkapnya tetap ada di
+percakapan seperti biasa. Mode ngobrol butuh aplikasinya terbuka: HP yang terkunci atau keluar dari
+aplikasi mengakhirinya.
+
 ### Video dan file utuh lainnya
 
 Tombol yang sama juga bisa melampirkan video, dan `/file` mengirim file apa pun apa adanya. Video atau

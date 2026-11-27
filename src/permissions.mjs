@@ -129,6 +129,13 @@ export const LOOKING = 'Not run: you are a helper that may only look. Read, sear
 export const PLAN_NOTE = '[Plan mode is on. Look at what you need with the read-only tools, then answer with a plan: the steps in order, the files each one touches, and how the result will be checked. Do not change files or run commands that change anything; those are refused until the user approves the plan.]';
 
 /**
+ * Talk mode on the phone: the user speaks, the reply is read out to them. While it is on with plan mode, the
+ * conversation is a discussion: the model may look, and nothing is changed until the user taps Run on the phone.
+ */
+export const TALK_NOTE = '[Talk mode: the user is speaking to you from their phone and your reply is read out to them. Answer the way a colleague talks: short, plain sentences, no markdown, no tables, no code blocks; name a file or command only when it matters. If something is unclear, ask one question back. Their words come from speech recognition, so read past small mishearings.]';
+export const TALK_PLAN_NOTE = '[Plan mode is on during this talk: discuss the project with the user. You may look with the read-only tools; changing files or running commands that change anything is refused. Do not write a plan for every reply. When the user wants to go ahead, give the plan as a short numbered list (1. 2. 3.) and tell them to tap Run on their phone to carry it out — saying "go" or "run it" out loud does not start anything.]';
+
+/**
  * True when `command` would stop the `seeker remote` process with process id `pid`: killing it by name or
  * number, or killing every node or seeker process. An agent there runs inside that process.
  */
