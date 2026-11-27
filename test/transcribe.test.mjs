@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { chooseEngine, cleanTranscript, findWhisperModel, languagesOf, transcribe, voicePrompt, withoutMadeUp } from '../src/transcribe.mjs';
+import { chooseEngine, cleanTranscript, cutPoints, findWhisperModel, PIECE_S, languagesOf, transcribe, voicePrompt, withoutMadeUp } from '../src/transcribe.mjs';
 import { SETTINGS } from '../src/config.mjs';
 
 const scratch = () => fs.mkdtempSync(path.join(os.tmpdir(), 'seeker-voice-test-'));
@@ -210,6 +210,47 @@ test('voice: a recording with no voice in it goes to no engine, and is said to h
     const fetchImpl = async () => (asked++, new Response(JSON.stringify({ text: 'x' })));
     await assert.rejects(transcribe(audio, { voiceEngine: 'groq', providers: { groq: { apiKey: 'gsk_test', baseUrl: 'http://127.0.0.1:9' } } }, { env: cloud.env, fetchImpl }), /Nothing was heard/);
     assert.equal(asked, 0);
+  });
+});
+
+test('voice: a long note is cut at its pauses into pieces whisper hears whole, a short one is not cut', () => {
+  assert.deepEqual(cutPoints(20, [[5, 6]]), [], 'short enough already');
+  assert.deepEqual(cutPoints(25, []), []);
+  // At the middle of the latest pause that keeps each piece within 25 s.
+  assert.deepEqual(cutPoints(53, [[4.6, 5.4], [21.9, 22.7], [26.5, 27.3], [46.7, 47.5], [50.9, 51.6]]), [22.3, 47.1]);
+  // No pause to cut at: cut at 25 s all the same.
+  assert.deepEqual(cutPoints(60, []), [25, 50]);
+  // A pause that would leave a piece of a few seconds (at the start, or right after a cut) is not used.
+  assert.deepEqual(cutPoints(40, [[1, 2]]), [25]);
+  assert.deepEqual(cutPoints(60, [[24, 25], [26, 27]]), [24.5, 49.5]);
+  assert.equal(PIECE_S < 30, true, 'whisper hears 30 s at a time');
+});
+
+test('voice: the pieces of a long note go to one whisper-cli, in order, and their text is joined', async () => {
+  await withoutCloudKeys(async () => {
+    const tools = fakeTools({ peak: '-3.0' });
+    // An ffmpeg that measures a 53-second note with pauses, and cuts it into three pieces when asked.
+    fs.writeFileSync(
+      path.join(tools.bin, 'ffmpeg'),
+      `#!/bin/sh\necho "ffmpeg $*" >> "${tools.log}"\nfor a; do last="$a"; done\n` +
+        `case "$*" in\n` +
+        `  *volumedetect*) echo "max_volume: -3.0 dB" >&2;;\n` +
+        `  *silencedetect*) printf '  Duration: 00:00:53.00, bitrate: 256 kb/s\\nsilence_start: 21.9\\nsilence_end: 22.7 | silence_duration: 0.8\\nsilence_start: 46.7\\nsilence_end: 47.5 | silence_duration: 0.8\\nsilence_start: 52.4\\n' >&2;;\n` +
+        `  *segment*) d=$(dirname "$last"); for n in 000 001 002; do : > "$d/piece-$n.wav"; done;;\n` +
+        `  *) : > "$last";;\n` +
+        `esac\n`,
+      { mode: 0o755 },
+    );
+    fs.writeFileSync(path.join(tools.bin, 'whisper-cli'), `#!/bin/sh\necho "whisper $*" >> "${tools.log}"\nfor a; do case "$a" in *piece-000*) printf ' Satu. Dua.\\n';; *piece-001*) printf '\\n Tiga.\\n';; *piece-002*) printf '\\n Empat.\\n';; esac; done\n`, { mode: 0o755 });
+    const audio = path.join(scratch(), 'v.m4a');
+    fs.writeFileSync(audio, 'x');
+    assert.equal((await transcribe(audio, { voiceLanguage: 'id' }, { env: tools.env, modelDirs: [models()] })).text, 'Satu. Dua. Tiga. Empat.');
+    const calls = fs.readFileSync(tools.log, 'utf8');
+    // Pauses are what is under -35 dB (or 30 dB under the loudest point of a quieter note).
+    assert.match(calls, /ffmpeg -nostdin -hide_banner -i .*voice\.wav -af silencedetect=noise=-35dB:d=0\.3 -f null/);
+    assert.match(calls, /-f segment -segment_times 22\.3,47\.1 -c copy .*piece-%03d\.wav/);
+    assert.match(calls, /^whisper -m \S+ -f \S+piece-000\.wav -f \S+piece-001\.wav -f \S+piece-002\.wav -l id -nt --prompt SEEKER$/m);
+    assert.equal(calls.match(/^whisper /gm).length, 1, 'the model is loaded once for all the pieces');
   });
 });
 
