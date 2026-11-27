@@ -1011,6 +1011,42 @@ button.row:active {
   width: 18px;
   height: 18px;
 }
+/* Settings → Voice: a voice to pick, with Try beside it (two buttons, so one row cannot be a button). */
+.voice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  border-top: 1px solid var(--sk-border-subtle);
+}
+.voice-pick {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 4px;
+  text-align: left;
+}
+.voice-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-row.on .voice-name {
+  color: var(--sk-primary);
+}
+.voice-row .tick {
+  width: 16px;
+  height: 16px;
+}
+.btn.voice-try {
+  width: auto;
+  min-height: 36px;
+  padding: 0 12px;
+  flex: none;
+}
 @media (max-width: 350px) {
   .s-row .top {
     flex-wrap: wrap;

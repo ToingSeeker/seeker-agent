@@ -23,6 +23,7 @@ import { ANSI } from './text.mjs';
 import { CHUNK_BYTES, FILE_ID, INBOX, MAX_TRANSFER_BYTES, announcedFiles, cardFacts, filesNamed, listedFiles, receiveFile, savePicture, sendFile } from './transfer.mjs';
 import { crewMeta } from './crew.mjs';
 import { MAX_VOICE_BYTES, transcribe } from './transcribe.mjs';
+import { AZURE_VOICES, MAX_SPEECH_CHARS, azureSpeech, isAzureVoice, parseRegion, synthesize } from './speech.mjs';
 import { contextSize, gitInfo, tildify } from './ui.mjs';
 import { usageSummary } from './usage.mjs';
 import { createVapidKeys, sendPush } from './webpush.mjs';
@@ -854,7 +855,7 @@ export class RemoteDaemon {
    * @param {(cwd: string, ui: WebUI, asker: Function) => Promise<{ agent, session }>} opts.build
    * @param {(line: string) => void} [opts.log]
    */
-  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, transcriber = transcribe, respawn = respawnDaemon, conversationsFile = remember ? path.join(HOME_DIR, 'remote-conversations.json') : null }) {
+  constructor({ config, folders, build, info = null, log = () => {}, remember = true, push = {}, link = remember ? LINK_FILE : null, queueFile = remember ? path.join(HOME_DIR, 'queue.json') : null, inbox = INBOX, transcriber = transcribe, speaker = synthesize, respawn = respawnDaemon, conversationsFile = remember ? path.join(HOME_DIR, 'remote-conversations.json') : null }) {
     // Which saved conversation each project opened from the phone holds, so a restart continues it: folder → file.
     this.conversationsFile = conversationsFile;
     this.conversations = {};
@@ -866,6 +867,7 @@ export class RemoteDaemon {
     this.restarting = false;
     this.inbox = inbox; // where files sent from the phone are saved
     this.transcriber = transcriber; // voice note → text (src/transcribe.mjs; replaced in tests)
+    this.speaker = speaker; // text → speech in an Azure voice, for talk mode (src/speech.mjs; replaced in tests)
     // Instructions waiting for a project's current task to end: workspace id → { cwd, items, paused }.
     // Kept on disk, so they outlive this process; what was waiting when it last ended comes back paused.
     this.queueFile = queueFile;
@@ -1123,7 +1125,10 @@ export class RemoteDaemon {
     const { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, numCtx } = this.config;
     const def = this.#activeDef();
     const ollama = def?.kind === 'ollama';
-    return { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, ollama, context: ollama ? numCtx : (this.config.providers?.[def?.id]?.contextWindow ?? null) };
+    // Cloud voices for talk mode: whether a key is there (never the key) and the region, with the voices offered.
+    const azure = azureSpeech(this.config);
+    const speech = { azure: azure.status, region: azure.region, voices: AZURE_VOICES };
+    return { think, showThinking, animation, permissionMode, maxSteps, keepAlive, host, ollama, context: ollama ? numCtx : (this.config.providers?.[def?.id]?.contextWindow ?? null), speech };
   }
 
   /** Updates one provider's entry; on disk too unless this daemon was told not to remember. */
@@ -1430,6 +1435,47 @@ export class RemoteDaemon {
   }
 
   /**
+   * Speaks a piece of a reply in the Azure voice the phone picked, for talk mode or to try a voice. The sound
+   * goes up sealed as a blob (beside the log, never in it) and the phone is told where; only the phone that
+   * asked waits for that request id. Nothing is said on the Mac and nothing reaches the conversation.
+   */
+  async #speak(command) {
+    const req = String(command.req ?? '');
+    if (!FILE_ID.test(req)) return;
+    const reply = (fields) => this.send({ t: 'speech', req, ...fields });
+    const text = typeof command.text === 'string' ? command.text : '';
+    if (!text.trim() || text.length > MAX_SPEECH_CHARS) return reply({ error: `A piece to speak must be 1 to ${MAX_SPEECH_CHARS} characters.` });
+    if (!isAzureVoice(command.voice)) return reply({ error: 'That is not an Azure voice name.' });
+    let sound;
+    try {
+      sound = await this.speaker(text, command.voice, this.config);
+    } catch (err) {
+      return reply({ error: err.message });
+    }
+    const res = await fetch(`${this.url}/agent/blob`, {
+      method: 'POST',
+      headers: this.#headers(),
+      body: JSON.stringify({ id: req, c: seal(this.keys.key, { mime: sound.mime, data: sound.data.toString('base64') }) }),
+      signal: AbortSignal.timeout(30_000),
+    }).catch((err) => ({ ok: false, status: err.cause?.code ?? err.message }));
+    if (!res.ok) return reply({ error: `The sound could not be sent (${res.status}).` });
+    return reply({ bytes: sound.data.length });
+  }
+
+  /** Stores the Azure Speech key (and region) typed on the phone. The key is never sent back or logged. */
+  #setSpeechKey(rawKey, rawRegion) {
+    const key = typeof rawKey === 'string' ? rawKey.trim() : '';
+    const region = parseRegion(rawRegion);
+    if (key && (key.length < 16 || key.length > 200 || /[^\x21-\x7e]/.test(key))) throw new Error('That does not look like an Azure Speech key.');
+    if (!region) throw new Error('Not a valid Azure region; it is written like southeastasia or eastus.');
+    const patch = { azureSpeechRegion: region, ...(key ? { azureSpeechKey: key } : {}) };
+    if (!key && !this.config.azureSpeechKey) throw new Error('Enter the key of your Azure Speech resource.');
+    Object.assign(this.config, patch);
+    if (this.remember) saveConfig(patch);
+    this.log(`Azure Speech ${key ? 'key and ' : ''}region (${region}) set from the phone`);
+  }
+
+  /**
    * Sends the phone a file an answer offered. The phone names the answer and the file's place in its
    * list, never a path: only what an answer in this transcript named can be downloaded.
    */
@@ -1563,6 +1609,13 @@ export class RemoteDaemon {
           return void this.#download(command, workspace).catch((err) => this.log(`download: ${err.message}`));
         case 'transcribe':
           return void this.#transcribe(command).catch((err) => this.log(`voice note: ${err.message}`));
+        case 'speak':
+          return void this.#speak(command).catch((err) => this.log(`speech: ${err.message}`));
+        case 'speech_key': {
+          this.#setSpeechKey(command.key, command.region);
+          this.send(this.snapshot(), { snapshot: true });
+          return this.send({ t: 'toast', text: 'Azure Speech saved on your Mac.' });
+        }
         case 'talk': {
           // A terminal session answers for itself; talk mode is for a conversation held from the phone.
           if (!own(workspace)) return this.send({ t: 'toast', text: 'Talk mode works in a project opened from the phone.' });

@@ -128,6 +128,31 @@ export function pickVoice(voices, lang) {
 }
 
 /**
+ * The reading voice picked in Settings, as kept on the phone: 'auto' (the device's own, by the reply's
+ * language), 'device:<voiceURI>' (one of the device's voices) or 'azure:<voice name>' (spoken on the Mac).
+ */
+export function voiceChoice(raw) {
+  const text = String(raw ?? '');
+  const m = /^(device|azure):(.{1,200})$/s.exec(text);
+  if (!m) return { kind: 'auto', id: '' };
+  if (m[1] === 'azure' && !/^[a-z]{2,3}-[A-Z]{2,4}-[A-Za-z0-9]{2,60}Neural$/.test(m[2])) return { kind: 'auto', id: '' };
+  return { kind: m[1], id: m[2] };
+}
+
+// Apple's novelty voices (sound effects and robots, on iPhone and Mac alike): no one wants a reply read in them.
+const NOVELTY = new Set(['Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 'Good News', 'Jester', 'Organ', 'Superstar', 'Trinoids', 'Whisper', 'Wobble', 'Zarvox', 'Junior', 'Ralph', 'Fred', 'Kathy']);
+
+/** The device's voices worth offering for replies: Indonesian ones first, then English, each by name, no repeats. */
+export function offeredVoices(voices) {
+  const base = (v) => String(v.lang ?? '').replace('_', '-').toLowerCase().split('-')[0];
+  const rank = { id: 0, en: 1 };
+  const seen = new Set();
+  return [...voices]
+    .filter((v) => base(v) in rank && !NOVELTY.has(v.name) && v.voiceURI && !seen.has(v.voiceURI) && seen.add(v.voiceURI))
+    .sort((a, b) => rank[base(a)] - rank[base(b)] || String(a.name).localeCompare(String(b.name)));
+}
+
+/**
  * The steps of a plan in a reply, when it gives one as a numbered list (1. 2. 3.) of at least two steps — what
  * the model is asked to do when the user wants to go ahead. An empty list when the reply holds no plan.
  */

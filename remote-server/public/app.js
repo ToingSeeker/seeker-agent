@@ -14,7 +14,7 @@ import { MODEL_SLOTS, PRICES_AS_OF, RANGES, approx, chargedPart, charged, compac
 import { filterLabel, filterTools, toolFilters as filtersFor } from './tools.js';
 import { codeRain, gatePlan, openGate } from './jackin.js';
 import { MOODS, SUCCESS_FOR, Steady, badgeCount, mood as moodOf } from './robot.js';
-import { EndOfSpeech, latestReply, pickVoice, planIn, sentences, speakable, speechLang } from './converse.js';
+import { EndOfSpeech, latestReply, offeredVoices, pickVoice, planIn, sentences, speakable, speechLang, voiceChoice } from './converse.js';
 import { CHARACTERS, CHARACTER_SETTING, CHOICES, FACES, PROJECT_CHARACTERS, characterLabel, characterSettingFor, drawCharacter, pickCharacter, readProjectCharacters } from './characters.js';
 import { cardPicture, fileKind, filesSummary, folderOf, listZip, pdfPages, plainName, playTime, previewKind, splitName, splitSent, typeName } from './files.js';
 import { clearKept, forget, kept, keptList, keptSize, store as keepFile } from './keep.js';
@@ -407,6 +407,9 @@ function apply(event) {
       break;
     case 'transcript':
       voiceArrived(event);
+      break;
+    case 'speech':
+      speechArrived(event);
       break;
     case 'choose':
       // The Mac answers a skill that has a list to pick from with that list. Only the phone that is
@@ -2981,6 +2984,7 @@ function settings() {
       return h('div', { class: 'group' }, row('cube', state.device?.model ?? first?.model ?? '—', null, { sub: [detail, note].filter(Boolean).join(' · '), onclick: up ? () => chooseModel() : null }));
     })(),
     ...agentSettings(up, toggle),
+    ...voiceSettings(up),
     section('AGENT CHARACTER'),
     h('div', { class: 'group' }, row('logo', 'Live Agent character', characterChoiceLabel(characterSetting), { sub: 'Kept on this phone. Auto picks a character by the session’s model.', onclick: chooseCharacter })),
     section('NOTIFICATIONS'),
@@ -4755,34 +4759,231 @@ function talkWatch() {
   }
 }
 
+// ── the reading voice (Settings → Voice) ──
+// Kept on this phone: 'auto' (the device's own voice for the reply's language), one of the device's voices,
+// or an Azure voice. An Azure voice is spoken on the Mac with the key kept there (src/speech.mjs); the sound
+// comes back sealed, as a blob beside the log, and is played with Web Audio — an AudioContext made in a tap
+// may play sound later on iOS, where an <audio> started outside a tap would stay silent.
+const SPEECH_VOICE = 'seeker.speech.voice';
+const SPEECH_WAIT_MS = 25_000;
+let speechChoice = voiceChoice(stored(SPEECH_VOICE, 'auto'));
+const speeches = new Map(); // req → { resolve, reject, timer }: a piece of speech asked of the Mac
+let tryCtx = null; // the AudioContext that plays a voice tried in Settings
+let tryNode = null; // what is playing there now
+
+/** The device voice to read `lang` with: the one picked in Settings if it is on this phone, else the device's own. */
+function deviceVoice(lang) {
+  const voices = speechSynthesis.getVoices();
+  if (speechChoice.kind === 'device') {
+    const picked = voices.find((v) => v.voiceURI === speechChoice.id);
+    if (picked) return picked;
+  }
+  return pickVoice(voices, lang);
+}
+
+/** Asks the Mac to speak `text` in the Azure voice `voice`. Resolves with the MP3's bytes. */
+function fetchSpeech(text, voice) {
+  return new Promise((resolve, reject) => {
+    const req = transferId();
+    const timer = setTimeout(() => speeches.delete(req) && reject(new Error('Your Mac did not send the voice in time.')), SPEECH_WAIT_MS);
+    speeches.set(req, { resolve, reject, timer });
+    command('speak', { req, text, voice }, { quiet: true }).then((sent) => sent || (clearTimeout(timer), speeches.delete(req), reject(new Error('Your Mac is not connected.'))));
+  });
+}
+
+async function speechArrived(event) {
+  const wait = speeches.get(event.req);
+  if (!wait) return; // asked for by another phone, or replayed from the log
+  clearTimeout(wait.timer);
+  speeches.delete(event.req);
+  if (event.error) return wait.reject(new Error(event.error));
+  try {
+    const res = await fetch(`/api/blob?id=${encodeURIComponent(event.req)}`, { headers: { authorization: `Bearer ${state.token}` } });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+    const sound = await unseal((await res.json()).c);
+    if (sound.mime !== 'audio/mpeg' || typeof sound.data !== 'string') throw new Error('That is not a sound.');
+    wait.resolve(fromBase64(sound.data));
+  } catch (err) {
+    wait.reject(new Error(`The voice did not arrive (${err.message}).`));
+  }
+}
+
+/**
+ * Plays MP3 bytes in `ctx`; `holder.source` is what plays, so it can be stopped. Resolves true once played to
+ * the end, false when stopped before.
+ */
+async function playSound(ctx, bytes, holder) {
+  if (!ctx) throw new Error('This phone cannot play the sound.');
+  if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+  const buffer = await ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  return new Promise((resolve) => {
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    let stopped = false;
+    source.stop = ((stop) => () => {
+      stopped = true;
+      try {
+        stop();
+      } catch {}
+    })(source.stop.bind(source));
+    source.onended = () => {
+      if (holder.source === source) holder.source = null;
+      resolve(!stopped);
+    };
+    holder.source = source;
+    source.start();
+  });
+}
+
+const VOICE_SAMPLE = { id: 'Halo, saya SEEKER. Begini suara saya saat membacakan jawaban untukmu.', en: 'Hi, I am SEEKER. This is how I sound when I read a reply to you.' };
+const sampleFor = (lang) => (String(lang).toLowerCase().startsWith('en') ? VOICE_SAMPLE.en : VOICE_SAMPLE.id);
+
+/** What the reading voice row says. */
+function speechLabel() {
+  if (speechChoice.kind === 'azure') return (state.device?.settings?.speech?.voices ?? []).find((v) => v.id === speechChoice.id)?.name ?? speechChoice.id;
+  if (speechChoice.kind === 'device') return speechSynthesis.getVoices().find((v) => v.voiceURI === speechChoice.id)?.name ?? 'Phone voice';
+  return 'Automatic';
+}
+
+/** Settings → Voice: which voice reads replies in talk mode, and the Azure key kept on the Mac. */
+function voiceSettings(up) {
+  if (!canTalk) return [];
+  const speech = state.device?.settings?.speech; // absent when the Mac runs a SEEKER from before cloud voices
+  const azure = { env: 'In the Mac’s environment', set: `Key set${speech?.region ? ` · ${speech.region}` : ''}`, none: 'Not set up' }[speech?.azure] ?? null;
+  return [
+    section('VOICE'),
+    h(
+      'div',
+      { class: 'group' },
+      row('speaker', 'Reading voice', speechLabel(), { sub: 'How talk mode reads replies. Kept on this phone; tap to hear each one.', onclick: chooseSpeechVoice }),
+      speech && row('key', 'Azure Speech', azure, { tone: speech.azure === 'none' ? '' : 'success', sub: 'For the cloud voices: the key stays on your Mac', onclick: up ? enterSpeechKey : null }),
+    ),
+  ];
+}
+
+function setSpeechChoice(raw) {
+  store(SPEECH_VOICE, raw);
+  speechChoice = voiceChoice(raw);
+}
+
+/** The voices to pick from: automatic, the phone's own (Indonesian and English), and Azure's. Each can be tried. */
+function chooseSpeechVoice() {
+  const speech = state.device?.settings?.speech;
+  const current = speechChoice.kind === 'auto' ? 'auto' : `${speechChoice.kind}:${speechChoice.id}`;
+  const option = (value, label, sub, trial) =>
+    h(
+      'div',
+      { class: `voice-row${current === value ? ' on' : ''}` },
+      h('button', { type: 'button', class: 'voice-pick', 'aria-pressed': String(current === value), onclick: () => (closeSheet(), setSpeechChoice(value), render(true)) }, h('span', { class: 'voice-name' }, label, current === value && h('span', { class: 'tick', icon: 'check' })), sub && h('span', { class: 'muted small' }, sub)),
+      trial && h('button', { type: 'button', class: 'btn quiet voice-try', 'aria-label': `Hear ${label}`, onclick: trial }, h('span', { class: 'ico', icon: 'play' }), 'Try'),
+    );
+  const phone = offeredVoices(speechSynthesis.getVoices());
+  if (!phone.length) speechSynthesis.addEventListener('voiceschanged', () => !$('sheet').hidden && $('sheet').querySelector('.voice-row') && chooseSpeechVoice(), { once: true });
+  const cloud = speech?.voices ?? [];
+  sheet(
+    'Reading voice',
+    h('div', { class: 'muted small pad' }, 'Kept on this phone. Cloud voices are spoken by Azure through your Mac: each reply goes to Azure, and takes a moment longer to start.'),
+    option('auto', 'Automatic', 'The phone’s own voice for the reply’s language'),
+    h('h4', { class: 'mascot-heading' }, 'On this phone'),
+    phone.length ? phone.map((v) => option(`device:${v.voiceURI}`, v.name, `${v.lang}${v.localService ? '' : ' · online'}`, () => tryDeviceVoice(v))) : h('div', { class: 'muted small pad' }, 'The phone has not listed its voices yet.'),
+    speech && h('h4', { class: 'mascot-heading' }, 'Azure (cloud)'),
+    speech && speech.azure === 'none' && h('button', { type: 'button', class: 'row-btn', onclick: enterSpeechKey }, 'Add your Azure Speech key to use these', h('div', { class: 'muted small' }, 'Tap to set it up')),
+    speech && cloud.map((v) => option(`azure:${v.id}`, v.name, `${v.lang} · ${v.gender === 'male' ? 'male' : 'female'}`, () => tryAzureVoice(v))),
+    !speech && h('div', { class: 'muted small pad' }, 'Update SEEKER on your Mac and send /restart to get cloud voices.'),
+  );
+}
+
+function stopTrying() {
+  try {
+    speechSynthesis.cancel();
+  } catch {}
+  tryNode?.source?.stop?.();
+}
+
+function tryDeviceVoice(v) {
+  stopTrying();
+  const u = new SpeechSynthesisUtterance(sampleFor(v.lang));
+  u.voice = v;
+  u.lang = v.lang;
+  speechSynthesis.speak(u);
+}
+
+/** Plays a sample in an Azure voice. The AudioContext is made here, inside the tap, so iOS lets it play. */
+function tryAzureVoice(v) {
+  const speech = state.device?.settings?.speech;
+  if (speech?.azure === 'none') return enterSpeechKey();
+  if (!(state.linked && state.online)) return toast('Your Mac is not connected.');
+  stopTrying();
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    tryCtx ??= Ctx ? new Ctx() : null;
+    tryCtx?.resume?.().catch(() => {});
+  } catch {}
+  const holder = (tryNode = {});
+  toast(`Asking your Mac for ${v.name}…`);
+  fetchSpeech(sampleFor(v.lang), v.id)
+    .then((bytes) => tryNode === holder && playSound(tryCtx, bytes, holder))
+    .catch((err) => toast(err.message));
+}
+
+/** The Azure Speech key and region, typed here and kept on the Mac. The key is never shown again. */
+function enterSpeechKey() {
+  const speech = state.device?.settings?.speech;
+  const key = h('input', { class: 'field', type: 'password', placeholder: speech?.azure === 'none' ? 'Key 1 of your Speech resource' : 'New key (empty keeps the one set)', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+  const region = h('input', { class: 'field', type: 'text', placeholder: 'Region, such as southeastasia', value: speech?.region ?? '', autocomplete: 'off', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' });
+  const save = (e) => {
+    e.preventDefault();
+    if (!key.value.trim() && speech?.azure === 'none') return key.focus();
+    if (!region.value.trim()) return region.focus();
+    closeSheet();
+    command('speech_key', { key: key.value.trim(), region: region.value.trim() });
+  };
+  sheet(
+    'Azure Speech',
+    h('form', { onsubmit: save }, key, region, h('div', { class: 'actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save on the Mac'))),
+    h('div', { class: 'muted small pad' }, 'In the Azure portal: your Speech resource → Keys and Endpoint. Copy Key 1 and the Location/Region. The key travels to your Mac encrypted and is stored there.'),
+    speech?.azure === 'env' && h('div', { class: 'muted small pad' }, 'Your Mac already has AZURE_SPEECH_KEY in its environment, and that one is used first.'),
+  );
+}
+
 /** Says a short line in the phone's voice, outside a reply (that an approval waits). */
 function say(text, lang) {
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
-    const v = pickVoice(speechSynthesis.getVoices(), lang);
+    const v = deviceVoice(lang);
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch {}
 }
 
-/** Reads the reply out a sentence or so at a time, lighting the one being read; then listens again (or waits on a plan). */
+/**
+ * Reads the reply out a sentence or so at a time, lighting the one being read; then listens again (or waits on
+ * a plan). In the phone's voice, or in the Azure voice picked in Settings: each piece is spoken on the Mac and
+ * played here, the next one asked for while this one plays. If the cloud voice fails, the rest is read in the
+ * phone's voice and the user is told once why.
+ */
 function speakReply(owner) {
   stopSpeaking(owner);
   owner.stage = owner.plan.length ? 'plan' : 'speak';
   owner.pieces = sentences(speakable(owner.reply));
   owner.piece = -1;
   owner.wave = { phase: 'speak', levels: [], level: 0 };
-  const reading = (owner.reading = {});
+  const reading = (owner.reading = { sounds: [], cloud: speechChoice.kind === 'azure' ? speechChoice.id : null });
   const lang = speechLang(owner.reply);
-  const chosen = pickVoice(speechSynthesis.getVoices(), lang);
-  const next = () => {
-    clearTimeout(owner.pieceTimer);
-    if (talk !== owner || owner.reading !== reading) return;
-    owner.piece += 1;
-    if (owner.piece >= owner.pieces.length) return readOut(owner);
-    const text = owner.pieces[owner.piece];
+  const chosen = deviceVoice(lang);
+  const current = () => talk === owner && owner.reading === reading;
+  const sound = (n) => {
+    if (!reading.cloud || n >= owner.pieces.length) return null;
+    if (!reading.sounds[n]) {
+      reading.sounds[n] = fetchSpeech(owner.pieces[n], reading.cloud);
+      reading.sounds[n].catch(() => {}); // asked for ahead of time: a failure counts only when it is its turn
+    }
+    return reading.sounds[n];
+  };
+  const onDevice = (text) => {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
     if (chosen) u.voice = chosen;
@@ -4794,8 +4995,32 @@ function speakReply(owner) {
     } catch {
       return next();
     }
-    showVoice();
   };
+  function next() {
+    clearTimeout(owner.pieceTimer);
+    owner.source?.stop?.();
+    owner.source = null;
+    if (!current()) return;
+    owner.piece += 1;
+    if (owner.piece >= owner.pieces.length) return readOut(owner);
+    const n = owner.piece;
+    const text = owner.pieces[n];
+    showVoice();
+    if (!reading.cloud) return onDevice(text);
+    sound(n + 1);
+    // Waits for the sound (a few seconds at most) and then for it to be played; a stuck piece is moved past.
+    owner.pieceTimer = setTimeout(next, 30_000 + text.length * TALK_PIECE_MS);
+    sound(n)
+      .then((bytes) => current() && owner.piece === n && playSound(owner.ctx, bytes, owner))
+      .then((played) => played && current() && owner.piece === n && next())
+      .catch((err) => {
+        if (!current() || owner.piece !== n) return;
+        clearTimeout(owner.pieceTimer);
+        reading.cloud = null;
+        toast(`Azure voice: ${err.message} Reading in the phone’s voice.`);
+        onDevice(text);
+      });
+  }
   showVoice();
   drawWave(owner.wave);
   next();
@@ -4811,6 +5036,10 @@ function readOut(owner) {
 function stopSpeaking(owner) {
   clearTimeout(owner.pieceTimer);
   owner.reading = null;
+  try {
+    owner.source?.stop?.();
+  } catch {}
+  owner.source = null;
   if (owner.wave) cancelAnimationFrame(owner.wave.frame);
   owner.wave = null;
   owner.piece = -1;

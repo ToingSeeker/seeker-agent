@@ -4,6 +4,12 @@ What changed in SEEKER, newest first. Versions follow the number in `package.jso
 
 ## Unreleased
 
+- **Talk mode: pick the voice that reads replies, and Azure cloud voices.** Settings → Voice on the phone lists the
+  phone's own Indonesian and English voices and Azure AI Speech voices (Ardi, a male Indonesian voice, Gadis, and
+  multilingual ones), each with Try. An Azure voice is spoken by the Mac with the key kept there (set from the phone
+  or `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION`); the sound comes back sealed through the relay. If Azure fails the
+  rest of the reply is read in the phone's voice.
+
 - **Mods: SEEKER can be changed with JavaScript of your own.** A folder in `~/.seeker/mods/` with a `mod.mjs` can add a slash
   command, a segment in a new row under the status bar, a panel above the input box, toasts, and handlers on the
   events shell hooks see (a `pre_tool_call` handler can stop a call or change its arguments). None runs until it is
