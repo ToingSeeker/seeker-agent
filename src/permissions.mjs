@@ -7,8 +7,10 @@
 // commands, files outside the working folder and secrets; 'full' (--full-access) asks about nothing.
 // Refusals are not approvals and hold in every mode: SEEKER's own key files, stopping `seeker remote`
 // from inside it, and anything plan mode or a look-only helper may not do.
+import fs from 'node:fs';
 import path from 'node:path';
 import { secretInCommand, secretKind } from './secrets.mjs';
+import { MOCKUPS } from './transfer.mjs';
 
 // Asked about even in --yolo mode: these are hard to undo.
 const DANGEROUS = [
@@ -126,7 +128,35 @@ export const PLANNING = 'Not run: plan mode is on, so nothing is changed or exec
 export const LOOKING = 'Not run: you are a helper that may only look. Read, search and run commands that only read; report what you found instead of changing it.';
 
 /** What the model is told with each message while plan mode is on. */
-export const PLAN_NOTE = '[Plan mode is on. Look at what you need with the read-only tools, then answer with a plan: the steps in order, the files each one touches, and how the result will be checked. Do not change files or run commands that change anything; those are refused until the user approves the plan.]';
+export const PLAN_NOTE = '[Plan mode is on. Look at what you need with the read-only tools, then answer with a plan: the steps in order, the files each one touches, and how the result will be checked. Do not change files or run commands that change anything; those are refused until the user approves the plan. One exception: a visual mockup or sketch (an HTML page, an SVG, a picture) may be written into ~/Downloads/SEEKER/mockups/, outside the project, for the user to look at.]';
+
+/**
+ * Where `file` really is, links followed: the deepest part of it that exists is resolved and the rest added on,
+ * so a file not written yet is judged by the folder it would go in.
+ */
+function realPath(file) {
+  let existing = path.resolve(file);
+  const rest = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(path.basename(existing));
+    existing = parent;
+  }
+  try {
+    return path.join(fs.realpathSync(existing), ...rest);
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `file` lands inside the folder `dir`, links followed (a link in it must not lead out). */
+function landsIn(dir, file) {
+  const [real, root] = [realPath(file), realPath(dir)];
+  if (!real || !root) return false;
+  const rel = path.relative(root, real);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
 
 /**
  * Talk mode on the phone: the user speaks, the reply is read out to them. While it is on with plan mode, the
@@ -158,8 +188,10 @@ export class Permissions {
    * @param {{ mode: 'ask'|'auto'|'full', cwd: string, ask: null | ((q: object) => Promise<string|null>) }} opts
    *        `ask` is null when nobody is there to answer (print mode).
    */
-  constructor({ mode, cwd, ask, autoLearn = false, daemonPid = null }) {
+  constructor({ mode, cwd, ask, autoLearn = false, daemonPid = null, mockups = MOCKUPS }) {
     this.mode = mode;
+    // The folder plan mode may write mockups into (see PLAN_NOTE).
+    this.mockups = mockups;
     // Set when this agent runs inside `seeker remote`: a command that would stop that process is refused, whatever the mode.
     this.daemonPid = daemonPid;
     // Whether memory and skills may be saved without asking (config `autoLearn`).
@@ -223,6 +255,15 @@ export class Permissions {
     if (tool.risk === 'read') return secret && this.mode !== 'full' ? this.#confirm(tool, args, secretWarning, null) : { ok: true };
     if (tool.risk === 'exec' && this.daemonPid && stopsDaemon(args?.command, this.daemonPid)) return { ok: false, reason: STOPS_DAEMON };
     const refusal = this.planning ? PLANNING : this.lookOnly;
+    // A mockup to look at is part of planning: it goes in SEEKER's own folder outside the project, and
+    // nothing there is run. Only a plain write qualifies, not a look-only helper's, and not a secret file.
+    if (this.planning && !this.lookOnly && tool.risk === 'write' && !secret && this.mockups) {
+      let file = null;
+      try {
+        file = tool.targetPath?.(args ?? {}, cwd) ?? null;
+      } catch {}
+      if (file && landsIn(this.mockups, file)) return { ok: true };
+    }
     if (refusal) {
       // Looking around is part of planning: the short list of commands that only read still runs.
       // A page to read is asked about as usual. Anything that changes something waits for the plan.

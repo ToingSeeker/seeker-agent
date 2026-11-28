@@ -269,7 +269,10 @@ command is a best effort; `/sandbox on` is what stops a command from reading SEE
 
 **Plan mode.** `/plan` (or `seeker --plan`) has SEEKER look first and answer with a plan: the steps, the files
 each touches, how the result will be checked. Reading, searching and the harmless shell commands still run;
-edits, other commands and saving memory are refused without asking you, also with `--yolo`. `/plan go`
+edits, other commands and saving memory are refused without asking you, also with `--yolo`. The one
+exception is a visual mockup (an HTML page, an SVG, a picture): it may be written into
+`~/Downloads/SEEKER/mockups/`, outside the project. Files sent from the phone can be read with every
+model, the Claude Code engine included. `/plan go`
 approves the plan and starts the work under your usual approval rules; `/plan off` leaves plan mode. The
 status bar shows `PLAN` while it is on. It works from the phone as well.
 

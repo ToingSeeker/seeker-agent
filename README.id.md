@@ -66,7 +66,9 @@ file key SEEKER adalah `/sandbox on`.
 **Mode rencana.** `/plan` (atau `seeker --plan`) membuat SEEKER melihat dulu lalu menjawab dengan rencana: langkahnya,
 file yang disentuh tiap langkah, dan cara memeriksa hasilnya. Membaca, mencari, dan perintah shell yang tidak
 mengubah apa pun tetap jalan; edit, perintah lain, dan penyimpanan memori ditolak tanpa bertanya, juga dengan
-`--yolo`. `/plan go` menyetujui rencana dan memulai pekerjaan dengan aturan izin yang biasa; `/plan off` keluar
+`--yolo`. Satu pengecualian: mockup visual (halaman HTML, SVG, gambar) boleh ditulis ke
+`~/Downloads/SEEKER/mockups/`, di luar project. File yang dikirim dari HP bisa dibaca dengan model apa pun,
+termasuk mesin Claude Code. `/plan go` menyetujui rencana dan memulai pekerjaan dengan aturan izin yang biasa; `/plan off` keluar
 dari mode rencana. Status bar menampilkan `PLAN` selama aktif. Berlaku juga dari HP.
 Ketik `/` untuk daftar perintah dan skill: ↑↓ berpindah di dalamnya, Tab melengkapi yang disorot, Enter
 menjalankannya, Esc menutup daftar. Mengetik mempersempit daftar (`/rev` juga menemukan `/code-review`). Alt+Enter

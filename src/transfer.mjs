@@ -25,6 +25,8 @@ export const TRANSFER_TYPES = {
 };
 
 export const INBOX = path.join(os.homedir(), 'Downloads', 'SEEKER');
+/** The one place plan mode may write: mockups and sketches to look at, never the project itself. */
+export const MOCKUPS = path.join(INBOX, 'mockups');
 
 const aad = (id, n) => Buffer.from(`seeker-chunk-v1:${id}:${n}`);
 
