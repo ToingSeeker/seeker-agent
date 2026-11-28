@@ -355,7 +355,9 @@ test('Claude Code provider: input stays open while a background command runs, so
 
 test('Claude Code tools are described for display and classified for approval', async () => {
   const { describeExternal } = await import('../src/external-tools.mjs');
-  assert.equal(describeExternal('Read', { file_path: 'a.js' }).risk, undefined, 'reading needs no approval');
+  assert.equal(describeExternal('Read', { file_path: 'a.js' }).risk, 'read', 'reading is judged as a read');
+  assert.equal(describeExternal('Glob', { pattern: '*.js', path: '/x' }).risk, 'read');
+  assert.equal(describeExternal('Grep', { pattern: 'x' }).risk, 'read');
   assert.equal(describeExternal('Read', { file_path: 'a.js' }).note('1\n2\n'), '2 lines');
   const edit = describeExternal('Edit', { file_path: 'a.js', old_string: 'x\ny', new_string: 'z' });
   assert.deepEqual([edit.risk, edit.path, edit.diff.removed, edit.diff.added], ['write', 'a.js', ['x', 'y'], ['z']]);

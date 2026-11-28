@@ -61,7 +61,7 @@ const TODO_MARK = { pending: '☐', in_progress: '◐', completed: '☑' };
 /**
  * @returns {{
  *   verbs: [string, string], summary: string,
- *   risk?: 'write'|'exec'|'net'|'other',   absent = safe to show without asking
+ *   risk?: 'read'|'write'|'exec'|'net'|'other',   absent = safe to show without asking
  *   path?: string, command?: string, url?: string,
  *   diff?: object,                          what a write is about to change
  *   note?: (output: string) => string,      short remark once it has finished
@@ -83,7 +83,9 @@ export function describeExternal(name, input = {}, cwd = '') {
 function describe(name, input) {
   switch (name) {
     case 'Read':
-      return { verbs: ['Reading', 'Read'], summary: input.file_path ?? '', path: input.file_path, note: (out) => count(out, 'line') };
+      // Looking is judged as a read, like SEEKER's own read_file: Claude Code asks about a file outside the
+      // project (a file sent from the phone sits in ~/Downloads/SEEKER), and plan mode must let that through.
+      return { verbs: ['Reading', 'Read'], summary: input.file_path ?? '', risk: 'read', path: input.file_path, note: (out) => count(out, 'line') };
     case 'Edit':
       return {
         verbs: ['Editing', 'Edited'],
@@ -122,9 +124,9 @@ function describe(name, input) {
         displayLines: 4,
       };
     case 'Glob':
-      return { verbs: ['Finding', 'Found'], summary: input.pattern ?? '', note: (out) => count(out, 'file') };
+      return { verbs: ['Finding', 'Found'], summary: input.pattern ?? '', risk: 'read', path: input.path, note: (out) => count(out, 'file') };
     case 'Grep':
-      return { verbs: ['Searching for', 'Searched for'], summary: `"${input.pattern ?? ''}"${input.glob ? ` in ${input.glob}` : ''}`, path: input.path, note: (out) => count(out, 'line') };
+      return { verbs: ['Searching for', 'Searched for'], summary: `"${input.pattern ?? ''}"${input.glob ? ` in ${input.glob}` : ''}`, risk: 'read', path: input.path, note: (out) => count(out, 'line') };
     case 'WebFetch':
       return { verbs: ['Fetching', 'Fetched'], summary: input.url ?? '', risk: 'net', url: input.url };
     case 'WebSearch':

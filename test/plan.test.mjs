@@ -101,3 +101,57 @@ test('plan mode: the model is told with each message, its changes are refused, a
   assert.equal(requests.at(-2).messages.at(-1).content, 'The plan is approved. Carry it out now.', 'no plan note once it is approved');
   assert.equal(fs.readFileSync(path.join(cwd, 'a.txt'), 'utf8'), 'two\n');
 });
+
+test('plan mode: a mockup may be written into the mockups folder, and nowhere else', async () => {
+  const cwd = tmp();
+  const mockups = path.join(tmp(), 'mockups');
+  const asked = [];
+  for (const mode of ['ask', 'auto', 'full']) {
+    const permissions = new Permissions({ mode, cwd, ask: async (q) => (asked.push(q.tool.name), 'y'), mockups });
+    permissions.planning = true;
+    // The folder need not exist yet; a file in a folder inside it is fine too.
+    assert.deepEqual(await permissions.check(tool('write_file'), { path: path.join(mockups, 'home.html'), content: '<p>x</p>' }), { ok: true }, mode);
+    assert.deepEqual(await permissions.check(tool('write_file'), { path: path.join(mockups, 'v2', 'card.svg'), content: '<svg/>' }), { ok: true }, mode);
+    fs.mkdirSync(mockups, { recursive: true });
+    fs.writeFileSync(path.join(mockups, 'home.html'), '<p>x</p>');
+    assert.deepEqual(await permissions.check(tool('edit_file'), { path: path.join(mockups, 'home.html'), old_string: 'x', new_string: 'y' }), { ok: true }, mode);
+    // Everything else is still refused: the project, a way out of the folder, the folder itself, commands.
+    for (const args of [{ path: 'a.html', content: 'x' }, { path: path.join(mockups, '..', 'escape.html'), content: 'x' }, { path: mockups, content: 'x' }]) {
+      assert.deepEqual(await permissions.check(tool('write_file'), args), { ok: false, reason: PLANNING }, `${mode}: ${args.path}`);
+    }
+    assert.deepEqual(await permissions.check(tool('bash'), { command: `open ${path.join(mockups, 'home.html')}` }), { ok: false, reason: PLANNING });
+  }
+  assert.deepEqual(asked, [], 'a mockup is written without asking');
+
+  // A link inside the folder that leads into the project does not let a write through.
+  fs.symlinkSync(cwd, path.join(mockups, 'project'));
+  const permissions = new Permissions({ mode: 'full', cwd, ask: null, mockups });
+  permissions.planning = true;
+  assert.deepEqual(await permissions.check(tool('write_file'), { path: path.join(mockups, 'project', 'a.js'), content: 'x' }), { ok: false, reason: PLANNING });
+  // A look-only helper gets no such exception, and outside plan mode the usual rules apply.
+  permissions.lookOnly = 'look only';
+  assert.equal((await permissions.check(tool('write_file'), { path: path.join(mockups, 'b.html'), content: 'x' })).ok, false);
+  permissions.lookOnly = null;
+  const plain = new Permissions({ mode: 'ask', cwd, ask: async (q) => (asked.push(q.warning), 'n'), mockups });
+  assert.equal((await plain.check(tool('write_file'), { path: path.join(mockups, 'c.html'), content: 'x' })).ok, false);
+  assert.match(String(asked.at(-1)), /outside the working folder/);
+});
+
+test('plan mode: Claude Code may read a file the phone sent, outside the project', async () => {
+  const { describeExternal } = await import('../src/external-tools.mjs');
+  const cwd = tmp();
+  const sent = path.join(tmp(), 'brief.md');
+  fs.writeFileSync(sent, '# brief\n');
+  const permissions = new Permissions({ mode: 'ask', cwd, ask: null });
+  permissions.planning = true;
+  // As the agent judges a Claude Code tool it is asked about (agent.mjs #askExternal).
+  const judge = (name, input) => {
+    const about = describeExternal(name, input, cwd);
+    const target = path.resolve(cwd, about.path ?? '.');
+    return permissions.check({ name, risk: about.risk ?? 'other', targetPath: () => target }, {}, { cwd });
+  };
+  assert.deepEqual(await judge('Read', { file_path: sent }), { ok: true });
+  assert.deepEqual(await judge('Grep', { pattern: 'brief', path: path.dirname(sent) }), { ok: true });
+  assert.deepEqual(await judge('Glob', { pattern: '*.md', path: path.dirname(sent) }), { ok: true });
+  assert.deepEqual(await judge('Write', { file_path: path.join(cwd, 'a.js'), content: 'x' }), { ok: false, reason: PLANNING });
+});
